@@ -98,7 +98,7 @@ def parse_args():
     base_options = parser.add_argument_group('Base options')
     #/home/yifan/Documents/metavision/recordings/recording_2024-12-09_15-44-35.raw"
     base_options.add_argument(
-        '-i', '--input-event-file', dest='event_file_path', default="/home/xinchi/event camera recordings/recording_2024-12-09_15-44-35.raw",
+        '-i', '--input-event-file', dest='event_file_path', default="/home/xinchi/programs/event camera recordings/recording_2024-12-09_15-44-35.raw",
         help="Path to input event file (RAW or HDF5). If not specified, the camera live stream is used. "
              "If it's a camera serial number, it will try to open that camera instead.")
     base_options.add_argument('--process-from', dest='process_from', type=int, default=0,
@@ -107,7 +107,7 @@ def parse_args():
                               help='End time to process events (in us).')
 
     parser.add_argument('--update-frequency', dest='update_frequency', type=float,
-                        default=200., help="Tracker's update frequency, in Hz.")
+                        default=100., help="Tracker's update frequency, in Hz.")
     parser.add_argument('-a', '--acc-time', dest='accumulation_time_us', type=int, default=1000,
                         help='Duration of the time slice to store in the rolling event buffer at each tracking step')
 
@@ -254,6 +254,7 @@ def main():
 
     # Tracking Algorithm
     tracking_config = TrackingConfig()  # Default configuration
+
     tracking_algo = TrackingAlgorithm(sensor_width=width, sensor_height=height, tracking_config=tracking_config)
     tracking_algo.min_size = args.min_size
     tracking_algo.max_size = args.max_size

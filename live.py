@@ -224,8 +224,160 @@ def model(event_queue, flir_queue, stop_event):
             # end_t = time.time()
             # print("fps:",1/(end_t - start_time))
 
-def pure_event_tracking()
+def pure_event_tracking(ROI_queue, event_queue):
 
+
+    from metavision_core.event_io import EventsIterator
+    from metavision_core.event_io import LiveReplayEventsIterator, is_live_camera
+    from metavision_sdk_analytics import TrackingAlgorithm, TrackingConfig, draw_tracking_results
+    from metavision_sdk_core import BaseFrameGenerationAlgorithm, RollingEventBufferConfig, RollingEventCDBuffer
+    from metavision_sdk_cv import ActivityNoiseFilterAlgorithm, TrailFilterAlgorithm
+    from metavision_sdk_ui import EventLoop, BaseWindow, MTWindow, UIAction, UIKeyEvent
+    # Event tracker SDK args
+    # This need to be carefully tuned to set good parameters
+    # Some parameters that related to the events iterator should be modified in the read_from_event
+    def parse_args():
+        import argparse
+        """Parse command line arguments."""
+        parser = argparse.ArgumentParser(description='Generic Tracking sample.',
+                                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+        # Base options
+        base_options = parser.add_argument_group('Base options')
+        # /home/yifan/Documents/metavision/recordings/recording_2024-12-09_15-44-35.raw"
+        base_options.add_argument(
+            '-i', '--input-event-file', dest='event_file_path',
+            default="/home/xinchi/programs/event camera recordings/recording_2024-12-09_15-44-35.raw",
+            help="Path to input event file (RAW or HDF5). If not specified, the camera live stream is used. "
+                 "If it's a camera serial number, it will try to open that camera instead.")
+        base_options.add_argument('--process-from', dest='process_from', type=int, default=0,
+                                  help='Start time to process events (in us).')
+        base_options.add_argument('--process-to', dest='process_to', type=int, default=None,
+                                  help='End time to process events (in us).')
+
+        parser.add_argument('--update-frequency', dest='update_frequency', type=float,
+                            default=100., help="Tracker's update frequency, in Hz.")
+        parser.add_argument('-a', '--acc-time', dest='accumulation_time_us', type=int, default=1000,
+                            help='Duration of the time slice to store in the rolling event buffer at each tracking step')
+
+        # Min/Max size options
+        minmax_size_options = parser.add_argument_group('Min/Max size options')
+        minmax_size_options.add_argument('--min-size', dest='min_size', type=int,
+                                         default=30, help='Minimal size of an object to track (in pixels).')
+        minmax_size_options.add_argument('--max-size', dest='max_size', type=int,
+                                         default=100, help='Maximal size of an object to track (in pixels).')
+
+        # Filtering options
+        filter_options = parser.add_argument_group('Filtering options')
+        filter_options.add_argument(
+            '--activity-time-ths', dest='activity_time_ths', type=int, default=100,
+            help='Length of the time window for activity filtering (in us, disabled if equal to 0).')
+        filter_options.add_argument('--activity-trail-ths', dest='activity_trail_ths', type=int, default=1000,
+                                    help='Length of the time window for trail filtering (in us, disabled if equal to 0).')
+
+        # Outcome Options
+        outcome_options = parser.add_argument_group('Outcome options')
+        outcome_options.add_argument(
+            '-o', '--out-video', dest='out_video', type=str, default="",
+            help="Path to an output AVI file to save the resulting video. A frame is generated every time the tracking callback is called.")
+
+        # Replay Option
+        replay_options = parser.add_argument_group('Replay options')
+        replay_options.add_argument(
+            '-f', '--replay_factor', type=float, default=1,
+            help="Replay Factor. If greater than 1.0 we replay with slow-motion, otherwise this is a speed-up over real-time.")
+        # print(parser)
+        args = parser.parse_args()
+
+        if args.process_to and args.process_from > args.process_to:
+            print(f"The processing time interval is not valid. [{args.process_from,}, {args.process_to}]")
+            exit(1)
+        # print(args)
+        return args
+
+    args = parse_args()
+    buffer_config = RollingEventBufferConfig.make_n_us(args.accumulation_time_us)
+    rolling_buffer = RollingEventCDBuffer(buffer_config)
+    # [GENERIC_TRACKING_CREATE_ROLLING_BUFFER_END]
+
+    # [GENERIC_TRACKING_CREATE_ITERATOR_BEGIN]
+    # Events iterator on Camera or event file
+    # delta_t = int(1000000 / args.update_frequency)
+    # mv_iterator = EventsIterator(input_path=args.event_file_path, start_ts=args.process_from,
+    #                              max_duration=args.process_to - args.process_from if args.process_to else None,
+    #                              delta_t=delta_t, mode="delta_t")
+    # # [GENERIC_TRACKING_CREATE_ITERATOR_END]
+    #
+    # if args.replay_factor > 0 and not is_live_camera(args.event_file_path):
+    #     mv_iterator = LiveReplayEventsIterator(mv_iterator, replay_factor=args.replay_factor)
+    # height, width = mv_iterator.get_size()  # Camera Geometry
+
+
+    width = 1080
+    height = 1440
+    # Noise + Trail filter that will be applied to events
+    activity_noise_filter = ActivityNoiseFilterAlgorithm(width, height, args.activity_time_ths)
+    trail_filter = TrailFilterAlgorithm(width, height, args.activity_trail_ths)
+
+    # Tracking Algorithm
+    tracking_config = TrackingConfig()  # Default configuration
+
+    tracking_algo = TrackingAlgorithm(sensor_width=width, sensor_height=height, tracking_config=tracking_config)
+    tracking_algo.min_size = args.min_size
+    tracking_algo.max_size = args.max_size
+
+    output_img = np.zeros((height, width, 3), np.uint8)
+
+    events_buf = ActivityNoiseFilterAlgorithm.get_empty_output_buffer()
+    tracking_results = tracking_algo.get_empty_output_buffer()
+
+    while not stop_event.is_set():
+        # start_time = time.time()
+        try:
+            evs= event_queue.get(timeout=0.1)
+            EventLoop.poll_and_dispatch()
+            # Process events
+            if args.activity_time_ths > 0:
+                activity_noise_filter.process_events(evs, events_buf)
+                if args.activity_trail_ths > 0:
+                    trail_filter.process_events_(events_buf)
+
+                rolling_buffer.insert_events(evs)
+                tracking_algo.process_events(rolling_buffer, tracking_results)
+                BaseFrameGenerationAlgorithm.generate_frame(rolling_buffer, output_img)
+                if len(tracking_results.numpy()) > 0:
+                    print(tracking_results.numpy())
+            elif args.activity_trail_ths > 0:
+                trail_filter.process_events(evs, events_buf)
+
+                rolling_buffer.insert_events(evs)
+                tracking_algo.process_events(rolling_buffer, tracking_results)
+                BaseFrameGenerationAlgorithm.generate_frame(rolling_buffer, output_img)
+                if len(tracking_results.numpy()) > 0:
+                    print(tracking_results.numpy())
+            else:
+                rolling_buffer.insert_events(evs)
+                tracking_algo.process_events(rolling_buffer, tracking_results)
+                BaseFrameGenerationAlgorithm.generate_frame(rolling_buffer, output_img)
+                if len(tracking_results.numpy()) > 0:
+                    print(tracking_results.numpy())
+        except Exception as e:
+            print(f"No Object")
+            continue
+
+def landing_prediction(ball_memory,odometry=None):
+    from parabola_fitter import ParabolaFitter
+    parabola_fitter = ParabolaFitter(camera_rpy_to=[0, 45, -90], camera_rpy_back=[45, 0, 90],
+                                     min_data_samples=30)
+    params = parabola_fitter.mono_fitter(ball_memory, odometry=odometry)
+    x_0, y_0, z_0, vx, vy, vz = params
+
+    impact_t = -x_0 / vx
+    impact_point = parabola_fitter.parabola_model_time(params, impact_t)
+    print(impact_point)
+    pass
+def robot_control(landing_queue):
+    pass
 def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
@@ -240,6 +392,10 @@ if __name__ == '__main__':
     # Shared objects
     event_queue = Queue(maxsize=5)
     flir_queue = Queue(maxsize=5)
+    ROI_queue = Queue(maxsize=5)
+    landing_queue = Queue(maxsize=5)
+    odom_queue = Queue(maxsize=5)
+
 
     stop_event = multiprocessing.Event()
 
