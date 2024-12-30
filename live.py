@@ -73,7 +73,7 @@ def read_from_event(event_queue, stop_event):
             if event_queue.full():
                 event_queue.get()  # Remove the oldest item
             event_data = next(event_iterator)
-            event_queue.put(event_data, timeout=0.1)
+            event_queue.put(event_data, timeout=0.01)
         except Exception as e:
             print(f"Error in read_from_event: {e}")
             continue
@@ -215,7 +215,7 @@ def model(event_queue, flir_queue, stop_event):
                 bbox=out['target_bbox']
 
                 state = [int(s) for s in bbox]
-
+                ROI_queue.put(state,timeout=0.01)
                 cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
 
             # Display the image
@@ -294,6 +294,12 @@ def pure_event_tracking(ROI_queue, event_queue):
             exit(1)
         # print(args)
         return args
+    def ROI_filter(evs,ROI,outer_range=50):
+        x,y,w,h = ROI
+        evs_x,evs_y=evs
+        if x-outer_range<evs_x < x+w+outer_range and y-outer_range<evs_y< y+h+outer_range:
+            return True
+        return
 
     args = parse_args()
     buffer_config = RollingEventBufferConfig.make_n_us(args.accumulation_time_us)
@@ -335,6 +341,9 @@ def pure_event_tracking(ROI_queue, event_queue):
         # start_time = time.time()
         try:
             evs= event_queue.get(timeout=0.1)
+            ROI= ROI_queue.get(timeout=0.1)
+            if ROI_filter(evs,ROI)==False:
+                continue
             EventLoop.poll_and_dispatch()
             # Process events
             if args.activity_time_ths > 0:

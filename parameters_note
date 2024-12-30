@@ -1,0 +1,33 @@
+Hardware Settings
+    Ball color
+        lower_green = np.array([30, 40, 50])
+        upper_green = np.array([60, 150, 255])
+    RGB image size
+        width = 1080
+        height = 1440
+    Event image size
+        width = 1080
+        height = 1440
+
+RGB Tracking Model
+        voxel_generator = PointToVoxel(
+        # 给定每个voxel的长宽高  [0.05, 0.05, 0.1]
+        vsize_xyz=[1000, 10, 10],  # [0.2, 0.25, 0.16]  # [50, 10, 10]  [50, 35, 26] 因此坐标范围（20,20,20）  (20, 34/35, 26)
+        # 给定点云的范围 [  0.  -40.   -3.   70.4  40.    1. ]
+        coors_range_xyz=[  0.,  0,   0,   100000,  1280 ,   720 ],
+        # 给定每个点云的特征维度，这里是x，y，z，r 其中r是激光雷达反射强度       # 346x260  t,x,y
+        num_point_features=4,
+        # 最多选取多少个voxel，训练16000，推理40000
+        max_num_voxels=16000,  # 16000
+        # 给定每个pillar中有采样多少个点，不够则补0  因此我将neg voxel改为-1;
+        max_num_points_per_voxel=16,  # 1024
+        device=device
+    )
+
+Event Tracking Model
+    ROI_range = 50
+
+Fitting Model
+
+
+Synchronize Parameters
