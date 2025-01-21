@@ -99,7 +99,7 @@ class AMTTrack(BaseTracker):
 
     def track(self, image, event_search, info: dict = None):
         H, W, _ = image.shape
-        print(image.shape,event_search.shape)
+        # print(image.shape,event_search.shape)
         self.frame_id += 1
         # print("AAAAAAAAAAAAAAA",self.state)
         # print(self.state)

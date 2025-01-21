@@ -147,8 +147,8 @@ class ParabolaFitter:
 
         """
         # print(len(data))
-        if not len(data)==30:
-            return None
+        # if not len(data)==999:
+        #     return None
         if len(data)<self.min_date_sample:
             return None
         t_start = data[0][2]
@@ -162,7 +162,7 @@ class ParabolaFitter:
         for i in range(0,len(data)):
             t=data[i][2]-t_start
             camera_vector = np.concatenate((np.array(data[i][:2]),np.array([1])))
-            print(camera_vector,t)
+            # print(camera_vector,t)
             # compensate the movement of the robot with odometry data
             # make all points([x_c,y_c]) in camera coordinate relative to the start camera position
             if odometry is not None:
@@ -200,13 +200,13 @@ class ParabolaFitter:
         # solved_parameters = least_squares(residuals, x0, method='trf',args=(A_array,B_array))
         # x0_c, vx_c, y0_c, vy_c, z0_c, vz_c=solved_parameters.x
 
-        def gradient_descent(A, B, initial, learning_rate=0.1, tolerance=0.001, max_iter=1000,max_grad_norm=100):
+        def gradient_descent(A, B, initial, learning_rate=0.1, tolerance=0.01, max_iter=100,max_grad_norm=100):
 
             x = initial
             for i in range(max_iter):
                 gradient = -2 * A.T @ (B - A @ x)
                 grad_norm = np.linalg.norm(gradient)
-                print(grad_norm)
+                # print(grad_norm)
                 if grad_norm > max_grad_norm:
                     gradient = gradient * (max_grad_norm / grad_norm)
 
@@ -215,9 +215,9 @@ class ParabolaFitter:
                 elif grad_norm < 10:
                     learning_rate *= 1.05
                 x_new = x - learning_rate * gradient
-                print(x_new)
+                # print(x_new)
                 if np.linalg.norm(x_new - x) < tolerance:
-                    print("stop at iteration %d" % i)
+                    # print("stop at iteration %d" % i)
                     break
                 x = x_new
             return x

@@ -44,7 +44,7 @@ class BaseTrainer:
 
         if self.settings.env.workspace_dir is not None:
             self.settings.env.workspace_dir = os.path.expanduser(self.settings.env.workspace_dir)
-            '''2021.1.4 New function: specify checkpoint dir'''
+            '''2021.1.4 New function: specify checkpoints dir'''
             if self.settings.save_dir is None:
                 self._checkpoint_dir = os.path.join(self.settings.env.workspace_dir, 'checkpoints')
             else:
@@ -114,7 +114,7 @@ class BaseTrainer:
         raise NotImplementedError
 
     def save_checkpoint(self):
-        """Saves a checkpoint of the network and other variables."""
+        """Saves a checkpoints of the network and other variables."""
 
         net = self.actor.net.module if multigpu.is_multi_gpu(self.actor.net) else self.actor.net
 
@@ -144,11 +144,11 @@ class BaseTrainer:
 
         file_path = '{}/{}_ep{:04d}.pth.tar'.format(directory, net_type, self.epoch)
 
-        # Now rename to actual checkpoint. os.rename seems to be atomic if files are on same filesystem. Not 100% sure
+        # Now rename to actual checkpoints. os.rename seems to be atomic if files are on same filesystem. Not 100% sure
         os.rename(tmp_file_path, file_path)
 
     def load_checkpoint(self, checkpoint = None, fields = None, ignore_fields = None, load_constructor = False):
-        """Loads a network checkpoint file.
+        """Loads a network checkpoints file.
 
         Can be called in three different ways:
             load_checkpoint():
@@ -165,26 +165,26 @@ class BaseTrainer:
         net_type = type(net).__name__
 
         if checkpoint is None:
-            # Load most recent checkpoint
+            # Load most recent checkpoints
             checkpoint_list = sorted(glob.glob('{}/{}/{}_ep*.pth.tar'.format(self._checkpoint_dir,
                                                                              self.settings.project_path, net_type)))
             if checkpoint_list:
                 checkpoint_path = checkpoint_list[-1]
             else:
-                print('No matching checkpoint file found')
+                print('No matching checkpoints file found')
                 return
         elif isinstance(checkpoint, int):
             # Checkpoint is the epoch number
             checkpoint_path = '{}/{}/{}_ep{:04d}.pth.tar'.format(self._checkpoint_dir, self.settings.project_path,
                                                                  net_type, checkpoint)
         elif isinstance(checkpoint, str):
-            # checkpoint is the path
+            # checkpoints is the path
             if os.path.isdir(checkpoint):
                 checkpoint_list = sorted(glob.glob('{}/*_ep*.pth.tar'.format(checkpoint)))
                 if checkpoint_list:
                     checkpoint_path = checkpoint_list[-1]
                 else:
-                    raise Exception('No checkpoint found')
+                    raise Exception('No checkpoints found')
             else:
                 checkpoint_path = os.path.expanduser(checkpoint)
         else:
@@ -230,7 +230,7 @@ class BaseTrainer:
         return True
 
     def load_state_dict(self, checkpoint=None, distill=False):
-        """Loads a network checkpoint file.
+        """Loads a network checkpoints file.
 
         Can be called in three different ways:
             load_checkpoint():
@@ -249,13 +249,13 @@ class BaseTrainer:
         net_type = type(net).__name__
 
         if isinstance(checkpoint, str):
-            # checkpoint is the path
+            # checkpoints is the path
             if os.path.isdir(checkpoint):
                 checkpoint_list = sorted(glob.glob('{}/*_ep*.pth.tar'.format(checkpoint)))
                 if checkpoint_list:
                     checkpoint_path = checkpoint_list[-1]
                 else:
-                    raise Exception('No checkpoint found')
+                    raise Exception('No checkpoints found')
             else:
                 checkpoint_path = os.path.expanduser(checkpoint)
         else:
@@ -268,7 +268,7 @@ class BaseTrainer:
         assert net_type == checkpoint_dict['net_type'], 'Network is not of correct type.'
 
         missing_k, unexpected_k = net.load_state_dict(checkpoint_dict["net"], strict=False)
-        print("previous checkpoint is loaded.")
+        print("previous checkpoints is loaded.")
         print("missing keys: ", missing_k)
         print("unexpected keys:", unexpected_k)
 

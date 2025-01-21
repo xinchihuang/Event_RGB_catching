@@ -20,7 +20,7 @@ def parameters(yaml_name: str):
     params.search_factor = cfg.TEST.SEARCH_FACTOR
     params.search_size = cfg.TEST.SEARCH_SIZE
 
-    # Network checkpoint path
+    # Network checkpoints path
     params.checkpoint = os.path.join(save_dir, "checkpoints/train/amttrack/%s/AMTTrack_ep%04d.pth.tar" %
                                      (yaml_name, cfg.TEST.EPOCH))
 
