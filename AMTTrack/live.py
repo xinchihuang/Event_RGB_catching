@@ -28,9 +28,12 @@ def transform_pixel_to_coordinate(ball_pixels):
     distorted_pixel = ball_pixels[:,:2].astype(float)
     # print(distorted_pixel)
     # distorted_pixel = distorted_pixel.astype(float)
-    start_t=ball_pixels[0,2]
+    start_t=ball_pixels[0][2]
+    # print(start_t)
     time_array=ball_pixels[:,2]-start_t
-    time_array = time_array.reshape(-1, 1)
+    time_array = time_array.reshape(-1, 1).astype(float)
+    # print(time_array)
+    # distorted_pixel = distorted_pixel.reshape(-1, )
     # return intrinsic_matrix, distorted_pixel
     undistorted_pixel = cv2.undistortPoints(distorted_pixel, intrinsic_matrix, distort_matrix, P=intrinsic_matrix).reshape(-1,2)
     # print(undistorted_pixel)
@@ -108,12 +111,12 @@ def read_from_raw(shared_event_data, stop_event):
             shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             shm[:] = np.zeros(event_shape, dtype=event_dtype)
             shm[:event_data.shape[0]] = event_data
-            time.sleep(0.01)
+            time.sleep(0.001)
         except Exception as e:
             # print(f"Error in read_from_event: {e}")
             continue
         end_time = time.time()
-        print("raw fps:", 1 / (end_time - start_time))
+        # print("raw fps:", 1 / (end_time - start_time))
 def read_from_video(shared_flir_data, stop_event):
     video_path="/home/xinchi/Event_RGB_catching/saved_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
@@ -550,13 +553,14 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                 # print(output.shape)
                 # cv2.rotate(output_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 if keyboard_input.value=='s':
-                    print(tracking_results.numpy())
+                    # print(tracking_results.numpy())
                     # print(ball_observations)
                     if not len(tracking_results.numpy())==0:
                         ball_num=ball_observations.value
-                        ball_pixel[ball_num,0]=tracking_results.numpy()[0][0]
-                        ball_pixel[ball_num,1]=tracking_results.numpy()[1][0]
-                        ball_pixel[ball_num,2]=time.time()
+                        ball_pixel[ball_num][0]=tracking_results.numpy()[0][0]
+                        ball_pixel[ball_num][1]=tracking_results.numpy()[0][1]
+                        ball_pixel[ball_num][2]=time.time()
+                        # print(time.time())
                         if ball_num<999:
                             ball_num+=1
                         ball_observations.value=ball_num
@@ -605,17 +609,22 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
         ball_pixels = ball_pixels[:ball_observations.value]
         # print(len(ball_pixels))
         try:
+
+
             ball_memory = transform_pixel_to_coordinate(ball_pixels)
-            # print("ball_memory", ball_memory)
+            if len(ball_memory)>=300:
+                print("ball_memory", ball_memory)
+                np.save("ball_memory", ball_memory)
+                break
             # print(ball_memory.shape)
-            params = parabola_fitter.mono_fitter(ball_memory, odometry=odometry)
-            # print(params)
-            x_0, y_0, z_0, vx, vy, vz = params
-            impact_t = -x_0 / vx
-            x,y,z = parabola_fitter.parabola_model_time(params, impact_t)
-            impact_point_array[0]=x
-            impact_point_array[1]=y
-            impact_point_array[2]=z
+            # params = parabola_fitter.mono_fitter(ball_memory, odometry=odometry)
+            # # print(params)
+            # x_0, y_0, z_0, vx, vy, vz = params
+            # impact_t = -x_0 / vx
+            # x,y,z = parabola_fitter.parabola_model_time(params, impact_t)
+            # impact_point_array[0]=x
+            # impact_point_array[1]=y
+            # impact_point_array[2]=z
             # print(impact_point_array.shape)
             # print(x,y,z)
             # print(impact_point_array)
@@ -714,7 +723,7 @@ if __name__ == '__main__':
     ROI[:]=np.zeros(4)
     shared_ROI_data=(ROI_memory,ROI_dtype,ROI_shape)
 
-    ball_pixel_dtype = np.uint16
+    ball_pixel_dtype = np.float64
     ball_pixel_shape = (1000,3)
     ball_pixel_memory = shared_memory.SharedMemory(create=True, size=np.prod(ball_pixel_shape) * np.dtype(ball_pixel_dtype).itemsize)
     # ROI_memory=np.zeros(4)
@@ -730,7 +739,7 @@ if __name__ == '__main__':
     impact_point[:] = np.zeros(3)
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
-    keyboard_input = Value('u', 'e')
+    keyboard_input = Value('u', 's')
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data, stop_event))

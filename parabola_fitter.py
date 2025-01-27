@@ -232,6 +232,7 @@ class ParabolaFitter:
     def mono_pixel_fitter(self):
         pass
 
+
 if __name__ == '__main__':
     point=[-8, 0, 0]
 
