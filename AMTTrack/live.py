@@ -12,6 +12,7 @@ import multiprocessing
 import signal
 import numpy as np
 import time
+from ekf_predict import ekf_predict
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
@@ -39,10 +40,10 @@ def transform_pixel_to_coordinate(ball_pixels):
     # print(undistorted_pixel)
 
     # return undistorted_pixel
-    undistorted_pixel[:,0] -= cx
-    undistorted_pixel[:,1] -= cy
-    undistorted_pixel[:,0] /= fx
-    undistorted_pixel[:,1] /= fy
+    # undistorted_pixel[:,0] -= cx
+    # undistorted_pixel[:,1] -= cy
+    # undistorted_pixel[:,0] /= fx
+    # undistorted_pixel[:,1] /= fy
     # print(undistorted_pixel,time_array)
     coordinate=np.concatenate((undistorted_pixel,time_array),axis=1)
     # print(coordinate)
@@ -95,7 +96,7 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def read_from_raw(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_tracking_data/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=50000))
     while not stop_event.is_set():
         start_time = time.time()
         try:
@@ -111,14 +112,14 @@ def read_from_raw(shared_event_data, stop_event):
             shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             shm[:] = np.zeros(event_shape, dtype=event_dtype)
             shm[:event_data.shape[0]] = event_data
-            time.sleep(0.001)
+            time.sleep(0.01)
         except Exception as e:
             # print(f"Error in read_from_event: {e}")
             continue
         end_time = time.time()
         # print("raw fps:", 1 / (end_time - start_time))
 def read_from_video(shared_flir_data, stop_event):
-    video_path="/home/xinchi/Event_RGB_catching/saved_data/rgb/0.mp4"
+    video_path="/home/xinchi/Event_RGB_catching/saved_data_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -559,7 +560,10 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                         ball_num=ball_observations.value
                         ball_pixel[ball_num][0]=tracking_results.numpy()[0][0]
                         ball_pixel[ball_num][1]=tracking_results.numpy()[0][1]
-                        ball_pixel[ball_num][2]=time.time()
+                        ball_pixel[ball_num][2] = time.time()
+                        # print(ball_pixel[ball_num][2])
+                        ball_pixel[ball_num][3] = tracking_results.numpy()[0][5]
+                        ball_pixel[ball_num][4] = tracking_results.numpy()[0][6]
                         # print(time.time())
                         if ball_num<999:
                             ball_num+=1
@@ -612,7 +616,11 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
 
 
             ball_memory = transform_pixel_to_coordinate(ball_pixels)
-            if len(ball_memory)>=300:
+            if len(ball_memory)>=500:
+                print("ball_pixels", ball_memory)
+                np.save("ball_pixels", ball_memory)
+                break
+            if len(ball_memory)>=500:
                 print("ball_memory", ball_memory)
                 np.save("ball_memory", ball_memory)
                 break
@@ -621,10 +629,11 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
             # # print(params)
             # x_0, y_0, z_0, vx, vy, vz = params
             # impact_t = -x_0 / vx
-            # x,y,z = parabola_fitter.parabola_model_time(params, impact_t)
-            # impact_point_array[0]=x
-            # impact_point_array[1]=y
-            # impact_point_array[2]=z
+            x,y,z = ekf_predict(ball_memory)
+
+            impact_point_array[0]=x
+            impact_point_array[1]=y
+            impact_point_array[2]=z
             # print(impact_point_array.shape)
             # print(x,y,z)
             # print(impact_point_array)
@@ -724,7 +733,7 @@ if __name__ == '__main__':
     shared_ROI_data=(ROI_memory,ROI_dtype,ROI_shape)
 
     ball_pixel_dtype = np.float64
-    ball_pixel_shape = (1000,3)
+    ball_pixel_shape = (1000,5)
     ball_pixel_memory = shared_memory.SharedMemory(create=True, size=np.prod(ball_pixel_shape) * np.dtype(ball_pixel_dtype).itemsize)
     # ROI_memory=np.zeros(4)
     ball_pixel = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_memory.buf)
@@ -764,7 +773,7 @@ if __name__ == '__main__':
         # cuda_process.join()
         event_process.join()
         flir_process.join()
-        model_tracking_process.join()
+        # model_tracking_process.join()
         event_tracking_process.join()
         landing_prediction_process.join()
         keyboard_process.join()
