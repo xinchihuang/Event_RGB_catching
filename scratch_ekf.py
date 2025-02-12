@@ -126,14 +126,14 @@ def h_rotation(x,R,T=np.zeros(3)):
     return np.array([u, v]).reshape(-1, 1)
 # def h_p(x)
 def estimate_state(u,v,z_c,vu,vv,R_back,T=np.zeros(3)):
-    # print(vu,vv)
+    print(vu,vv)
     x_c = (u-cx)*z_c/fx
     y_c = (v-cy)*z_c/fy
     vx_c=vu*z_c/fx
     vy_c=vv*z_c/fy
     camera_point = np.array([x_c, y_c, z_c])
     world_point = R_back@camera_point - T
-    camera_velocity = np.array([vx_c, vy_c,0.7*vy_c])
+    camera_velocity = np.array([vx_c, vy_c,1.2*vy_c])
     world_velocity=R_back@camera_velocity - T
     return world_point,world_velocity
 def jacobian_H(x):
@@ -200,9 +200,7 @@ fig.add_trace(go.Scatter3d(
     name='Camera',
     marker=dict(color="red",size=10)
 ))
-initial_z = fx / 20 * 0.055
-for i in range(9,10):
-    # initial_z = fx / 50 * 0.55
+for initial_z in range(2,10):
     estimated_trajectory = []
     impact_points = []
     initial_dt = ball_memory[1][2] - ball_memory[0][2]
@@ -354,6 +352,7 @@ fig.update_layout(
 )
 
 fig.show()
+
 
 
 

@@ -25,7 +25,7 @@ def transform_pixel_to_coordinate(ball_pixels):
     intrinsic_matrix = np.array([[fx, 0, cx],
                                  [0, fy, cy],
                                  [0, 0, 1]])
-    distort_matrix = np.array([-0.269418, 0.048704, -0.000727, 0.002795, 0])
+    distort_matrix = np.array([-0.269418, 0.048704, -.000727, 0.002795, 0])
     distorted_pixel = ball_pixels[:,:2].astype(float)
     # print(distorted_pixel)
     # distorted_pixel = distorted_pixel.astype(float)
@@ -96,36 +96,51 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def read_from_raw(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_tracking_data/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=50000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=5000))
+    event_memory, event_dtype, event_shape = shared_event_data
+    event_shm = shared_memory.SharedMemory(name=event_memory.name)
+
     while not stop_event.is_set():
-        start_time = time.time()
         try:
+            start_time = time.perf_counter()
             # if event_queue.full():
             #     event_queue.get()  # Remove the oldest item
             event_data = next(event_iterator)
             # event_data[:,[0,1]]=event_data[:,[1,0]]
             event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
             event_data['y']+=1279
-            event_memory,event_dtype,event_shape=shared_event_data
-            event_shm = shared_memory.SharedMemory(name=event_memory.name)
+
+            dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
+            # dt=100
             # Attach to the shared memory and create a NumPy array view
             shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             shm[:] = np.zeros(event_shape, dtype=event_dtype)
             shm[:event_data.shape[0]] = event_data
-            time.sleep(0.01)
+
+            elapsed_time = time.perf_counter() - start_time
+            sleep_time = max(0, dt / 1e6 - elapsed_time)
+            time.sleep(sleep_time)
+            # print(time.time())
         except Exception as e:
             # print(f"Error in read_from_event: {e}")
             continue
-        end_time = time.time()
-        # print("raw fps:", 1 / (end_time - start_time))
 def read_from_video(shared_flir_data, stop_event):
-    video_path="/home/xinchi/Event_RGB_catching/saved_data_data/rgb/0.mp4"
+    video_path="/home/xinchi/Event_RGB_catching_data/saved_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
         print("Error: Could not open video.")
         exit()
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        fps = 30  # 如果获取失败，默认设为 30FPS
+    frame_time = 1.0 / fps  # 计算每帧应间隔的时间
+
+    print(f"Video FPS: {fps}, Frame Interval: {frame_time:.4f} seconds")
+    flir_memory, flir_dtype, flir_shape = shared_flir_data
+    flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     while not stop_event.is_set():
+        start_time = time.perf_counter()
         try:
             # Read the next frame from the video
             ret, frame = cap.read()
@@ -136,18 +151,21 @@ def read_from_video(shared_flir_data, stop_event):
                 break
             cv_image = frame
 
-            flir_memory,flir_dtype,flir_shape=shared_flir_data
-            flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
-            time.sleep(0.01)
+            # 计算处理时间，并睡眠以维持帧率
+            elapsed_time = time.perf_counter() - start_time
+            sleep_time = max(0, frame_time - elapsed_time)
+            time.sleep(sleep_time)
+            print(time.time())
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
 
 def read_from_event(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=1000))
     while not stop_event.is_set():
         try:
             # if event_queue.full():
@@ -406,16 +424,16 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
         # Min/Max size options
         minmax_size_options = parser.add_argument_group('Min/Max size options')
         minmax_size_options.add_argument('--min-size', dest='min_size', type=int,
-                                         default=50, help='Minimal size of an object to track (in pixels).')
+                                         default=33, help='Minimal size of an object to track (in pixels).')
         minmax_size_options.add_argument('--max-size', dest='max_size', type=int,
-                                         default=100, help='Maximal size of an object to track (in pixels).')
+                                         default=45, help='Maximal size of an object to track (in pixels).')
 
         # Filtering options
         filter_options = parser.add_argument_group('Filtering options')
         filter_options.add_argument(
-            '--activity-time-ths', dest='activity_time_ths', type=int, default=100,
+            '--activity-time-ths', dest='activity_time_ths', type=int, default=0,
             help='Length of the time window for activity filtering (in us, disabled if equal to 0).')
-        filter_options.add_argument('--activity-trail-ths', dest='activity_trail_ths', type=int, default=1000,
+        filter_options.add_argument('--activity-trail-ths', dest='activity_trail_ths', type=int, default=0,
                                     help='Length of the time window for trail filtering (in us, disabled if equal to 0).')
 
         # Outcome Options
@@ -525,18 +543,23 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
 
     with MTWindow(title="Generic Tracking", width=width, height=height, mode=BaseWindow.RenderMode.BGR) as window:
         # window.show_async(output_img)
+        count=0
         while not stop_event.is_set():
 
             start_t = time.time()
             try:
+                # print(count)
+                count+=1
+                if count>10000:
+                    break
                 raw_evs = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
                 ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
                 # print(ROI)
                 # event_frame_gen.process_events(evs)
                 # print(raw_evs.shape)
                 # print(ROI)
-                evs=ROI_filter(raw_evs,ROI)
-                # evs=raw_evs
+                # evs=ROI_filter(raw_evs,ROI)
+                evs=raw_evs
                 # print(evs.shape)
                 EventLoop.poll_and_dispatch()
                 # Process events
@@ -549,6 +572,10 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                 tracking_algo.process_events(rolling_buffer, tracking_results)
                 BaseFrameGenerationAlgorithm.generate_frame(rolling_buffer, output_img)
 
+                # output_img = PeriodicFrameGenerationAlgorithm(sensor_width=width, sensor_height=height,
+                #                                                    accumulation_time_us=1000, fps=25,
+                #                                                    palette=ColorPalette.Dark)
+
                 draw_tracking_results(evs['t'][-1], tracking_results, output_img)
                 # output = cv2.rotate(output_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 # print(output.shape)
@@ -556,14 +583,15 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                 if keyboard_input.value=='s':
                     # print(tracking_results.numpy())
                     # print(ball_observations)
+
                     if not len(tracking_results.numpy())==0:
+                        if tracking_results.numpy()[0][2]==-1:
+                            continue
+
                         ball_num=ball_observations.value
                         ball_pixel[ball_num][0]=tracking_results.numpy()[0][0]
                         ball_pixel[ball_num][1]=tracking_results.numpy()[0][1]
-                        ball_pixel[ball_num][2] = time.time()
-                        # print(ball_pixel[ball_num][2])
-                        ball_pixel[ball_num][3] = tracking_results.numpy()[0][5]
-                        ball_pixel[ball_num][4] = tracking_results.numpy()[0][6]
+                        ball_pixel[ball_num][2]=tracking_results.numpy()[0][2]/1000000.
                         # print(time.time())
                         if ball_num<999:
                             ball_num+=1
@@ -611,29 +639,35 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
     while not stop_event.is_set():
         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
         ball_pixels = ball_pixels[:ball_observations.value]
-        # print(len(ball_pixels))
+
         try:
-
-
-            ball_memory = transform_pixel_to_coordinate(ball_pixels)
-            if len(ball_memory)>=500:
-                print("ball_pixels", ball_memory)
-                np.save("ball_pixels", ball_memory)
+            # print(len(ball_pixels))
+            # pass
+            if len(ball_pixels) >= 10:
+                ball_memory = transform_pixel_to_coordinate(ball_pixels)
+                # print("ball_memory", ball_memory)
+                # np.save("ball_memory", ball_memory)
+                impact_point = ekf_predict(ball_memory)
+                print(impact_point)
+                impact_point_array[0] = impact_point[0]
+                impact_point_array[1] = impact_point[1]
+                impact_point_array[2] = impact_point[2]
                 break
-            if len(ball_memory)>=500:
-                print("ball_memory", ball_memory)
-                np.save("ball_memory", ball_memory)
-                break
+            #     # print(impact_point_array.shape)
+            # else:
+            #     impact_point_array[0] = 0.
+            #     impact_point_array[1] = 0.
+            #     impact_point_array[2] = 0.
+
             # print(ball_memory.shape)
             # params = parabola_fitter.mono_fitter(ball_memory, odometry=odometry)
             # # print(params)
             # x_0, y_0, z_0, vx, vy, vz = params
             # impact_t = -x_0 / vx
-            x,y,z = ekf_predict(ball_memory)
-
-            impact_point_array[0]=x
-            impact_point_array[1]=y
-            impact_point_array[2]=z
+            # x,y,z = parabola_fitter.parabola_model_time(params, impact_t)
+            # impact_point_array[0]=x
+            # impact_point_array[1]=y
+            # impact_point_array[2]=z
             # print(impact_point_array.shape)
             # print(x,y,z)
             # print(impact_point_array)
@@ -647,36 +681,45 @@ def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     import can
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
-    bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=1000000)
-    motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
-    motor1.set_0_pos()
-    motor1.enable()
+    # bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=1000000)
+    # motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
+    # motor1.set_0_pos()
+    # motor1.enable()
     while not stop_event.is_set():
 
         # print(len(ball_pixels))
         try:
             if keyboard_input.value=='s':
-                impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
 
-                # print(impact_point_array.shape)
+                impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
+                if all(impact_point_array)==0.:
+                    continue
+                print(impact_point_array.shape)
                 x, y, z = impact_point_array
+                print(x, y, z)
+                break
                 # write your code here
                 # print(x,y,z)
-                shaft_length = 0.5
-                joint_height = 0.7
-                delta_height = z + joint_height
-                if delta_height>0 and delta_height<0.5:
-                    angle = np.pi/2 - np.arctan(delta_height/shaft_length)
-                    # if angle<0:
-                    #     angle = max(angle, np.pi/4)
-                    if angle>0:
-                        angle=min(angle, np.pi/4)
-                    if y < 0:
-                        angle = -angle
-                    motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
-                    time.sleep(2.5)
-                    motor1.disable()
-                    bus.shutdown()
+
+
+
+                # break
+                # shaft_length = 0.5
+                # joint_height = 0.7
+                # delta_height = z + joint_height
+                # if delta_height>0 and delta_height<0.5:
+                #     angle = np.pi/2 - np.arctan(delta_height/shaft_length)
+                #     # if angle<0:
+                #     #     angle = max(angle, np.pi/4)
+                #     if angle>0:
+                #         angle=min(angle, np.pi/4)
+                #     if y < 0:
+                #         angle = -angle
+                #     print('angle',angle)
+                    # motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
+                    # time.sleep(2.5)
+                    # motor1.disable()
+                    # bus.shutdown()
         except:
             continue
 def signal_handler(sig, frame):
@@ -733,7 +776,7 @@ if __name__ == '__main__':
     shared_ROI_data=(ROI_memory,ROI_dtype,ROI_shape)
 
     ball_pixel_dtype = np.float64
-    ball_pixel_shape = (1000,5)
+    ball_pixel_shape = (1000,3)
     ball_pixel_memory = shared_memory.SharedMemory(create=True, size=np.prod(ball_pixel_shape) * np.dtype(ball_pixel_dtype).itemsize)
     # ROI_memory=np.zeros(4)
     ball_pixel = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_memory.buf)
@@ -749,6 +792,8 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 's')
+
+
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data, stop_event))
@@ -757,14 +802,14 @@ if __name__ == '__main__':
     event_tracking_process = Process(target=pure_event_tracking,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_data,ball_observations,keyboard_input, stop_event))
     landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,))
-    # robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,keyboard_input,stop_event))
+    robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,keyboard_input,stop_event))
 
     # Start processes
     event_process.start()
     flir_process.start()
-    # model_tracking_process.start()
+    model_tracking_process.start()
     event_tracking_process.start()
-    landing_prediction_process.start()
+    # landing_prediction_process.start()
     keyboard_process.start()
     # robot_control_process.start()
 
@@ -773,9 +818,9 @@ if __name__ == '__main__':
         # cuda_process.join()
         event_process.join()
         flir_process.join()
-        # model_tracking_process.join()
+        model_tracking_process.join()
         event_tracking_process.join()
-        landing_prediction_process.join()
+        # landing_prediction_process.join()
         keyboard_process.join()
         # robot_control_process.join()
     except KeyboardInterrupt:
@@ -784,7 +829,7 @@ if __name__ == '__main__':
         flir_process.terminate()
         model_tracking_process.terminate()
         event_tracking_process.terminate()
-        landing_prediction_process.terminate()
+        # landing_prediction_process.terminate()
         keyboard_process.terminate()
         # robot_control_process.terminate()
 

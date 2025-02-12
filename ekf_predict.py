@@ -1,10 +1,9 @@
 import numpy as np
 import plotly.graph_objects as go
 
-ball_memory=np.load("ball_pixels.npy")
+# ball_memory=np.load("ball_pixels.npy")
 def ekf_predict(ball_memory):
-    if ball_memory.shape[0]<300:
-        return None
+    ball_memory=np.array(ball_memory)
     # 1) 反转数组
     arr_rev = ball_memory[::-1]
 
@@ -21,6 +20,7 @@ def ekf_predict(ball_memory):
     # result = ball_memory[idx_sorted]
     ball_memory=ball_memory[idx_sorted]
     ball_memory=ball_memory[:,:3]
+    # print(ball_memory)
     # import numpy as np
     # import numpy as np
 
@@ -109,9 +109,10 @@ def ekf_predict(ball_memory):
         y_c = (v-cy)*z_c/fy
         vx_c=vu*z_c/fx
         vy_c=vv*z_c/fy
+        # print(x_c,y_c,vx_c,vy_c)
         camera_point = np.array([x_c, y_c, z_c])
         world_point = R_back@camera_point - T
-        camera_velocity = np.array([vx_c, vy_c,0.7*vy_c])
+        camera_velocity = np.array([vx_c, vy_c, 1.1*vy_c])
         world_velocity=R_back@camera_velocity - T
         return world_point,world_velocity
     def jacobian_H(x):
@@ -164,17 +165,19 @@ def ekf_predict(ball_memory):
     camera_rpy_back=[45, 0, 90]
     rotation_matrix_to=rotate_matrix_coordinate(camera_rpy_to[0],camera_rpy_to[1],camera_rpy_to[2])
     rotation_matrix_back=rotate_matrix_coordinate(camera_rpy_back[0],camera_rpy_back[1],camera_rpy_back[2])
-    initial_z = fx / 20 * 0.055
+    initial_z = fx / 10 * 0.05
+    print(initial_z)
 
     # initial_z = fx / 50 * 0.55
     estimated_trajectory = []
     impact_points = []
-    initial_dt = ball_memory[1][2] - ball_memory[0][2]
-    initial_u,initial_v=ball_memory[1][0],ball_memory[1][1]
-    initial_vu=(ball_memory[1][0]-ball_memory[0][0])/initial_dt
-    initial_vv=(ball_memory[1][1]-ball_memory[0][1])/initial_dt
+    initial_dt = ball_memory[10][2] - ball_memory[0][2]
+    initial_u,initial_v=ball_memory[10][0],ball_memory[10][1]
+    initial_vu=(ball_memory[10][0]-ball_memory[0][0])/initial_dt
+    initial_vv=(ball_memory[10][1]-ball_memory[0][1])/initial_dt
+    # print(initial_vv)
     world_point,world_velocity=estimate_state(initial_u,initial_v,initial_z,initial_vu,initial_vv,rotation_matrix_back)
-    # print(world_point,world_velocity)
+    print(world_point,world_velocity)
 
     x = np.array([world_point[0], world_point[1], world_point[2], world_velocity[0], world_velocity[1], world_velocity[2]]).reshape(-1, 1)
     # print(x)
@@ -187,7 +190,7 @@ def ekf_predict(ball_memory):
             [0, 0, 1, 0, 0, dt],
             [0, 0, 0, 1, 0, 0],
             [0, 0, 0, 0, 1, 0],
-            [0, 0, -g * dt, 0, 0, 1]
+            [0, 0, 0, 0, 0, 1]
         ])
         # 预测步骤
         x = F @ x
@@ -202,16 +205,13 @@ def ekf_predict(ball_memory):
         # 更新步骤
         S = H @ cov_P @ H.T + cov_O  # 创新协方差
         K = cov_P @ H.T @ np.linalg.inv(S)  # 卡尔曼增益
-        # print(z, z_pred, x)
+        # print(z, z_pred, x, dt)
         y = z - z_pred  # 创新
         impact_point=predict_intersection(x)
         impact_points.append(impact_point.reshape(1,-1).squeeze())
         x = x + K @ y  # 更新状态
         cov_P = (np.eye(6) - K @ H) @ cov_P  # 更新协方差
 
-        # 保存估计位置
-        estimated_trajectory.append(x[:3].flatten())
-
-        estimated_trajectory = np.array(estimated_trajectory)
+    # print(impact_points[-1])
     return impact_points[-1]
 

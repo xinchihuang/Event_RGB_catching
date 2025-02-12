@@ -68,7 +68,7 @@ def read_from_flir(shared_flir_data, stop_event):
 def read_from_raw(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/1.raw",mode="mixed", delta_t=1000, n_events=5000))
     while not stop_event.is_set():
         try:
             # if event_queue.full():
@@ -87,7 +87,7 @@ def read_from_raw(shared_event_data, stop_event):
             # print(f"Error in read_from_event: {e}")
             continue
 def read_from_video(shared_flir_data, stop_event):
-    video_path="/home/xinchi/Event_RGB_catching/saved_data/rgb/0.mp4"
+    video_path="/home/xinchi/Event_RGB_catching_data/saved_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -124,7 +124,7 @@ def record_event(shared_event_data, keyboard_input, stop_event):
     event_width, event_height = 720, 1280
 
     device = initiate_device("")
-    save_dir="saved_data"
+    save_dir="/home/xinchi/Event_RGB_catching_data/saved_data"
     recording = False
     mv_iterator = EventsIterator.from_device(device=device)
     event_iterator = iter(EventsIterator.from_device(device=device))
@@ -202,7 +202,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     # Define codec and create VideoWriter object
     out_video = None  # Initialize as None to handle lazy initialization
     recording = False  # Flag to manage recording state
-    save_dir = "saved_data"
+    save_dir = "/home/xinchi/Event_RGB_catching_data/saved_data"
 
     while not stop_event.is_set():
         image_result = cam.GetNextImage(10000)
@@ -330,7 +330,7 @@ if __name__ == '__main__':
     keyboard_input = Value('u', 's')
 
 
-    record=False
+    record=True
     if record==True:
         record_flir_process = Process(target=record_flir, args=(shared_flir_data,keyboard_input, stop_event))
         record_event_process = Process(target=record_event, args=(shared_event_data,keyboard_input, stop_event))
