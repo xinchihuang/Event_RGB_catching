@@ -58,7 +58,7 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
         Xc, Yc, Zc = rotation_matrix @ np.array([Xw, Yw, Zw])
 
         # 避免除零错误
-        if Zw < 1. or Zw>2. or Xw<0.4 or Xw>4 or Yw<-0.5 or Yw>0.5:
+        if Zw < 1. or Zw>2.2 or Xw<0.4 or Xw>4 or Yw<-0.5 or Yw>0.5:
             return None, None
 
         # 归一化坐标

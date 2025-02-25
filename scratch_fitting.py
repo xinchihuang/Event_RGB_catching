@@ -211,10 +211,10 @@ def main():
     #         print(f"{name}: {value}")
     #         # 可选：获取每个偏置的详细信息
     #         # bias_info = i_ll_biases.get_bias_info(name)
-    plot_index=1
+    plot_index=20
 
 
-    for i in range(plot_index-1,plot_index):
+    for i in range(0,plot_index):
         args = parse_args(i)
         # print(args)
         # print(type(args))
@@ -412,7 +412,7 @@ def main():
 
 
     # 初始猜测参数（需要根据实际情况调整）
-    init_guess = [3.2, 0, 1, -8, 0, 1]
+    init_guess = [3.5, 0, 1.5, -7, 0, 1]
     label=[12,13,8,5,33,
            60,6,4,17,27,
            6,24,17,1,17,
@@ -423,7 +423,7 @@ def main():
              -13, -65, -62, -53, -32]
     impact_point_real=[]
     impact_point_predict=[]
-    for i in range(plot_index-1,plot_index):
+    for i in range(0,plot_index):
         print(i)
         ball_memory=np.load(f"{save_dir}/{i}.npy")
         # print(ball_memory)
@@ -479,19 +479,6 @@ def main():
         ))
         fig.add_trace(go.Scatter3d(
             x=[0],  # X坐标固定为0
-            y=[0],
-            z=[0],
-            mode='markers',
-            name=f'camera',
-            marker=dict(
-                size=20,
-                color='yellow',  # 预测点颜色
-                symbol='circle'  # 圆形标记
-            ),
-            showlegend=True
-        ))
-        fig.add_trace(go.Scatter3d(
-            x=[0],  # X坐标固定为0
             y=[label_y],
             z=[label_z],
             mode='markers',
@@ -513,15 +500,28 @@ def main():
 
         fig.update_layout(
             scene=dict(
-                xaxis=dict(title='X', range=[0,4],dtick=0.1),
-                yaxis=dict(title='Y', range=[-1,1],dtick=0.1),
-                zaxis=dict(title='Z', range=[0,3],dtick=0.1),
+                xaxis=dict(title='X', range=[0,4],dtick=1),
+                yaxis=dict(title='Y', range=[-1,1],dtick=1),
+                zaxis=dict(title='Z', range=[0,3],dtick=1),
                 camera=dict(eye=dict(x=1.5, y=1.5, z=0.5))  # 设定视角
 
             ),
             margin=dict(l=0, r=0, b=0, t=30)
         )
         # 显示图表
+    fig.add_trace(go.Scatter3d(
+        x=[0],  # X坐标固定为0
+        y=[0],
+        z=[0],
+        mode='markers',
+        name=f'camera',
+        marker=dict(
+            size=20,
+            color='yellow',  # 预测点颜色
+            symbol='circle'  # 圆形标记
+        ),
+        showlegend=True
+    ))
     fig.show()
     print(compute_distance_stats(np.array(impact_point_real), np.array(impact_point_predict)))
 if __name__ == "__main__":

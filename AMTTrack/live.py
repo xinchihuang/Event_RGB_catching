@@ -93,12 +93,14 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     coor[:, [0, 1, 2]] = coor[:, [2, 1, 0]]
 
     return coor, features
-def read_from_raw(shared_event_data, stop_event):
+def read_from_raw(shared_event_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
+    while system_state.value=='e':
+        continue
 
     while not stop_event.is_set():
         try:
@@ -111,7 +113,7 @@ def read_from_raw(shared_event_data, stop_event):
             event_data['y']+=1279
 
             dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
-            # dt=100
+            dt=200
             # Attach to the shared memory and create a NumPy array view
             shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             shm[:] = np.zeros(event_shape, dtype=event_dtype)
@@ -124,7 +126,7 @@ def read_from_raw(shared_event_data, stop_event):
         except Exception as e:
             # print(f"Error in read_from_event: {e}")
             continue
-def read_from_video(shared_flir_data, stop_event):
+def read_from_video(shared_flir_data,system_state, stop_event):
     video_path="/home/xinchi/Event_RGB_catching_data/saved_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
 
@@ -139,6 +141,11 @@ def read_from_video(shared_flir_data, stop_event):
     print(f"Video FPS: {fps}, Frame Interval: {frame_time:.4f} seconds")
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+
+
+    while system_state.value=='e':
+        continue
+    count=0
     while not stop_event.is_set():
         start_time = time.perf_counter()
         try:
@@ -148,9 +155,14 @@ def read_from_video(shared_flir_data, stop_event):
             if not ret:
                 # If no frame is returned, the video has ended
                 print("End of video.")
+                system_state.value='e'
                 break
             cv_image = frame
-
+            count+=1
+            if count<100:
+                system_state.value='w'
+            else:
+                system_state.value='s'
 
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
@@ -158,7 +170,7 @@ def read_from_video(shared_flir_data, stop_event):
             elapsed_time = time.perf_counter() - start_time
             sleep_time = max(0, frame_time - elapsed_time)
             time.sleep(sleep_time)
-            print(time.time())
+            # print(time.time())
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
 
@@ -225,13 +237,14 @@ def read_from_flir(shared_flir_data, stop_event):
             continue
 
 
-def model(shared_event_data, shared_flir_data,shared_ROI_data, stop_event):
+def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator, LiveReplayEventsIterator, is_live_camera
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from metavision_sdk_ui import EventLoop, BaseWindow, MTWindow, UIAction, UIKeyEvent
     from lib.test.evaluation.tracker import Tracker
     from spconv.pytorch.utils import PointToVoxel
     def draw_initial_bbox(image):
+        return 528,964,40,40
         # Convert from BGR to HSV color space
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -314,7 +327,8 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data, stop_event):
     #
     # event_frame_gen.set_output_callback(on_cd_frame_cb)
 
-
+    first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching/AMTTrack/100.jpg")
+    system_state.value = 'w'
     while not stop_event.is_set():
         start_time = time.time()
         try:
@@ -336,45 +350,49 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data, stop_event):
 
             # event_frame_gen.process_events(event_data)
             # print(event_data.shape)
-            if not is_tracker_initialiezed:
-                initial_bbox = draw_initial_bbox(flir_data)
-                if initial_bbox is None:
-                    pass
+            if system_state.value == 's':
+                if not is_tracker_initialiezed:
+                    initial_bbox = draw_initial_bbox(flir_data)
+                    if initial_bbox is None:
+                        pass
+                    else:
+                        x, y, w, h = initial_bbox
+                        bbox = [x,y,w,h]
+                        flir_data=first_flir_image
+                        cv2.rectangle(flir_data, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        cv2.imshow("flir", flir_data)
+                        cv2.waitKey(0)
+                        init_info = {'init_bbox': bbox}
+                        out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
+                        is_tracker_initialiezed = True
+
                 else:
-                    x, y, w, h = initial_bbox
-                    bbox = [x,y,w,h]
-                    cv2.rectangle(flir_data, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                    init_info = {'init_bbox': bbox}
-                    out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
-                    is_tracker_initialiezed = True
+                    # if event_data['t'].shape[0]==0:
+                    #     pass
+                    # print(event_data['t'].shape)
+                    info = {'previous_output':{'target_bbox':bbox},'gt_bbox':bbox}
+                    # info['previous_output'] = None
+                    coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
+                                                                device=device)
+                    # print(coor.shape, features.shape)
+                    event_search =  torch.cat((coor, features), dim=1)
+                    if event_search==None:
+                        continue
+                    tracker.state=bbox
+                    out = tracker.track(flir_data, event_search, info)
+                    # print("OUT",out)
+                    bbox=out['target_bbox']
 
-            else:
-                # if event_data['t'].shape[0]==0:
-                #     pass
-                # print(event_data['t'].shape)
-                info = {'previous_output':{'target_bbox':bbox},'gt_bbox': bbox}
-                # info['previous_output'] = None
-                coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
-                                                            device=device)
-                # print(coor.shape, features.shape)
-                event_search =  torch.cat((coor, features), dim=1)
-                if event_search==None:
-                    continue
-                tracker.state=bbox
-                out = tracker.track(flir_data, event_search, info)
-                # print("OUT",out)
-                bbox=out['target_bbox']
-
-                state = [int(s) for s in bbox]
-                # if ROI_queue.full():
-                #     ROI_queue.get()
-                # ROI_queue.put(state,timeout=0.01)
-                ROI[0]=state[0]
-                ROI[1]=state[1]
-                ROI[2]=state[2]
-                ROI[3]=state[3]
-                # print(state,ROI)
-                cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
+                    state = [int(s) for s in bbox]
+                    # if ROI_queue.full():
+                    #     ROI_queue.get()
+                    # ROI_queue.put(state,timeout=0.01)
+                    ROI[0]=state[0]
+                    ROI[1]=state[1]
+                    ROI[2]=state[2]
+                    ROI[3]=state[3]
+                    # print(state,ROI)
+                    cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
 
             # Display the image
         except Exception as e:
@@ -417,16 +435,16 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                                   help='End time to process events (in us).')
 
         parser.add_argument('--update-frequency', dest='update_frequency', type=float,
-                            default=100., help="Tracker's update frequency, in Hz.")
+                            default=10000., help="Tracker's update frequency, in Hz.")
         parser.add_argument('-a', '--acc-time', dest='accumulation_time_us', type=int, default=1000,
                             help='Duration of the time slice to store in the rolling event buffer at each tracking step')
 
         # Min/Max size options
         minmax_size_options = parser.add_argument_group('Min/Max size options')
         minmax_size_options.add_argument('--min-size', dest='min_size', type=int,
-                                         default=33, help='Minimal size of an object to track (in pixels).')
+                                         default=30, help='Minimal size of an object to track (in pixels).')
         minmax_size_options.add_argument('--max-size', dest='max_size', type=int,
-                                         default=45, help='Maximal size of an object to track (in pixels).')
+                                         default=50, help='Maximal size of an object to track (in pixels).')
 
         # Filtering options
         filter_options = parser.add_argument_group('Filtering options')
@@ -550,15 +568,10 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
             try:
                 # print(count)
                 count+=1
-                if count>10000:
-                    break
+                # if count>10000:
+                #     break
                 raw_evs = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
                 ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
-                # print(ROI)
-                # event_frame_gen.process_events(evs)
-                # print(raw_evs.shape)
-                # print(ROI)
-                # evs=ROI_filter(raw_evs,ROI)
                 evs=raw_evs
                 # print(evs.shape)
                 EventLoop.poll_and_dispatch()
@@ -608,15 +621,17 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
             # print("event fps:", 1 / (end_t - start_t))
 
 
-def keyboard(shared_value):
+def keyboard(shared_value,system_state):
     from pynput import keyboard
     def on_press(key):
         try:
             # Update the shared value with the last key pressed
             print(f"Key {key} pressed")
-            shared_value.value = key.char if hasattr(key, 'char') else str(key)
+            # shared_value.value = key.char if hasattr(key, 'char') else str(key)
+            if key.char=='s':
+                system_state.value='s'
         except AttributeError:
-            shared_value.value = str(key)
+            system_state.value='e'
 
     with keyboard.Listener(on_press=on_press) as listener:
 
@@ -757,7 +772,7 @@ if __name__ == '__main__':
         'offsets': [0, 2, 4, 8],
         'itemsize': 16
     }
-    event_shape=(5000,)
+    event_shape=(10000,)
     event_memory=shared_memory.SharedMemory(create=True,size=np.dtype(event_dtype).itemsize * event_shape[0])
     shared_event_data=(event_memory,event_dtype,event_shape)
 
@@ -792,23 +807,22 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 's')
-
-
+    system_state=Value('u', 'e')
     ball_observations = Value('i',0)
     # Processes
-    event_process = Process(target=read_from_raw, args=(shared_event_data, stop_event))
-    flir_process = Process(target=read_from_video, args=(shared_flir_data, stop_event))
-    model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data, stop_event))
-    event_tracking_process = Process(target=pure_event_tracking,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_data,ball_observations,keyboard_input, stop_event))
+    event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
+    flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state, stop_event))
+    model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event))
+    event_tracking_process = Process(target=pure_event_tracking,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_data,ball_observations,system_state, stop_event))
     landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
-    keyboard_process = Process(target=keyboard, args=(keyboard_input,))
-    robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,keyboard_input,stop_event))
+    keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
+    robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
 
     # Start processes
     event_process.start()
     flir_process.start()
-    model_tracking_process.start()
-    event_tracking_process.start()
+    # model_tracking_process.start()
+    # event_tracking_process.start()
     # landing_prediction_process.start()
     keyboard_process.start()
     # robot_control_process.start()

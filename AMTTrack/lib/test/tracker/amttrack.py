@@ -99,10 +99,7 @@ class AMTTrack(BaseTracker):
 
     def track(self, image, event_search, info: dict = None):
         H, W, _ = image.shape
-        # print(image.shape,event_search.shape)
         self.frame_id += 1
-        # print("AAAAAAAAAAAAAAA",self.state)
-        # print(self.state)
         x_patch_arr, resize_factor, x_amask_arr, crop_coor = sample_target(image, self.state, self.params.search_factor,
                                                                 output_sz=self.params.search_size)   # (x1, y1, w, h)
         search = self.preprocessor.process(x_patch_arr, x_amask_arr)
