@@ -234,11 +234,12 @@ class ParabolaFitter:
 
 
 if __name__ == '__main__':
-    point=[-8, 0, 0]
-
-    rotation_matrix_coordinate=rotate_matrix_coordinate(0, 45, -90)
-    translate_vector=translation_vector_coordinate(0,0,0)
-    new_point=transform_coordinate(point,rotation_matrix_coordinate,translate_vector)
+    # new_point=[ 0.3866527,  -0.3839593 ,  3.3415    ]
+    # [2.09129708 - 0.3866527   2.63429753]
+    # rotation_matrix_coordinate=rotate_matrix_coordinate(0, 45, -90)
+    # translate_vector=translation_vector_coordinate(0,0,0)
+    # new_point=transform_coordinate(point,rotation_matrix_coordinate,translate_vector)
+    new_point = [0.3866527, -0.3839593, 3.3415]
     print(new_point)
     rotation_matrix_coordinate = rotate_matrix_coordinate(45, 0, 90)
     translate_vector = translation_vector_coordinate(0, 0, 0)

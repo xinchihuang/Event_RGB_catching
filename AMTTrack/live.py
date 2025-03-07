@@ -103,29 +103,31 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         continue
 
     while not stop_event.is_set():
+
+        start_time = time.perf_counter()
+        # if event_queue.full():
+        #     event_queue.get()  # Remove the oldest item
         try:
-            start_time = time.perf_counter()
-            # if event_queue.full():
-            #     event_queue.get()  # Remove the oldest item
             event_data = next(event_iterator)
-            # event_data[:,[0,1]]=event_data[:,[1,0]]
-            event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
-            event_data['y']+=1279
+        except StopIteration:
+            system_state.value='e'
+            break
+        # event_data[:,[0,1]]=event_data[:,[1,0]]
+        event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
+        event_data['y']+=1279
 
-            dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
-            dt=200
-            # Attach to the shared memory and create a NumPy array view
-            shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-            shm[:] = np.zeros(event_shape, dtype=event_dtype)
-            shm[:event_data.shape[0]] = event_data
+        dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
+        dt=500
+        # Attach to the shared memory and create a NumPy array view
+        shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        shm[:] = np.zeros(event_shape, dtype=event_dtype)
+        shm[:event_data.shape[0]] = event_data
 
-            elapsed_time = time.perf_counter() - start_time
-            sleep_time = max(0, dt / 1e6 - elapsed_time)
-            time.sleep(sleep_time)
-            # print(time.time())
-        except Exception as e:
-            # print(f"Error in read_from_event: {e}")
-            continue
+        elapsed_time = time.perf_counter() - start_time
+        sleep_time = max(0, dt / 1e6 - elapsed_time)
+        time.sleep(sleep_time)
+        # print(time.time())
+
 def read_from_video(shared_flir_data,system_state, stop_event):
     video_path="/home/xinchi/Event_RGB_catching_data/saved_data/rgb/0.mp4"
     cap = cv2.VideoCapture(video_path)
@@ -489,12 +491,6 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
                     (evs['y'] > int(max(0,y - outer_range))) &
                     (evs['y'] < int(min(1280,y + h + outer_range)))
                 )
-        # mask= (
-        #             (evs['x'] > 300 ) &
-        #             (evs['x'] < 400 ) &
-        #             (evs['y'] > 500 ) &
-        #             (evs['y'] < 600)
-        #         )
         new_evs = evs[mask]
         return new_evs
 
@@ -503,20 +499,6 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
     args = parse_args()
     buffer_config = RollingEventBufferConfig.make_n_us(args.accumulation_time_us)
     rolling_buffer = RollingEventCDBuffer(buffer_config)
-    # [GENERIC_TRACKING_CREATE_ROLLING_BUFFER_END]
-
-    # [GENERIC_TRACKING_CREATE_ITERATOR_BEGIN]
-    # Events iterator on Camera or event file
-    # delta_t = int(1000000 / args.update_frequency)
-    # mv_iterator = EventsIterator(input_path=args.event_file_path, start_ts=args.process_from,
-    #                              max_duration=args.process_to - args.process_from if args.process_to else None,
-    #                              delta_t=delta_t, mode="delta_t")
-    # # [GENERIC_TRACKING_CREATE_ITERATOR_END]
-    #
-    # if args.replay_factor > 0 and not is_live_camera(args.event_file_path):
-    #     mv_iterator = LiveReplayEventsIterator(mv_iterator, replay_factor=args.replay_factor)
-    # height, width = mv_iterator.get_size()  # Camera Geometry
-
 
     width = 720
     height = 1280
@@ -548,16 +530,6 @@ def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data
 
     ball_pixel = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
     # Event Frame Generator
-    # event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=1080, sensor_height=720, fps=25,
-    #                                                    palette=ColorPalette.Dark)
-
-    # def on_cd_frame_cb(ts, cd_frame):
-    #     # cd_frame = cv2.rotate(cd_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    #     # pass
-    #     window.show_async(cd_frame)
-    #
-    # event_frame_gen.set_output_callback(on_cd_frame_cb)
-
 
     with MTWindow(title="Generic Tracking", width=width, height=height, mode=BaseWindow.RenderMode.BGR) as window:
         # window.show_async(output_img)
@@ -636,10 +608,11 @@ def keyboard(shared_value,system_state):
     with keyboard.Listener(on_press=on_press) as listener:
 
         listener.join()
-def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event,odometry=None):
+def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,stop_event,odometry=None):
     from parabola_fitter import ParabolaFitter
+    from fitting import fit_3d_trajectory_with_distortion
 
-    ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_data
+    ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_3D_data
     ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
 
 
@@ -656,8 +629,6 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
         ball_pixels = ball_pixels[:ball_observations.value]
 
         try:
-            # print(len(ball_pixels))
-            # pass
             if len(ball_pixels) >= 10:
                 ball_memory = transform_pixel_to_coordinate(ball_pixels)
                 # print("ball_memory", ball_memory)
@@ -668,28 +639,9 @@ def landing_prediction(shared_ball_pixel_data,ball_observations,shared_impact_po
                 impact_point_array[1] = impact_point[1]
                 impact_point_array[2] = impact_point[2]
                 break
-            #     # print(impact_point_array.shape)
-            # else:
-            #     impact_point_array[0] = 0.
-            #     impact_point_array[1] = 0.
-            #     impact_point_array[2] = 0.
 
-            # print(ball_memory.shape)
-            # params = parabola_fitter.mono_fitter(ball_memory, odometry=odometry)
-            # # print(params)
-            # x_0, y_0, z_0, vx, vy, vz = params
-            # impact_t = -x_0 / vx
-            # x,y,z = parabola_fitter.parabola_model_time(params, impact_t)
-            # impact_point_array[0]=x
-            # impact_point_array[1]=y
-            # impact_point_array[2]=z
-            # print(impact_point_array.shape)
-            # print(x,y,z)
-            # print(impact_point_array)
         except:
             continue
-
-
 
 def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     from pcan_cybergear import CANMotorController
@@ -741,6 +693,147 @@ def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
     sys.exit(0)
+def checker(shared_flir_data,shared_event_data,stop_event):
+    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
+    from sklearn.cluster import DBSCAN
+    event_memory, event_dtype, event_shape = shared_event_data
+    event_shm = shared_memory.SharedMemory(name=event_memory.name)
+
+    flir_memory, flir_dtype, flir_shape = shared_flir_data
+    flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+    rgb_width, rgb_height = 1080, 1440
+    event_width, event_height = 720, 1280
+    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_width, sensor_height=event_height,
+                                                       fps=100,
+                                                       palette=ColorPalette.Dark)
+
+    # def on_cd_frame_cb(ts, cd_frame):
+    #     print(cd_frame)
+    #     # return cd_frame
+    #     # window.show_async(cd_frame)
+    #
+    # event_frame_gen.set_output_callback(on_cd_frame_cb)
+
+    while not stop_event.is_set():
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+        # EventLoop.poll_and_dispatch
+        event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
+        event_frame = np.ascontiguousarray(event_frame)
+
+        event_frame_gen.generate_frame(event_data,event_frame)
+
+        image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+
+        # 二值化处理
+        _, binary = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+        # print(binary)
+
+        # 获取所有前景点的坐标
+        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+
+
+        # **检查 points 是否为空**
+        if points.shape[0] == 0:
+            continue
+        # 使用 DBSCAN 聚类
+        dbscan = DBSCAN(eps=5, min_samples=30).fit(points)
+
+        # 获取不同簇的标签
+        labels = dbscan.labels_
+
+        # 统计有多少个簇（-1 代表噪声点）
+        num_clusters = len(set(labels)) - (1 if -1 in labels else 0)
+        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        # 计算每个簇的边界框（bounding box）
+        for cluster_id in set(labels):
+            if cluster_id == -1:  # -1 代表噪声点，不处理
+                continue
+            cluster_points = points[labels == cluster_id]
+            x, y, w, h = cv2.boundingRect(cluster_points)
+            cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+            print(x,y,w,h)
+            break
+        cv2.imshow('event ', color_image)
+        cv2.waitKey(1)
+        # cv2.imshow('FLIR ', flir_data)
+        # cv2.waitKey(1)
+
+def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event):
+    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
+    from sklearn.cluster import DBSCAN
+    event_memory, event_dtype, event_shape = shared_event_data
+    event_shm = shared_memory.SharedMemory(name=event_memory.name)
+    rgb_width, rgb_height = 1080, 1440
+    event_width, event_height = 720, 1280
+    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_width, sensor_height=event_height,
+                                                       fps=100,
+                                                       palette=ColorPalette.Dark)
+
+    ball_pixel_3D_memory,ball_pixel_3D_dtype,ball_pixel_3D_shape = shared_ball_pixel_3D_data
+    ball_pixel_3D_shm = shared_memory.SharedMemory(name=ball_pixel_3D_memory.name)
+    ball_pixel_3D = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype, buffer=ball_pixel_3D_shm.buf)
+    count=0
+    while not stop_event.is_set():
+
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        t=event_data['t']
+        # print(t)
+        event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
+        event_frame = np.ascontiguousarray(event_frame)
+        event_frame_gen.generate_frame(event_data,event_frame)
+        image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+        if points.shape[0] == 0:
+            continue
+        dbscan = DBSCAN(eps=11, min_samples=100).fit(points)
+        labels = dbscan.labels_
+        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        for cluster_id in set(labels):
+            if cluster_id == -1:  # -1 代表噪声点，不处理
+                continue
+            # print(labels)
+            # if len(labels)>1:
+            #     continue
+            cluster_points = points[labels == cluster_id]
+            y, x, w, h = cv2.boundingRect(cluster_points)
+            cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+            print(x,y,w,h)
+            # print(system_state.value)
+            # cv2.imshow('event ', color_image)
+            # cv2.waitKey(0)
+            if system_state.value == 's':
+                ball_num = ball_observations.value
+                ball_pixel_3D[ball_num][0] = float(x)
+                ball_pixel_3D[ball_num][1] = float(y)
+                ball_pixel_3D[ball_num][2] = float((w+h)/2-3)
+                ball_pixel_3D[ball_num][3] = time.time()
+                # print(time.time())
+                if ball_num < 100:
+                    ball_num += 1
+                ball_observations.value = ball_num
+
+            else:
+                ball_observations.value = 0
+            break
+        if system_state.value == 's':
+            cv2.imshow('event ', color_image)
+            cv2.waitKey(1)
+            # print(count)
+            count += 1
+        else:
+            save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixels_3D"
+            num_file = len(
+                [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))])
+            save_path = f"{save_dir}/{num_file}.npy"
+            filtered_arr = ball_pixel_3D[~np.any(ball_pixel_3D == 0, axis=1)]
+            print(filtered_arr)
+            print("save to:", save_path)
+            np.save(save_path, filtered_arr)
+            break
+
+
 
 if __name__ == '__main__':
     device = torch.device("cuda")
@@ -791,12 +884,21 @@ if __name__ == '__main__':
     shared_ROI_data=(ROI_memory,ROI_dtype,ROI_shape)
 
     ball_pixel_dtype = np.float64
-    ball_pixel_shape = (1000,3)
+    ball_pixel_shape = (100,3)
     ball_pixel_memory = shared_memory.SharedMemory(create=True, size=np.prod(ball_pixel_shape) * np.dtype(ball_pixel_dtype).itemsize)
     # ROI_memory=np.zeros(4)
     ball_pixel = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_memory.buf)
     ball_pixel[:] = np.zeros(ball_pixel_shape)
     shared_ball_pixel_data = (ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape)
+
+    ball_pixel_3D_dtype = np.float64
+    ball_pixel_3D_shape = (1000, 4)
+    ball_pixel_3D_memory = shared_memory.SharedMemory(create=True,
+                                                   size=np.prod(ball_pixel_3D_shape) * np.dtype(ball_pixel_3D_dtype).itemsize)
+    # ROI_memory=np.zeros(4)
+    ball_pixel_3D = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype, buffer=ball_pixel_3D_memory.buf)
+    ball_pixel_3D[:] = np.zeros(ball_pixel_3D_shape)
+    shared_ball_pixel_3D_data = (ball_pixel_3D_memory, ball_pixel_3D_dtype, ball_pixel_3D_shape)
 
     impact_point_dtype = np.float32
     impact_point_shape = (3,)
@@ -807,22 +909,23 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 's')
-    system_state=Value('u', 'e')
+    system_state=Value('u', 's')
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
     flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state, stop_event))
     model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event))
-    event_tracking_process = Process(target=pure_event_tracking,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_data,ball_observations,system_state, stop_event))
+    event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
     landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
-
+    # checker_process=Process(target=checker,args=(shared_flir_data,shared_event_data,stop_event))
     # Start processes
     event_process.start()
-    flir_process.start()
+    # flir_process.start()
+    # checker_process.start()
     # model_tracking_process.start()
-    # event_tracking_process.start()
+    event_tracking_process.start()
     # landing_prediction_process.start()
     keyboard_process.start()
     # robot_control_process.start()
@@ -831,8 +934,8 @@ if __name__ == '__main__':
     try:
         # cuda_process.join()
         event_process.join()
-        flir_process.join()
-        model_tracking_process.join()
+        # flir_process.join()
+        # model_tracking_process.join()
         event_tracking_process.join()
         # landing_prediction_process.join()
         keyboard_process.join()

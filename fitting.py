@@ -6,7 +6,7 @@ from scipy.optimize import least_squares
 
 
 
-def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matrix, initial_guess, max_iter=200):
+def fit_3d_trajectory_with_distortion_old(observations, camera_params, rotation_matrix, initial_guess, max_iter=200):
     """
     考虑镜头畸变的3D抛体运动轨迹拟合
 
@@ -119,6 +119,107 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
     }
 
 
+def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matrix):
+    # print(observations)
+
+    def batch_undistort_pixel(u, v, fx, fy, cx, cy, k1, k2, p1, p2, k3, max_iter=5):
+        """批量去畸变：像素坐标 -> 归一化坐标"""
+        x = (u - cx) / fx
+        y = (v - cy) / fy
+
+        for _ in range(max_iter):
+            r2 = x ** 2 + y ** 2
+            radial = 1 + k1 * r2 + k2 * r2 ** 2 + k3 * r2 ** 3
+            x = (x - 2 * p1 * x * y - p2 * (r2 + 2 * x ** 2)) / radial
+            y = (y - 2 * p2 * x * y - p1 * (r2 + 2 * y ** 2)) / radial
+
+        return x, y
+
+    def batch_pixel_to_world(observations, camera_params, rotation_matrix, ball_diameter=0.14):
+        """
+        批量计算像素坐标转换为世界坐标
+
+        参数：
+        observations : ndarray (N, 4) - 每行 (u, v, d_pix, t)
+        camera_params : dict - 相机参数
+        rotation_matrix_back : ndarray (3,3) - 相机到世界坐标旋转矩阵
+        ball_diameter : float - 球直径（米）
+
+        返回：
+        world_coords : ndarray (N, 3) - 世界坐标 (Xw, Yw, Zw)
+        """
+
+        # 提取像素坐标 (u, v) 和像素直径 d_pix
+        print(observations)
+        u = observations[:, 0]
+        v = observations[:, 1]
+        d_pix = observations[:, 2]
+
+        # 相机参数
+        fx, fy = camera_params['fx'], camera_params['fy']
+        cx, cy = camera_params['cx'], camera_params['cy']
+        dist_coeffs = camera_params.get('dist_coeffs', np.zeros(5))
+        k1, k2, p1, p2, k3 = dist_coeffs if len(dist_coeffs) == 5 else np.append(dist_coeffs,
+                                                                                 [0] * (5 - len(dist_coeffs)))
+
+        x_norm, y_norm = batch_undistort_pixel(u, v, fx, fy, cx, cy, k1, k2, p1, p2, k3)
+        Zc = (fx * ball_diameter) / d_pix
+        Xc = x_norm
+        Yc = y_norm
+        camera_coords = np.stack([Xc, Yc, Zc], axis=1)  # (N, 3)
+        # print(camera_coords)
+        # world_coords = (rotation_matrix @ camera_coords.T).T  # (N,3)
+        return camera_coords
+
+    world_coords = batch_pixel_to_world(observations, camera_params, rotation_matrix)
+    # print(world_coords)
+    X0, Y0, Z0 = world_coords[0]
+    initial_guess = [X0, Y0, Z0, 0, 0, 0]  # [X0, Y0, Z0, Vx, Vy, Vz]
+    timesteps=observations[:,3]
+    print(timesteps)
+    def trajectory_model(params, t):
+        """计算给定参数下的预测轨迹"""
+        X0, Y0, Z0, Vx, Vy, Vz = params
+        X_pred = X0 + Vx * t
+        Y_pred = Y0 + Vy * t
+        Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+        return np.column_stack([X_pred, Y_pred, Z_pred])
+
+    def residuals(params):
+        """计算观测数据和预测轨迹之间的误差"""
+        predicted_coords = trajectory_model(params, timesteps)
+        return (world_coords - predicted_coords).ravel()  # 展平成1D数组
+
+    # 使用非线性最小二乘法优化
+    opt_result = least_squares(
+        residuals,
+        initial_guess,
+        max_nfev=200,
+        xtol=1e-6,
+        ftol=1e-6,
+        verbose=0
+    )
+
+    # 解析优化结果
+    success = opt_result.success
+    params = opt_result.x.tolist() if success else None
+    avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+
+    return {
+        'success': success,
+        "points": world_coords,
+        'params': {
+            'x0': params[0],
+            'y0': params[1],
+            'z0': params[2],
+            'vx': params[3],
+            'vy': params[4],
+            'vz': params[5],
+        } if success else None,
+        'cost': opt_result.cost,
+        'reprojection_error': avg_error,
+        'iterations': opt_result.nfev
+    }
 
 # 示例调用
 if __name__ == "__main__":

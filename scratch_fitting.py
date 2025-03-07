@@ -211,7 +211,7 @@ def main():
     #         print(f"{name}: {value}")
     #         # 可选：获取每个偏置的详细信息
     #         # bias_info = i_ll_biases.get_bias_info(name)
-    plot_index=20
+    plot_index=1
 
 
     for i in range(0,plot_index):
@@ -227,7 +227,7 @@ def main():
 
         # [GENERIC_TRACKING_CREATE_ITERATOR_BEGIN]
         # Events iterator on Camera or event file
-        delta_t = int(10000000 / args.update_frequency)
+        delta_t = int(100000 / args.update_frequency)
         # print(delta_t)
         mv_iterator = EventsIterator(input_path=args.event_file_path, start_ts=args.process_from,
                                      max_duration=args.process_to - args.process_from if args.process_to else None,
