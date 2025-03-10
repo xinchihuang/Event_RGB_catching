@@ -3,59 +3,328 @@ import numpy as np
 from scipy.optimize import least_squares
 import time
 import math
-def rotate_matrix_coordinate(r_x,r_y,r_z):
-    """
-    Right hand coordinate rotation matrix for coordinate rotation
-    Note this is for coordinate rotation only
 
-    Args:
-        r_x: rotation angle(degree) in x axis(counter-clockwise direction from zero) y->z
-        r_y: rotation angle in y axis x->z
-        r_z: rotation angle in z axis x->y
+from scratch_ekf import ball_memory, initial_z
+from utils import transform_coordinate,rotate_matrix_coordinate,pixel_to_world
 
-    Returns: rotation matrix in x-y-z order relative to the rotation axis
 
-    """
-    r_x=np.radians(-r_x)
-    r_y=np.radians(-r_y)
-    r_z=np.radians(-r_z)
-    Rotate_x=np.array([
-        [1, 0, 0],
-        [0, np.cos(r_x), -np.sin(r_x)],
-        [0, np.sin(r_x), np.cos(r_x)]
-    ])
-    Rotate_y=np.array([
-        [np.cos(r_y), 0, np.sin(r_y)],
-        [0, 1, 0],
-        [-np.sin(r_y), 0, np.cos(r_y)]
-    ])
-    Rotate_z=np.array([
-        [np.cos(r_z), -np.sin(r_z), 0],
-        [np.sin(r_z), np.cos(r_z), 0],
-        [0, 0, 1]
-    ])
-    return Rotate_z@Rotate_y@Rotate_x
-def translation_vector_coordinate(t_x,t_y,t_z):
-    return np.array((t_x,t_y,t_z))
-def transform_coordinate(points,rotation_matrix,translation_vector):
-    """
-    3D transformation of a coordinate
-    Get the point's new coordinate
-    Rotation
-    Args:
-        points: Old coordinate
-        rotation_matrix: Coordinate rotation matrix
-        translation_vector:
+class PixelSizeFitter:
+    def __init__(self,camera_params,rotation_matrix):
+        self.camera_params = camera_params
+        self.rotation_matrix = rotation_matrix
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix)
+        X0, Y0, Z0 = world_coords[0]
+        initial_guess = [X0, Y0, Z0, 0, 0, 0]  # [X0, Y0, Z0, Vx, Vy, Vz]
+        timesteps = self.data[:, 3]
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
 
-    Returns: New coordinate of the point
+        def residuals(params):
+            predicted_coords = trajectory_model(params, timesteps)
+            return (world_coords - predicted_coords).ravel()  # 展平成1D数组
 
-    """
-    # calculate the translation first
-    points_translated=np.array(points)-translation_vector
-    new_points=rotation_matrix@points_translated
-    return new_points
+        opt_result = least_squares(
+            residuals,
+            initial_guess,
+            max_nfev=200,
+            xtol=1e-6,
+            ftol=1e-6,
+            verbose=0
+        )
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+        predeicted_params = {
+            'success': success,
+            "points": world_coords,
+            'params': {
+                'x0': params[0],
+                'y0': params[1],
+                'z0': params[2],
+                'vx': params[3],
+                'vy': params[4],
+                'vz': params[5],
+            } if success else None,
+            'cost': opt_result.cost,
+            'reprojection_error': avg_error,
+            'iterations': opt_result.nfev
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+    def predict(self):
+        x0 = self.predeicted_params['params']['x0']
+        y0 = self.predeicted_params['params']['y0']
+        z0 = self.predeicted_params['params']['z0']
+        vx = self.predeicted_params['params']['vx']
+        vy = self.predeicted_params['params']['vy']
+        vz = self.predeicted_params['params']['vz']
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point=[0,impact_y,impact_z]
+        return impact_point
+class MonoEKF:
+    def __init__(self,camera_params,rotation_matrix):
+        self.camera_params = camera_params
+        self.rotation_matrix = rotation_matrix
 
-class ParabolaFitter:
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        fx, fy = self.camera_params['fx'], self.camera_params['fy']
+        cx, cy = self.camera_params['cx'], self.camera_params['cy']
+        dist_coeffs = self.camera_params.get('dist_coeffs', np.zeros(5))
+        k1, k2, p1, p2, k3 = dist_coeffs if len(dist_coeffs) == 5 else np.append(dist_coeffs,
+                                                                                 [0] * (5 - len(dist_coeffs)))
+        g = 9.81
+        cov_P = np.eye(6)  # 初始协方差矩阵
+        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # 过程噪声协方差
+        cov_O = np.diag([1, 1])  # 观测噪声协方差
+        initial_z=5
+
+        def h_rotation(x, R, T=np.zeros(3)):
+            """将三维位置投影到二维像素坐标系"""
+            # 提取状态变量
+            x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
+            # 转换到相机坐标系
+            world_point = np.array([x_w, y_w, z_w])
+            cam_point = R @ world_point + T
+            x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
+            u = fx * x_c / z_c + cx
+            v = fy * y_c / z_c + cy
+            return np.array([u, v]).reshape(-1, 1)
+
+        def estimate_state(u, v, z_c, vu, vv, R_back, T=np.zeros(3)):
+            x_c = (u - cx) * z_c / fx
+            y_c = (v - cy) * z_c / fy
+            vx_c = vu * z_c / fx
+            vy_c = vv * z_c / fy
+            camera_point = np.array([x_c, y_c, z_c])
+            world_point = R_back @ camera_point - T
+            camera_velocity = np.array([vx_c, vy_c, 1.2 * vy_c])
+            world_velocity = R_back @ camera_velocity - T
+            return world_point, world_velocity
+        def compute_jacobian(x, R, T=np.zeros(3)):
+            # print(x)
+            # 提取状态变量
+            x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
+            # 转换到相机坐标系
+            world_point = np.array([x_w, y_w, z_w])
+            # print("w",world_point)
+            cam_point = R @ world_point + T
+            # print(cam_point)
+            x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
+            # print(x_c, y_c, z_c)
+            # 计算偏导数
+            H = np.zeros((2, 6))
+            H[0, 0] = (fx / z_c) * R[0, 0] - (fx * x_c / z_c ** 2) * R[2, 0]
+            H[0, 1] = (fx / z_c) * R[0, 1] - (fx * x_c / z_c ** 2) * R[2, 1]
+            H[0, 2] = (fx / z_c) * R[0, 2] - (fx * x_c / z_c ** 2) * R[2, 2]
+            H[1, 0] = (fy / z_c) * R[1, 0] - (fy * y_c / z_c ** 2) * R[2, 0]
+            H[1, 1] = (fy / z_c) * R[1, 1] - (fy * y_c / z_c ** 2) * R[2, 1]
+            H[1, 2] = (fy / z_c) * R[1, 2] - (fy * y_c / z_c ** 2) * R[2, 2]
+            return H
+        ball_memory=self.data
+        rotation_matrix=self.rotation_matrix
+        estimated_trajectory = []
+        initial_dt = ball_memory[1][2] - ball_memory[0][2]
+        initial_u, initial_v = ball_memory[1][0], ball_memory[1][1]
+        initial_vu = (ball_memory[1][0] - ball_memory[0][0]) / initial_dt
+        initial_vv = (ball_memory[1][1] - ball_memory[0][1]) / initial_dt
+        world_point, world_velocity = estimate_state(initial_u, initial_v, initial_z, initial_vu, initial_vv,
+                                                     rotation_matrix)
+        x = np.array([world_point[0], world_point[1], world_point[2], world_velocity[0], world_velocity[1],
+                      world_velocity[2]]).reshape(-1, 1)
+        for step in range(1, ball_memory.shape[0]):
+            dt = ball_memory[step][2] - ball_memory[step - 1][2]
+            F = np.array([
+                [1, 0, 0, dt, 0, 0],
+                [0, 1, 0, 0, dt, 0],
+                [0, 0, 1, 0, 0, dt],
+                [0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 1, 0],
+                [0, 0, -g * dt, 0, 0, 1]
+            ])
+            x = F @ x
+            cov_P = F @ cov_P @ F.T + cov_Q
+            z = ball_memory[step, :2].reshape(-1, 1)
+            # 计算观测模型的雅可比矩阵和预测的观测值
+            H = compute_jacobian(x, rotation_matrix)
+            z_pred = h_rotation(x, rotation_matrix)
+            # print(z,z_pred)
+
+            # 更新步骤
+            S = H @ cov_P @ H.T + cov_O  # 创新协方差
+            K = cov_P @ H.T @ np.linalg.inv(S)  # 卡尔曼增益
+            # print(z, z_pred, x)
+            y = z - z_pred  # 创新
+            x = x + K @ y  # 更新状态
+            cov_P = (np.eye(6) - K @ H) @ cov_P  # 更新协方差
+
+            estimated_trajectory.append(x[:3].flatten())
+
+        estimated_trajectory = np.array(estimated_trajectory)
+        predeicted_params = {
+            "points": estimated_trajectory,
+            'params': {
+                'x0': x[0],
+                'y0': x[1],
+                'z0': x[2],
+                'vx': x[3],
+                'vy': x[4],
+                'vz': x[5],
+            },
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+
+    def predict(self):
+        x0 = self.predeicted_params['params']['x0']
+        y0 = self.predeicted_params['params']['y0']
+        z0 = self.predeicted_params['params']['z0']
+        vx = self.predeicted_params['params']['vx']
+        vy = self.predeicted_params['params']['vy']
+        vz = self.predeicted_params['params']['vz']
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+class MonoEKF3D:
+    def __init__(self,camera_params,rotation_matrix):
+        self.camera_params = camera_params
+        self.rotation_matrix = rotation_matrix
+
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        fx, fy = self.camera_params['fx'], self.camera_params['fy']
+        cx, cy = self.camera_params['cx'], self.camera_params['cy']
+        dist_coeffs = self.camera_params.get('dist_coeffs', np.zeros(5))
+        k1, k2, p1, p2, k3 = dist_coeffs if len(dist_coeffs) == 5 else np.append(dist_coeffs,
+                                                                                 [0] * (5 - len(dist_coeffs)))
+        g = 9.81
+        cov_P = np.eye(6)  # 初始协方差矩阵
+        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # 过程噪声协方差
+        cov_O = np.diag([1, 1])  # 观测噪声协方差
+        initial_z=5
+
+        def h_rotation(x, R, T=np.zeros(3)):
+            """将三维位置投影到二维像素坐标系"""
+            # 提取状态变量
+            x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
+            # 转换到相机坐标系
+            world_point = np.array([x_w, y_w, z_w])
+            cam_point = R @ world_point + T
+            x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
+            u = fx * x_c / z_c + cx
+            v = fy * y_c / z_c + cy
+            return np.array([u, v]).reshape(-1, 1)
+
+        def estimate_state(u, v, z_c, vu, vv, R_back, T=np.zeros(3)):
+            x_c = (u - cx) * z_c / fx
+            y_c = (v - cy) * z_c / fy
+            vx_c = vu * z_c / fx
+            vy_c = vv * z_c / fy
+            camera_point = np.array([x_c, y_c, z_c])
+            world_point = R_back @ camera_point - T
+            camera_velocity = np.array([vx_c, vy_c, 1.2 * vy_c])
+            world_velocity = R_back @ camera_velocity - T
+            return world_point, world_velocity
+        def compute_jacobian(x, R, T=np.zeros(3)):
+            # print(x)
+            # 提取状态变量
+            x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
+            # 转换到相机坐标系
+            world_point = np.array([x_w, y_w, z_w])
+            # print("w",world_point)
+            cam_point = R @ world_point + T
+            # print(cam_point)
+            x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
+            # print(x_c, y_c, z_c)
+            # 计算偏导数
+            H = np.zeros((2, 6))
+            H[0, 0] = (fx / z_c) * R[0, 0] - (fx * x_c / z_c ** 2) * R[2, 0]
+            H[0, 1] = (fx / z_c) * R[0, 1] - (fx * x_c / z_c ** 2) * R[2, 1]
+            H[0, 2] = (fx / z_c) * R[0, 2] - (fx * x_c / z_c ** 2) * R[2, 2]
+            H[1, 0] = (fy / z_c) * R[1, 0] - (fy * y_c / z_c ** 2) * R[2, 0]
+            H[1, 1] = (fy / z_c) * R[1, 1] - (fy * y_c / z_c ** 2) * R[2, 1]
+            H[1, 2] = (fy / z_c) * R[1, 2] - (fy * y_c / z_c ** 2) * R[2, 2]
+            return H
+        ball_memory=self.data
+        rotation_matrix=self.rotation_matrix
+        estimated_trajectory = []
+        initial_dt = ball_memory[1][2] - ball_memory[0][2]
+        initial_u, initial_v = ball_memory[1][0], ball_memory[1][1]
+        initial_vu = (ball_memory[1][0] - ball_memory[0][0]) / initial_dt
+        initial_vv = (ball_memory[1][1] - ball_memory[0][1]) / initial_dt
+        world_point, world_velocity = estimate_state(initial_u, initial_v, initial_z, initial_vu, initial_vv,
+                                                     rotation_matrix)
+        x = np.array([world_point[0], world_point[1], world_point[2], world_velocity[0], world_velocity[1],
+                      world_velocity[2]]).reshape(-1, 1)
+        for step in range(1, ball_memory.shape[0]):
+            dt = ball_memory[step][2] - ball_memory[step - 1][2]
+            F = np.array([
+                [1, 0, 0, dt, 0, 0],
+                [0, 1, 0, 0, dt, 0],
+                [0, 0, 1, 0, 0, dt],
+                [0, 0, 0, 1, 0, 0],
+                [0, 0, 0, 0, 1, 0],
+                [0, 0, -g * dt, 0, 0, 1]
+            ])
+            x = F @ x
+            cov_P = F @ cov_P @ F.T + cov_Q
+            z = ball_memory[step, :2].reshape(-1, 1)
+            # 计算观测模型的雅可比矩阵和预测的观测值
+            H = compute_jacobian(x, rotation_matrix)
+            z_pred = h_rotation(x, rotation_matrix)
+            # print(z,z_pred)
+
+            # 更新步骤
+            S = H @ cov_P @ H.T + cov_O  # 创新协方差
+            K = cov_P @ H.T @ np.linalg.inv(S)  # 卡尔曼增益
+            # print(z, z_pred, x)
+            y = z - z_pred  # 创新
+            x = x + K @ y  # 更新状态
+            cov_P = (np.eye(6) - K @ H) @ cov_P  # 更新协方差
+
+            estimated_trajectory.append(x[:3].flatten())
+
+        estimated_trajectory = np.array(estimated_trajectory)
+        predeicted_params = {
+            "points": estimated_trajectory,
+            'params': {
+                'x0': x[0],
+                'y0': x[1],
+                'z0': x[2],
+                'vx': x[3],
+                'vy': x[4],
+                'vz': x[5],
+            },
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+
+    def predict(self):
+        x0 = self.predeicted_params['params']['x0']
+        y0 = self.predeicted_params['params']['y0']
+        z0 = self.predeicted_params['params']['z0']
+        vx = self.predeicted_params['params']['vx']
+        vy = self.predeicted_params['params']['vy']
+        vz = self.predeicted_params['params']['vz']
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+class ParabolaFitterOld:
     def __init__(self,robot_pose=[0,0,0],camera_rpy_to=[0,0,0],camera_rpy_back=[0,0,0],min_data_samples=30):
 
         self.camera_pose=robot_pose
@@ -233,15 +502,7 @@ class ParabolaFitter:
         pass
 
 
+
+
 if __name__ == '__main__':
-    # new_point=[ 0.3866527,  -0.3839593 ,  3.3415    ]
-    # [2.09129708 - 0.3866527   2.63429753]
-    # rotation_matrix_coordinate=rotate_matrix_coordinate(0, 45, -90)
-    # translate_vector=translation_vector_coordinate(0,0,0)
-    # new_point=transform_coordinate(point,rotation_matrix_coordinate,translate_vector)
-    new_point = [0.3866527, -0.3839593, 3.3415]
-    print(new_point)
-    rotation_matrix_coordinate = rotate_matrix_coordinate(45, 0, 90)
-    translate_vector = translation_vector_coordinate(0, 0, 0)
-    back = transform_coordinate(new_point, rotation_matrix_coordinate, translate_vector)
-    print(back)
+  pass

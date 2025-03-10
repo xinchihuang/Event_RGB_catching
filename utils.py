@@ -1,8 +1,9 @@
 import numpy as np
-# rotation
-def rotate_matrix_coordinate(r_x, r_y, r_z):
+# coordinate transformation
+
+def rotate_matrix_coordinate(r_x,r_y,r_z):
     """
-    Create right hand coordinate rotation matrix for coordinate rotation
+    Right hand coordinate rotation matrix for coordinate rotation
     Note this is for coordinate rotation only
 
     Args:
@@ -13,25 +14,44 @@ def rotate_matrix_coordinate(r_x, r_y, r_z):
     Returns: rotation matrix in x-y-z order relative to the rotation axis
 
     """
-    r_x = np.radians(-r_x)
-    r_y = np.radians(-r_y)
-    r_z = np.radians(-r_z)
-    Rotate_x = np.array([
+    r_x=np.radians(-r_x)
+    r_y=np.radians(-r_y)
+    r_z=np.radians(-r_z)
+    Rotate_x=np.array([
         [1, 0, 0],
         [0, np.cos(r_x), -np.sin(r_x)],
         [0, np.sin(r_x), np.cos(r_x)]
     ])
-    Rotate_y = np.array([
+    Rotate_y=np.array([
         [np.cos(r_y), 0, np.sin(r_y)],
         [0, 1, 0],
         [-np.sin(r_y), 0, np.cos(r_y)]
     ])
-    Rotate_z = np.array([
+    Rotate_z=np.array([
         [np.cos(r_z), -np.sin(r_z), 0],
         [np.sin(r_z), np.cos(r_z), 0],
         [0, 0, 1]
     ])
-    return Rotate_z @ Rotate_y @ Rotate_x
+    return Rotate_z@Rotate_y@Rotate_x
+def translation_vector_coordinate(t_x,t_y,t_z):
+    return np.array((t_x,t_y,t_z))
+def transform_coordinate(points,rotation_matrix,translation_vector):
+    """
+    3D transformation of a coordinate
+    Get the point's new coordinate
+    Rotation
+    Args:
+        points: Old coordinate
+        rotation_matrix: Coordinate rotation matrix
+        translation_vector:
+
+    Returns: New coordinate of the point
+
+    """
+    # calculate the translation first
+    points_translated=np.array(points)-translation_vector
+    new_points=rotation_matrix@points_translated
+    return new_points
 
 # undistort
 def batch_undistort_pixel(u, v, fx, fy, cx, cy, k1, k2, p1, p2, k3, max_iter=5):

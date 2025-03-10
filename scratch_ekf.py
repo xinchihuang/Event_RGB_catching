@@ -98,7 +98,6 @@ def rotate_matrix_coordinate(r_x,r_y,r_z):
     ])
     return Rotate_z@Rotate_y@Rotate_x
 
-# 定义观测模型
 def h(x):
 
     """将三维位置投影到二维像素坐标系"""
@@ -126,7 +125,6 @@ def h_rotation(x,R,T=np.zeros(3)):
     return np.array([u, v]).reshape(-1, 1)
 # def h_p(x)
 def estimate_state(u,v,z_c,vu,vv,R_back,T=np.zeros(3)):
-    print(vu,vv)
     x_c = (u-cx)*z_c/fx
     y_c = (v-cy)*z_c/fy
     vx_c=vu*z_c/fx
