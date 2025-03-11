@@ -1,357 +1,82 @@
 import numpy as np
-import plotly.graph_objects as go
-
-# ball_memory=np.array([[-0.72848374,  0.63488865,  0.       ],
-#                      [-0.74531933,  0.60499671,  0.0016253 ],
-#                      [-0.74531933,  0.60499671,  0.00203371],
-#                      [-0.77473359,  0.52431068,  0.00798178],
-#                      [-0.77473359,  0.52431068,  0.00843167],
-#                      [-0.79365686,  0.49659109,  0.00945067],
-#                      [-0.79365686,  0.49659109,  0.00983453],
-#                      [-0.79365686,  0.49659109,  0.01027226],
-#                      [-0.83374014,  0.44223946,  0.01261377],
-#                      [-0.85502573,  0.41547656,  0.01401258],
-#                      [-0.85502573,  0.41547656,  0.01438212],
-#                      [-0.87723895,  0.38890411,  0.01545906],
-#                      [-0.87723895,  0.38890411,  0.01584601],
-#                      [-0.90900193,  0.33377445,  0.0167985 ],
-#                      [-0.92029198,  0.31552452,  0.01788568],
-#                      [-0.97126097,  0.25272527,  0.01985264],
-#                      [-0.97126097,  0.25272527,  0.02024579],
-#                      [-1.05041663,  0.2110932 ,  0.02155709],
-#                      [-1.05041663,  0.2110932 ,  0.02193356],
-#                      [-1.08022898,  0.16325133,  0.02292275],
-#                      [-1.1528435 ,  0.10656134,  0.02426267],
-#                      [-1.21298599,  0.05677011,  0.0254643 ],
-#                      [-1.27883478, -0.02784242, 0.02689981]])
-ball_memory=np.load("ball_pixels.npy")
-
-# 1) 反转数组
-arr_rev = ball_memory[::-1]
-
-# 2) 对反转后的数组在前两列做 unique，并获取返回的索引（对应反转后的坐标）
-_, idx_rev = np.unique(arr_rev[:, :2], axis=0, return_index=True)
-
-# 3) 将反转索引转回在原数组中的位置
-idx_original = len(arr_rev) - 1 - idx_rev
-
-# 4) 排序（让结果按原数组从上到下的顺序）
-idx_sorted = np.sort(idx_original)
-
-# 最终结果
-# result = ball_memory[idx_sorted]
-ball_memory=ball_memory[idx_sorted]
-ball_memory=ball_memory[:,:3]
-print(ball_memory)
-# import numpy as np
-# import numpy as np
-
-# 定义参数
-# dt = 0.1  # 时间步长
-# print(ball_memory)
-g = 9.81  # 重力加速度
-
-# 相机内参矩阵（假设已知）
-cy = 640
-cx = 360
-fx = 673.797
-fy = 673.797
-K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
-
-# 状态初始化 [x, y, z, vx, vy, vz]
-# x = np.array([3, 0, 2, -6, 0, 1]).reshape(-1, 1)
-cov_P = np.eye(6)  # 初始协方差矩阵
-cov_Q = np.diag([1, 1, 1, 1, 1, 1])   # 过程噪声协方差
-cov_O = np.diag([1, 1])  # 观测噪声协方差
-
-# 定义相机坐标旋转矩阵
-def rotate_matrix_coordinate(r_x,r_y,r_z):
-    """
-    Right hand coordinate rotation matrix for coordinate rotation
-    Note this is for coordinate rotation only
-
-    Args:
-        r_x: rotation angle(degree) in x axis(counter-clockwise direction from zero) y->z
-        r_y: rotation angle in y axis x->z
-        r_z: rotation angle in z axis x->y
-
-    Returns: rotation matrix in x-y-z order relative to the rotation axis
-
-    """
-    r_x=np.radians(-r_x)
-    r_y=np.radians(-r_y)
-    r_z=np.radians(-r_z)
-    Rotate_x=np.array([
-        [1, 0, 0],
-        [0, np.cos(r_x), -np.sin(r_x)],
-        [0, np.sin(r_x), np.cos(r_x)]
-    ])
-    Rotate_y=np.array([
-        [np.cos(r_y), 0, np.sin(r_y)],
-        [0, 1, 0],
-        [-np.sin(r_y), 0, np.cos(r_y)]
-    ])
-    Rotate_z=np.array([
-        [np.cos(r_z), -np.sin(r_z), 0],
-        [np.sin(r_z), np.cos(r_z), 0],
-        [0, 0, 1]
-    ])
-    return Rotate_z@Rotate_y@Rotate_x
-
-def h(x):
-
-    """将三维位置投影到二维像素坐标系"""
-
-    u = fx * x[0] / x[2] + cx
-    v = fy * x[1] / x[2] + cy
-    return np.array([u, v]).reshape(-1, 1)
-def h_rotation(x,R,T=np.zeros(3)):
-
-    """将三维位置投影到二维像素坐标系"""
-    # print(x)
-    # 提取状态变量
-    x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
-    # 转换到相机坐标系
-    world_point = np.array([x_w, y_w, z_w])
-    # print("h", world_point)
-    cam_point = R @ world_point + T
-    # print(cam_point)
-    x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
-    # print(x_c, y_c, z_c)
-    # print((x_c, y_c, z_c))
-    u = fx * x_c / z_c + cx
-    v = fy * y_c / z_c + cy
-    # print(u)
-    return np.array([u, v]).reshape(-1, 1)
-# def h_p(x)
-def estimate_state(u,v,z_c,vu,vv,R_back,T=np.zeros(3)):
-    x_c = (u-cx)*z_c/fx
-    y_c = (v-cy)*z_c/fy
-    vx_c=vu*z_c/fx
-    vy_c=vv*z_c/fy
-    camera_point = np.array([x_c, y_c, z_c])
-    world_point = R_back@camera_point - T
-    camera_velocity = np.array([vx_c, vy_c,1.2*vy_c])
-    world_velocity=R_back@camera_velocity - T
-    return world_point,world_velocity
-def jacobian_H(x):
-    """计算观测模型的雅可比矩阵"""
-
-    H = np.zeros((2, 6))
-    H[0, 0] = fx / x[2]
-    H[0, 2] = -fx * x[0] / (x[2]**2)
-    H[1, 1] = fy / x[2]
-    H[1, 2] = -fy * x[1] / (x[2]**2)
-    return H
-def compute_jacobian(x,R,T=np.zeros(3)):
-    # print(x)
-    # 提取状态变量
-    x_w, y_w, z_w = x[0,0], x[1,0], x[2,0]
-    # 转换到相机坐标系
-    world_point = np.array([x_w, y_w, z_w])
-    # print("w",world_point)
-    cam_point = R @ world_point + T
-    # print(cam_point)
-    x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
-    # print(x_c, y_c, z_c)
-    # 计算偏导数
-    H = np.zeros((2, 6))
-    H[0, 0] = (fx / z_c) * R[0, 0] - (fx * x_c / z_c**2) * R[2, 0]
-    H[0, 1] = (fx / z_c) * R[0, 1] - (fx * x_c / z_c**2) * R[2, 1]
-    H[0, 2] = (fx / z_c) * R[0, 2] - (fx * x_c / z_c**2) * R[2, 2]
-    H[1, 0] = (fy / z_c) * R[1, 0] - (fy * y_c / z_c**2) * R[2, 0]
-    H[1, 1] = (fy / z_c) * R[1, 1] - (fy * y_c / z_c**2) * R[2, 1]
-    H[1, 2] = (fy / z_c) * R[1, 2] - (fy * y_c / z_c**2) * R[2, 2]
-    return H
-# 求解二次方程的函数
-def solve_plane_intersection(x):
-    # print(x)
-    t=abs(x[0]/x[3])
-    # print(t)
-    return t
-
-# 预测球经过平面的坐标
-def predict_intersection(x):
-    t = solve_plane_intersection(x)
-    # print(x,t)
-    # 计算经过平面时的位置
-    x_intersect = x[0] + x[3] * t
-    y_intersect = x[1] + x[4] * t
-    z_intersect = x[2] + x[5] * t - 0.5 * g * t**2
-    return np.array([x_intersect, y_intersect, z_intersect])
-
-camera_rpy_to=[0, 45, -90]
-camera_rpy_back=[45, 0, 90]
-rotation_matrix_to=rotate_matrix_coordinate(camera_rpy_to[0],camera_rpy_to[1],camera_rpy_to[2])
-rotation_matrix_back=rotate_matrix_coordinate(camera_rpy_back[0],camera_rpy_back[1],camera_rpy_back[2])
-
-# initial_dt=ball_memory[1][2]-ball_memory[0][2]
-# initial_z=3.5
-
-fig = go.Figure()
-camera_point = np.array([[0,0,0]])
-fig.add_trace(go.Scatter3d(
-    x=camera_point[:, 0],
-    y=camera_point[:, 1],
-    z=camera_point[:, 2],
-    mode='markers',
-    name='Camera',
-    marker=dict(color="red",size=10)
-))
-for initial_z in range(2,10):
-    estimated_trajectory = []
-    impact_points = []
-    initial_dt = ball_memory[1][2] - ball_memory[0][2]
-    initial_u,initial_v=ball_memory[1][0],ball_memory[1][1]
-    initial_vu=(ball_memory[1][0]-ball_memory[0][0])/initial_dt
-    initial_vv=(ball_memory[1][1]-ball_memory[0][1])/initial_dt
-    world_point,world_velocity=estimate_state(initial_u,initial_v,initial_z,initial_vu,initial_vv,rotation_matrix_back)
-    # print(world_point,world_velocity)
-
-    x = np.array([world_point[0], world_point[1], world_point[2], world_velocity[0], world_velocity[1], world_velocity[2]]).reshape(-1, 1)
-    # print(x)
-    # EKF 主循环
-    for step in range(1,ball_memory.shape[0]):
-        dt=ball_memory[step][2]-ball_memory[step-1][2]
-        F = np.array([
-            [1, 0, 0, dt, 0, 0],
-            [0, 1, 0, 0, dt, 0],
-            [0, 0, 1, 0, 0, dt],
-            [0, 0, 0, 1, 0, 0],
-            [0, 0, 0, 0, 1, 0],
-            [0, 0, -g * dt, 0, 0, 1]
-        ])
-        # 预测步骤
-        x = F @ x
-        cov_P = F @ cov_P @ F.T + cov_Q
-
-        # 获取观测数据
-        # z = ball_memory[step,:2]
-        # print(z)
-        # observed_point.append([ball_memory[step][0],ball_memory[step][1],ball_memory[step][2]])
-        # print(ball_memory[step,:2])
-        z=ball_memory[step,:2].reshape(-1, 1)
-
-        # z=ball_memory[step,:2].reshape(-1,1)
-        # print(z)
-        # 计算观测模型的雅可比矩阵和预测的观测值
-        H = compute_jacobian(x,rotation_matrix_to)
-        z_pred = h_rotation(x,rotation_matrix_to)
-        # print(z,z_pred)
-
-        # 更新步骤
-        S = H @ cov_P @ H.T + cov_O  # 创新协方差
-        K = cov_P @ H.T @ np.linalg.inv(S)  # 卡尔曼增益
-        # print(z, z_pred, x)
-        y = z - z_pred  # 创新
+from fitting import fit_3d_trajectory_with_distortion
+from utils import rotate_matrix_coordinate
+import os
+from plot.plot_3D import draw_3D_trajetory
+from parabola_fitter import PixelSizeFitter,MonoEKF3D
 
 
+def cal_position(point_index,y_bias=0,z_bias=0.8):
+    row=point_index//10
+    col=point_index%10
+    y=(row)*0.1+y_bias+0.05
+    z=(col)*0.1+z_bias+0.05
+    return [0,y,z]
+def compute_distance_stats(array1, array2):
+    if array1.ndim == 1:
+        array1 = array1.reshape(1, -1)
+    if array2.ndim == 1:
+        array2 = array2.reshape(1, -1)
 
-        # print(predict_intersection(x,(0,0,1,0)))
-        impact_point=predict_intersection(x)
-        impact_points.append(impact_point.reshape(1,-1).squeeze())
-        x = x + K @ y  # 更新状态
-        cov_P = (np.eye(6) - K @ H) @ cov_P  # 更新协方差
+    diff = array1[:, np.newaxis, :] - array2[np.newaxis, :, :]
+    squared_diff = diff ** 2
+    sum_squared_diff = np.sum(squared_diff, axis=2)
+    distances = np.sqrt(sum_squared_diff)
 
-        # 保存估计位置
-        estimated_trajectory.append(x[:3].flatten())
-        # 打印状态和观测
-        # print(f"Step {step + 1}")
-        # print(f"Estimated state:\n{x.ravel()}")
-        # print(f"Measurement:\n{z.ravel()}\n")
-    # true_trajectory = np.array(true_trajectory)
-    estimated_trajectory = np.array(estimated_trajectory)
-    # observed_point = np.array(observed_point)
-    impact_points = np.array(impact_points)
-    # print(impact_points)
-    camera_point = np.array([[0,0,0]])
-    # theta = -np.pi/4  # 45 度
-    theta = 0
+    mean = np.mean(distances)
+    variance = np.var(distances)
 
-    # 构建旋转矩阵
-    R_x = np.array([
-        [1, 0, 0],
-        [0, np.cos(theta), -np.sin(theta)],
-        [0, np.sin(theta), np.cos(theta)]
-    ])
-    estimated_trajectory=estimated_trajectory@R_x
-    # observed_point=observed_point@R_x
-    camera_point=camera_point@R_x
-
-    # 使用 Plotly 绘制轨迹
-
-    # # 添加真实轨迹
-    # fig.add_trace(go.Scatter3d(
-    #     x=true_trajectory[:, 0],
-    #     y=true_trajectory[:, 1],
-    #     z=true_trajectory[:, 2],
-    #     mode='lines+markers',
-    #     name='True Trajectory',
-    #     line=dict(color='blue', width=2),
-    #     marker=dict(size=4)
-    # ))
-    # fig.add_trace(go.Scatter3d(
-    #     x=observed_point[:, 0],
-    #     y=observed_point[:, 1],
-    #     z=observed_point[:, 2],
-    #     mode='markers',
-    #     name='Observed point',
-    #     marker=dict(color='blue', size=6, symbol='circle')
-    # ))
-    # 添加估计轨迹
-
-    fig.add_trace(go.Scatter3d(
-        x=estimated_trajectory[:, 0],
-        y=estimated_trajectory[:, 1],
-        z=estimated_trajectory[:, 2],
-        mode='lines+markers',
-        name=f'Estimated Trajectory z={initial_z}',  # 根据 z 区分
-        line=dict(width=2),
-        marker=dict(size=4)
-    ))
-
-    # 如果每次循环的碰撞点也不同，可以继续添加散点
-    fig.add_trace(go.Scatter3d(
-        x=impact_points[:, 0],
-        y=impact_points[:, 1],
-        z=impact_points[:, 2],
-        mode='markers',
-        name=f'Impact Points z={initial_z}',
-        marker=dict(size=8)
-    ))
-    # 配置布局
-fig.update_layout(
-    title='3D Trajectory: Estimated',
-    scene=dict(
-        xaxis=dict(
-            title='X Axis',
-            tickwidth=10,  # 设置刻度线的粗细
-            linewidth=10,  # 设置坐标轴线条的粗细4tickfont=dict(size=14),  # 设置刻度字体大小
-            tickfont=dict(size=20),  # 设置刻度字体大小
-            titlefont=dict(size=30),  # 设置坐标轴标题字体大小
-        ),
-        yaxis=dict(
-            title='Y Axis',
-            tickwidth=10,
-            linewidth=10,
-            tickfont=dict(size=20),  # 设置刻度字体大小
-            titlefont=dict(size=30),  # 设置坐标轴标题字体大小
-        ),
-        zaxis=dict(
-            title='Z Axis',
-            tickwidth=10,
-            linewidth=10,
-            tickfont=dict(size=20),  # 设置刻度字体大小
-            titlefont=dict(size=30),  # 设置坐标轴标题字体大小
-        ),
-       # 确保三轴比例相同
-    ),
-    # margin=dict(l=0, r=0, b=0, t=40)
-)
-
-fig.show()
+    return mean, variance
 
 
+def main():
+    """ Main """
+
+    plot_index=1
+    # save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixels_3D"
+    save_dir = "C:\\Users\\huang xinchi\\Desktop\\Event_RGB_catching_data\\ball_pixels_3D"
+    camera_config = {
+        'fx': 739.9,
+        'fy': 739.9,
+        'cx': 360,
+        'cy': 720,
+        'dist_'
+        'dist_coeffs': [-0.1060764147484086, -0.001306849716448579, -0.0005920424312549498, -5.0607348313996e-05, 0]
+
+    }
+
+    camera_rpy_to = [0, 45, -90]
+    camera_rpy_back = [45, 0, 90]
+    rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
+    rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
+
+    label = [-63]
+    # fitter = PixelSizeFitter(camera_params=camera_config,rotation_matrix=rotation_matrix)
+    predictor=MonoEKF3D(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
+    for i in range(0,plot_index):
+        # ball_memory=np.load(f"{save_dir}/{i}.npy")
+        ball_memory = np.load(f"{save_dir}\\{i}.npy")
+        ball_memory=ball_memory[:]
+        if len(ball_memory)==0:
+            continue
+
+        observations=ball_memory
+
+        observations[:,3]=observations[:,3]-observations[0,3]
+        predictor.set_data(observations)
+        result=predictor.get_params()
+        print(result)
+
+        impact_point_real=cal_position(label[i])
+        ball = result['points']
+        impact_point=predictor.predict()
 
 
+        dict_to_save={'points' : ball,
+             'impact':impact_point,
+             'label':impact_point_real,
+             }
+        draw_3D_trajetory(data=dict_to_save,i=i)
 
+if __name__ == "__main__":
+    main()
