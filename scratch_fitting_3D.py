@@ -2,8 +2,9 @@ import numpy as np
 from fitting import fit_3d_trajectory_with_distortion
 from utils import rotate_matrix_coordinate
 import os
-from plot.plot_3D import draw_3D_trajetory
-from parabola_fitter import PixelSizeFitter
+from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory
+from parabola_fitter import MonoPixelFitter, MonoFitter, MonoFitter3D,MonoPixelFitter3D,MonoRansac
+
 
 def cal_position(point_index,y_bias=0,z_bias=0.8):
     row=point_index//10
@@ -31,7 +32,7 @@ def compute_distance_stats(array1, array2):
 def main():
     """ Main """
 
-    plot_index=1
+    plot_index=10
     save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixels_3D"
     camera_config = {
         'fx': 739.9,
@@ -42,14 +43,24 @@ def main():
         'dist_coeffs': [-0.1060764147484086, -0.001306849716448579, -0.0005920424312549498, -5.0607348313996e-05, 0]
 
     }
+    camera_rpy_to = [0, 45, -90]
     camera_rpy_back = [45, 0, 90]
-    rotation_matrix = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
+    rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
+    rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
 
-    label = [-63]
-    fitter = PixelSizeFitter(camera_params=camera_config,rotation_matrix=rotation_matrix)
+
+    label = [14,-63,-62,54,-74,53,22,-54,44,-61]
+    # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
+    # fitter = MonoPixelFitter(camera_params=camera_config, rotation_matrix_to=rotation_matrix_to,
+    #                          rotation_matrix_back=rotation_matrix_back)
+    # fitter = MonoPixelFitter3DRansac(camera_params=camera_config, rotation_matrix_back=rotation_matrix_back)
+    # fitter = MonoPixelFitter(camera_params=camera_config, rotation_matrix_back=rotation_matrix_back)
+    # fitter = PixelSizeFitter(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
+    fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
+    exp_results = []
     for i in range(0,plot_index):
         ball_memory=np.load(f"{save_dir}/{i}.npy")
-        ball_memory=ball_memory[:]
+        ball_memory=ball_memory[:15]
         if len(ball_memory)==0:
             continue
 
@@ -60,6 +71,7 @@ def main():
 
         impact_point_real=cal_position(label[i])
         ball = result['points']
+
         impact_point=fitter.predict()
 
 
@@ -67,7 +79,8 @@ def main():
              'impact':impact_point,
              'label':impact_point_real,
              }
-        draw_3D_trajetory(data=dict_to_save,i=i)
+        exp_results.append(dict_to_save)
+    draw_multi_3D_trajetory(raw_data=exp_results)
 
 if __name__ == "__main__":
     main()

@@ -12,7 +12,7 @@ import multiprocessing
 import signal
 import numpy as np
 import time
-from ekf_predict import ekf_predict
+# from ekf_predict import ekf_predict
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
@@ -96,7 +96,7 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def read_from_raw(shared_event_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/9.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     while system_state.value=='e':
@@ -608,40 +608,40 @@ def keyboard(shared_value,system_state):
     with keyboard.Listener(on_press=on_press) as listener:
 
         listener.join()
-def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,stop_event,odometry=None):
-    from parabola_fitter import ParabolaFitter
-    from fitting import fit_3d_trajectory_with_distortion
-
-    ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_3D_data
-    ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
-
-
-    # print(ball_pixels)
-
-    impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
-    impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
-    impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-
-    parabola_fitter = ParabolaFitter(camera_rpy_to=[0, 45, -90], camera_rpy_back=[45, 0, 90],
-                                     min_data_samples=30)
-    while not stop_event.is_set():
-        ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
-        ball_pixels = ball_pixels[:ball_observations.value]
-
-        try:
-            if len(ball_pixels) >= 10:
-                ball_memory = transform_pixel_to_coordinate(ball_pixels)
-                # print("ball_memory", ball_memory)
-                # np.save("ball_memory", ball_memory)
-                impact_point = ekf_predict(ball_memory)
-                print(impact_point)
-                impact_point_array[0] = impact_point[0]
-                impact_point_array[1] = impact_point[1]
-                impact_point_array[2] = impact_point[2]
-                break
-
-        except:
-            continue
+# def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,stop_event,odometry=None):
+#     from parabola_fitter import ParabolaFitter
+#     from fitting import fit_3d_trajectory_with_distortion
+#
+#     ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_3D_data
+#     ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
+#
+#
+#     # print(ball_pixels)
+#
+#     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
+#     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
+#     impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
+#
+#     parabola_fitter = ParabolaFitter(camera_rpy_to=[0, 45, -90], camera_rpy_back=[45, 0, 90],
+#                                      min_data_samples=30)
+#     while not stop_event.is_set():
+#         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
+#         ball_pixels = ball_pixels[:ball_observations.value]
+#
+#         try:
+#             if len(ball_pixels) >= 10:
+#                 ball_memory = transform_pixel_to_coordinate(ball_pixels)
+#                 # print("ball_memory", ball_memory)
+#                 # np.save("ball_memory", ball_memory)
+#                 impact_point = ekf_predict(ball_memory)
+#                 print(impact_point)
+#                 impact_point_array[0] = impact_point[0]
+#                 impact_point_array[1] = impact_point[1]
+#                 impact_point_array[2] = impact_point[2]
+#                 break
+#
+#         except:
+#             continue
 
 def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     from pcan_cybergear import CANMotorController
@@ -916,7 +916,7 @@ if __name__ == '__main__':
     flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state, stop_event))
     model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event))
     event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
-    landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
+    # landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
     # checker_process=Process(target=checker,args=(shared_flir_data,shared_event_data,stop_event))

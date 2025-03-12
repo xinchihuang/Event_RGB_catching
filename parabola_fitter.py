@@ -1,17 +1,19 @@
 import random
 import numpy as np
 from scipy.optimize import least_squares
-from utils import transform_coordinate,rotate_matrix_coordinate,pixel_to_world
-class PixelSizeFitter:
-    def __init__(self,camera_params,rotation_matrix,ball_diameter=0.14):
+from utils import transform_coordinate,rotate_matrix_coordinate,pixel_to_world,world_to_pixel
+from scipy.optimize import least_squares
+from sklearn.linear_model import RANSACRegressor
+from ransac_fit import *
+class MonoFitter:
+    def __init__(self,camera_params,rotation_matrix_back):
         self.camera_params = camera_params
-        self.rotation_matrix = rotation_matrix
+        self.rotation_matrix_back = rotation_matrix_back
     def set_data(self,data):
         self.data = data
     def get_params(self):
-        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix)
-        X0, Y0, Z0 = world_coords[0]
-        initial_guess = [X0, Y0, Z0, 0, 0, 0]  # [X0, Y0, Z0, Vx, Vy, Vz]
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        initial_guess = [4, 0, 2, -8, 0.1, 1]  # [X0, Y0, Z0, Vx, Vy, Vz]
         timesteps = self.data[:, 3]
         def trajectory_model(params, t):
             X0, Y0, Z0, Vx, Vy, Vz = params
@@ -22,7 +24,7 @@ class PixelSizeFitter:
 
         def residuals(params):
             predicted_coords = trajectory_model(params, timesteps)
-            return (world_coords - predicted_coords).ravel()  # 展平成1D数组
+            return (world_coords[:2] - predicted_coords[:2]).ravel()  # 展平成1D数组
 
         opt_result = least_squares(
             residuals,
@@ -53,22 +55,410 @@ class PixelSizeFitter:
         self.predeicted_params = predeicted_params
         return predeicted_params
     def predict(self):
-        x0 = self.predeicted_params['params']['x0']
-        y0 = self.predeicted_params['params']['y0']
-        z0 = self.predeicted_params['params']['z0']
-        vx = self.predeicted_params['params']['vx']
-        vy = self.predeicted_params['params']['vy']
-        vz = self.predeicted_params['params']['vz']
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
-        impact_point=[0,impact_y,impact_z]
+        impact_point = [0, impact_y, impact_z]
         return impact_point
-class MonoEKF:
-    def __init__(self,camera_params,rotation_matrix):
+class MonoFitter3D:
+    def __init__(self,camera_params,rotation_matrix_back,ball_diameter=0.14):
         self.camera_params = camera_params
-        self.rotation_matrix = rotation_matrix
+        self.rotation_matrix_back = rotation_matrix_back
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        X0, Y0, Z0 = world_coords[0]
+        print(X0, Y0, Z0)
+        initial_guess = [X0, Y0, Z0, -8, 0, 0]  # [X0, Y0, Z0, Vx, Vy, Vz]
+        timesteps = self.data[:, 3]
+        print(timesteps)
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
 
+        def residuals(params):
+            predicted_coords = trajectory_model(params, timesteps)
+            return (world_coords - predicted_coords).ravel()  # 展平成1D数组
+
+        opt_result = least_squares(
+            residuals,
+            initial_guess,
+            max_nfev=100,
+            xtol=1e-5,
+            ftol=1e-5,
+            verbose=0
+        )
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+        predeicted_params = {
+            'success': success,
+            "points": world_coords,
+            'params': {
+                'x0': params[0],
+                'y0': params[1],
+                'z0': params[2],
+                'vx': params[3],
+                'vy': params[4],
+                'vz': params[5],
+            } if success else None,
+            'cost': opt_result.cost,
+            'reprojection_error': avg_error,
+            'iterations': opt_result.nfev
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+    def predict(self):
+        x0 = self.predeicted_params['params']['x0']
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+class MonoFitterRansac:
+    def __init__(self, camera_params, rotation_matrix_back):
+        self.camera_params = camera_params
+        self.rotation_matrix_back = rotation_matrix_back
+
+    def set_data(self, data):
+        self.data = data
+
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        timesteps = self.data[:, 3]
+
+        # 提取 X 和 Y 方向数据
+        X = world_coords[:, 0]
+        Y = world_coords[:, 1]
+        Z = world_coords[:, 2]
+
+        # 使用 RANSAC 拟合 X, Y, Z
+        ransac_X = RANSACRegressor().fit(timesteps.reshape(-1, 1), X)
+        ransac_Y = RANSACRegressor().fit(timesteps.reshape(-1, 1), Y)
+        ransac_Z = RANSACRegressor().fit(timesteps.reshape(-1, 1), Z)
+
+        # 获取拟合的初始值
+        X0, Vx = ransac_X.estimator_.intercept_, ransac_X.estimator_.coef_[0]
+        Y0, Vy = ransac_Y.estimator_.intercept_, ransac_Y.estimator_.coef_[0]
+        Z0, Vz = ransac_Z.estimator_.intercept_, ransac_Z.estimator_.coef_[0]
+
+        # # 由于 Z 方向受重力影响，我们调整初始 Vz
+        # Vz += 0.5 * 9.81 * np.mean(timesteps)  # 估算初始速度
+
+        initial_guess = [X0, Y0, Z0, Vx, Vy, Vz]
+
+
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
+
+        def residuals(params):
+            predicted_coords = trajectory_model(params, timesteps)
+            return (world_coords[:, :2] - predicted_coords[:, :2]).ravel()
+
+        opt_result = least_squares(
+            residuals, initial_guess, max_nfev=200, xtol=1e-6, ftol=1e-6, verbose=0
+        )
+
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+
+        self.predicted_params = {
+            "success": success,
+            "points": world_coords,
+            "params": {
+                "x0": params[0], "y0": params[1], "z0": params[2],
+                "vx": params[3], "vy": params[4], "vz": params[5],
+            } if success else None,
+            "cost": opt_result.cost,
+            "reprojection_error": avg_error,
+            "iterations": opt_result.nfev,
+        }
+        return self.predicted_params
+
+    def predict(self):
+        params = self.predicted_params["params"]
+        x0, y0, z0 = params["x0"], params["y0"], params["z0"]
+        vx, vy, vz = params["vx"], params["vy"], params["vz"]
+
+        impact_t = abs(x0 / vx) if vx != 0 else np.inf
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+class MonoPixelFitter:
+    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back):
+        self.camera_params = camera_params
+        self.rotation_matrix_to = rotation_matrix_to
+        self.rotation_matrix_back = rotation_matrix_back
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        initial_guess = [5, 0, 2, -8, 0.1, 1]  # [X0, Y0, Z0, Vx, Vy, Vz]
+        timesteps = self.data[:, 3]
+        uv_obs = self.data[:, :2]
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
+
+        def residuals(params):
+            errors = []
+            for t, (u_obs, v_obs) in zip(timesteps, uv_obs):
+                # print(t)
+                predicted_coords=trajectory_model(params, t)
+                # print(predicted_coords)
+                u_pred, v_pred,d_pix_pred = world_to_pixel(predicted_coords, self.camera_params, self.rotation_matrix_to)
+                if u_pred is None:  # 无效点跳过
+                    errors.extend([100000.0, 100000.0])
+                else:
+                    errors.extend([u_obs - u_pred, v_obs - v_pred])
+                # print(errors)
+            return np.array(errors).ravel()
+
+        opt_result = least_squares(
+            residuals,
+            initial_guess,
+            max_nfev=200,
+            xtol=1e-6,
+            ftol=1e-6,
+            verbose=0
+        )
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+        t = np.linspace(0, max(timesteps), len(self.data))
+        x = params[0] + params[3] * t
+        y = params[1] + params[4] * t
+        z = params[2] + params[5] * t - 0.5 * 9.81 * t ** 2
+        predicted_coord=np.column_stack([x, y, z])
+        predeicted_params = {
+            'success': success,
+            "points": predicted_coord,
+            'params': {
+                'x0': params[0],
+                'y0': params[1],
+                'z0': params[2],
+                'vx': params[3],
+                'vy': params[4],
+                'vz': params[5],
+            } if success else None,
+            'cost': opt_result.cost,
+            'reprojection_error': avg_error,
+            'iterations': opt_result.nfev
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+    def predict(self):
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        print(x0, y0, z0, vx, vy, vz)
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+class MonoPixelFitter3D:
+    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back):
+        self.camera_params = camera_params
+        self.rotation_matrix_to = rotation_matrix_to
+        self.rotation_matrix_back = rotation_matrix_back
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        X0, Y0, Z0 = world_coords[0]
+        initial_guess = [X0, Y0, Z0, -8, 0, 0]  # [X0, Y0, Z0, Vx, Vy, Vz]
+        timesteps = self.data[:, 3]
+        uv_obs = self.data[:, :3]
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
+
+        def residuals(params):
+            errors = []
+            for t, (u_obs, v_obs,d_obs) in zip(timesteps, uv_obs):
+                # print(t)
+                predicted_coords=trajectory_model(params, t)
+                # print(predicted_coords)
+                u_pred, v_pred,d_pix_pred = world_to_pixel(predicted_coords, self.camera_params, self.rotation_matrix_to)
+                if u_pred is None:  # 无效点跳过
+                    errors.extend([100000.0, 100000.0,100000.0])
+                else:
+                    errors.extend([u_obs - u_pred, v_obs - v_pred,d_pix_pred-d_obs])
+                # print(errors)
+            return np.array(errors).ravel()
+
+        opt_result = least_squares(
+            residuals,
+            initial_guess,
+            max_nfev=200,
+            xtol=1e-6,
+            ftol=1e-6,
+            verbose=0
+        )
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+        t = np.linspace(0, max(timesteps), len(self.data))
+        x = params[0] + params[3] * t
+        y = params[1] + params[4] * t
+        z = params[2] + params[5] * t - 0.5 * 9.81 * t ** 2
+        predicted_coord=np.column_stack([x, y, z])
+        predeicted_params = {
+            'success': success,
+            "points": predicted_coord,
+            'params': {
+                'x0': params[0],
+                'y0': params[1],
+                'z0': params[2],
+                'vx': params[3],
+                'vy': params[4],
+                'vz': params[5],
+            } if success else None,
+            'cost': opt_result.cost,
+            'reprojection_error': avg_error,
+            'iterations': opt_result.nfev
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+    def predict(self):
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        print(x0, y0, z0, vx, vy, vz)
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+#not yet finish
+class MonoFitter3DRansac:
+    def __init__(self, camera_params, rotation_matrix_back):
+        self.camera_params = camera_params
+        self.rotation_matrix_back = rotation_matrix_back
+
+    def set_data(self, data):
+        self.data = data
+
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        timesteps = self.data[:, 3]
+
+        # 提取 X 和 Y 方向数据
+        X = world_coords[:, 0]
+        Y = world_coords[:, 1]
+        Z = world_coords[:, 2]
+
+        # 使用 RANSAC 拟合 X, Y, Z
+        ransac_X = RANSACRegressor().fit(timesteps.reshape(-1, 1), X)
+        ransac_Y = RANSACRegressor().fit(timesteps.reshape(-1, 1), Y)
+        ransac_Z = RANSACRegressor().fit(timesteps.reshape(-1, 1), Z)
+
+        # 获取拟合的初始值
+        X0, Vx = ransac_X.estimator_.intercept_, ransac_X.estimator_.coef_[0]
+        Y0, Vy = ransac_Y.estimator_.intercept_, ransac_Y.estimator_.coef_[0]
+        Z0, Vz = ransac_Z.estimator_.intercept_, ransac_Z.estimator_.coef_[0]
+
+        # # 由于 Z 方向受重力影响，我们调整初始 Vz
+        # Vz -= 0.5 * 9.81 * np.mean(timesteps)  # 估算初始速度
+
+        initial_guess = [X0, Y0, Z0, Vx, Vy, Vz]
+        print(initial_guess)
+
+        def trajectory_model(params, t):
+            X0, Y0, Z0, Vx, Vy, Vz = params
+            X_pred = X0 + Vx * t
+            Y_pred = Y0 + Vy * t
+            Z_pred = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
+            return np.column_stack([X_pred, Y_pred, Z_pred])
+
+        def residuals(params):
+            predicted_coords = trajectory_model(params, timesteps)
+            return (world_coords[:, :] - predicted_coords[:, :]).ravel()
+
+        opt_result = least_squares(
+            residuals, initial_guess, max_nfev=200, xtol=1e-6, ftol=1e-6, verbose=0
+        )
+
+        success = opt_result.success
+        params = opt_result.x.tolist() if success else None
+        avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
+
+        self.predicted_params = {
+            "success": success,
+            "points": world_coords,
+            "params": {
+                "x0": params[0], "y0": params[1], "z0": params[2],
+                "vx": params[3], "vy": params[4], "vz": params[5],
+            } if success else None,
+            "cost": opt_result.cost,
+            "reprojection_error": avg_error,
+            "iterations": opt_result.nfev,
+        }
+        return self.predicted_params
+
+    def predict(self):
+        params = self.predicted_params["params"]
+        x0, y0, z0 = params["x0"], params["y0"], params["z0"]
+        vx, vy, vz = params["vx"], params["vy"], params["vz"]
+
+        impact_t = abs(x0 / vx) if vx != 0 else np.inf
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
+
+
+
+
+
+class MonoEKF:
+    def __init__(self, camera_params, rotation_matrix_to, rotation_matrix_back):
+        self.camera_params = camera_params
+        self.rotation_matrix_to = rotation_matrix_to
+        self.rotation_matrix_back = rotation_matrix_back
     def set_data(self,data):
         self.data = data
     def get_params(self):
@@ -81,7 +471,7 @@ class MonoEKF:
         cov_P = np.eye(6)  # 初始协方差矩阵
         cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # 过程噪声协方差
         cov_O = np.diag([1, 1])  # 观测噪声协方差
-        initial_z=5
+        initial_z=6
 
         def h_rotation(x, R, T=np.zeros(3)):
             """将三维位置投影到二维像素坐标系"""
@@ -102,21 +492,14 @@ class MonoEKF:
             vy_c = vv * z_c / fy
             camera_point = np.array([x_c, y_c, z_c])
             world_point = R_back @ camera_point - T
-            camera_velocity = np.array([vx_c, vy_c, 1.2 * vy_c])
+            camera_velocity = np.array([vx_c, vy_c, 1.4 * vy_c])
             world_velocity = R_back @ camera_velocity - T
             return world_point, world_velocity
         def compute_jacobian(x, R, T=np.zeros(3)):
-            # print(x)
-            # 提取状态变量
             x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
-            # 转换到相机坐标系
             world_point = np.array([x_w, y_w, z_w])
-            # print("w",world_point)
             cam_point = R @ world_point + T
-            # print(cam_point)
             x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
-            # print(x_c, y_c, z_c)
-            # 计算偏导数
             H = np.zeros((2, 6))
             H[0, 0] = (fx / z_c) * R[0, 0] - (fx * x_c / z_c ** 2) * R[2, 0]
             H[0, 1] = (fx / z_c) * R[0, 1] - (fx * x_c / z_c ** 2) * R[2, 1]
@@ -126,18 +509,17 @@ class MonoEKF:
             H[1, 2] = (fy / z_c) * R[1, 2] - (fy * y_c / z_c ** 2) * R[2, 2]
             return H
         ball_memory=self.data
-        rotation_matrix=self.rotation_matrix
         estimated_trajectory = []
-        initial_dt = ball_memory[1][2] - ball_memory[0][2]
+        initial_dt = ball_memory[1][3] - ball_memory[0][3]
         initial_u, initial_v = ball_memory[1][0], ball_memory[1][1]
         initial_vu = (ball_memory[1][0] - ball_memory[0][0]) / initial_dt
         initial_vv = (ball_memory[1][1] - ball_memory[0][1]) / initial_dt
         world_point, world_velocity = estimate_state(initial_u, initial_v, initial_z, initial_vu, initial_vv,
-                                                     rotation_matrix)
+                                                     self.rotation_matrix_back)
         x = np.array([world_point[0], world_point[1], world_point[2], world_velocity[0], world_velocity[1],
                       world_velocity[2]]).reshape(-1, 1)
         for step in range(1, ball_memory.shape[0]):
-            dt = ball_memory[step][2] - ball_memory[step - 1][2]
+            dt = ball_memory[step][3] - ball_memory[step - 1][3]
             F = np.array([
                 [1, 0, 0, dt, 0, 0],
                 [0, 1, 0, 0, dt, 0],
@@ -150,8 +532,8 @@ class MonoEKF:
             cov_P = F @ cov_P @ F.T + cov_Q
             z = ball_memory[step, :2].reshape(-1, 1)
             # 计算观测模型的雅可比矩阵和预测的观测值
-            H = compute_jacobian(x, rotation_matrix)
-            z_pred = h_rotation(x, rotation_matrix)
+            H = compute_jacobian(x, self.rotation_matrix_to)
+            z_pred = h_rotation(x, self.rotation_matrix_to)
             # print(z,z_pred)
 
             # 更新步骤
@@ -167,25 +549,27 @@ class MonoEKF:
         estimated_trajectory = np.array(estimated_trajectory)
         predeicted_params = {
             "points": estimated_trajectory,
-            'params': {
-                'x0': x[0],
-                'y0': x[1],
-                'z0': x[2],
-                'vx': x[3],
-                'vy': x[4],
-                'vz': x[5],
+            "params": {
+                "x0": x[0, 0],
+                "y0": x[1, 0],
+                "z0": x[2, 0],
+                "vx": x[3, 0],
+                "vy": x[4, 0],
+                "vz": x[5, 0],
             },
         }
         self.predeicted_params = predeicted_params
         return predeicted_params
 
     def predict(self):
-        x0 = self.predeicted_params['params']['x0']
-        y0 = self.predeicted_params['params']['y0']
-        z0 = self.predeicted_params['params']['z0']
-        vx = self.predeicted_params['params']['vx']
-        vy = self.predeicted_params['params']['vy']
-        vz = self.predeicted_params['params']['vz']
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -333,7 +717,6 @@ class MonoEKF3D:
 
             # 保存当前时刻预测的三维位置
             estimated_trajectory.append(x[:3].flatten())
-        print(x)
         estimated_trajectory = np.array(estimated_trajectory)
         predeicted_params = {
             "points": estimated_trajectory,
@@ -364,182 +747,47 @@ class MonoEKF3D:
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
         impact_point = [0, impact_y, impact_z]
         return impact_point
-class ParabolaFitterOld:
-    def __init__(self,robot_pose=[0,0,0],camera_rpy_to=[0,0,0],camera_rpy_back=[0,0,0],min_data_samples=30):
 
-        self.camera_pose=robot_pose
-        # This rpy indicates the transformation of a vector from world coordinate to the camera coordinate
-        self.camera_rpy_to=camera_rpy_to
-        # This rpy indicates the transformation of a vector from camera coordinate to the world coordinate
-        self.camera_rpy_back = camera_rpy_back
-        self.g=-9.81
-        self.min_date_sample=min_data_samples
+class MonoRansac:
+    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back,ball_diameter=0.14):
+        self.camera_params = camera_params
+        self.rotation_matrix_to = rotation_matrix_to
+        self.rotation_matrix_back = rotation_matrix_back
+        self.ball_diameter = ball_diameter
 
+    def set_data(self,data):
+        self.data = data
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
 
-    def basic_fit(self):
-
-        pass
-    def is_inlier(self,data_points,model_points,threshold):
-        """
-        Determine if a model predicted point is inlier
-        Args:
-            data_points:
-            model_points:
-            threshold:
-        Returns: True if it is inlier, False otherwise
-
-        """
-        if np.linalg.norm(data_points-model_points)<threshold:
-            return True
-        else:
-            return False
-    def ransac_fit(self,data,model,is_inlier,sample_size,iterations,threshold):
-        """
-            Generic RANSAC implementation
-
-            Args:
-            - data: Full dataset
-            - model: Function to fit model to a sample
-            - is_inlier: Function to check if a point fits the model
-            - sample_size: Minimum points needed to fit the model
-            - iterations: Number of RANSAC iterations
-            - threshold: Inlier determination criterion
-
-            Returns:
-            - Best model found
-            - Indices of inliers
-            """
-        best_model = None
-        best_inliers = []
-
-        for _ in range(iterations):
-            # Randomly sample data
-            sample_indices = random.sample(range(len(data)), sample_size)
-            sample = [data[i] for i in sample_indices]
-
-            # Fit model to sample
-            potential_model = model(sample)
-
-            # Find inliers
-            inliers = [
-                i for i, point in enumerate(data)
-                if is_inlier(potential_model, point, threshold)
-            ]
-
-            # Update best model if more inliers found
-            if len(inliers) > len(best_inliers):
-                best_model = potential_model
-                best_inliers = inliers
-
-        return best_model, best_inliers
-    def parabola_model(self,params,x,y):
-        a,b,c,d,e,f,g,h = params
-        z=a*x**2+b*y**2+c*x*y+d*x+e*y+f
-        return x,y,z
-    def parabola_model_time(self,params,t):
-        x_0,y_0,z_0,vx_0,vy_0,vz_0 = params
-        x=x_0+vx_0*t
-        y=y_0+vy_0*t
-        z=z_0+vz_0*t+0.5*self.g*t**2
-        return x,y,z
-    def direct_fitter(self):
-        pass
-    def mono_fitter(self,data,odometry=None):
-        """
-        Fit a parabola with point's position(in meters 2D) in the camera coordinate
-        The length of odometry must be the same as the length of the data
-        Args:
-            data: [[x_c,y_c,t],
-                    [x_c,y_c,t]]
-            odometry: [[x_w,y_w,z_w,t],] or None
-        Returns: Parabola fitted params ndarrays
-
-        """
-        # print(len(data))
-        # if not len(data)==999:
-        #     return None
-        if len(data)<self.min_date_sample:
-            return None
-        t_start = data[0][2]
-        rotation_matrix_to=rotate_matrix_coordinate(self.camera_rpy_to[0],self.camera_rpy_to[1],self.camera_rpy_to[2])
-        g_vector=np.array([0,0,self.g])
-        g_x_c,g_y_c,g_z_c=transform_coordinate(g_vector,rotation_matrix_to,[0,0,0])
-        # print(g_x_c,g_y_c,g_z_c)
-
-        A=[]
-        B=[]
-        for i in range(0,len(data)):
-            t=data[i][2]-t_start
-            camera_vector = np.concatenate((np.array(data[i][:2]),np.array([1])))
-            # print(camera_vector,t)
-            # compensate the movement of the robot with odometry data
-            # make all points([x_c,y_c]) in camera coordinate relative to the start camera position
-            if odometry is not None:
-                # Equals to move opposite direction
-                translation = -1*np.array(odometry[i][:3])
-                # Assume the camera didn't rotate over time
-                no_rotation = rotate_matrix_coordinate(0, 0,0)
-                camera_vector = transform_coordinate(camera_vector,no_rotation,translation)
-                # print(camera_vector)
-            # All data points in camera coordinate
-            alpha=camera_vector[0]
-            beta=camera_vector[1]
-            A.append([1, t, 0, 0, -alpha, -alpha * t])
-            A.append([0, 0, 1, t, -beta, -beta * t])
-            B.append(0.5 * t * t * (g_z_c * alpha - g_x_c))
-            B.append(0.5 * t * t * (g_z_c * beta - g_y_c))
-        A_array = np.array(A)
-        B_array = np.array(B)
-
-        initial_w = [0, 0, 0]
-        initial_c = transform_coordinate(initial_w, rotation_matrix_to, [0, 0, 0])
-        initial_vw = [0, 0, 0]
-        initial_vc = transform_coordinate(initial_vw, rotation_matrix_to, [0, 0, 0])
-        initial = np.array([initial_c[0], initial_vc[0], initial_c[1], initial_vc[1], initial_c[2], initial_vc[2]])
-        # pseudo_inverse_A = np.linalg.pinv(A_array)
-        # solved_parameters = pseudo_inverse_A @ B_array
-        #
-        # # The params in the camera coordinate
-        # least_squares
-        # x0_c, vx_c, y0_c, vy_c, z0_c, vz_c = solved_parameters[0][0], solved_parameters[1][0], solved_parameters[2][
-        #     0], solved_parameters[3][0], solved_parameters[4][0], solved_parameters[5][0]
-        # def residuals(x,A,b):
-        #     return A @ x - b
-
-        # solved_parameters = least_squares(residuals, x0, method='trf',args=(A_array,B_array))
-        # x0_c, vx_c, y0_c, vy_c, z0_c, vz_c=solved_parameters.x
-
-        def gradient_descent(A, B, initial, learning_rate=0.1, tolerance=0.01, max_iter=100,max_grad_norm=100):
-
-            x = initial
-            for i in range(max_iter):
-                gradient = -2 * A.T @ (B - A @ x)
-                grad_norm = np.linalg.norm(gradient)
-                # print(grad_norm)
-                if grad_norm > max_grad_norm:
-                    gradient = gradient * (max_grad_norm / grad_norm)
-
-                if grad_norm > 50:
-                    learning_rate *= 0.5
-                elif grad_norm < 10:
-                    learning_rate *= 1.05
-                x_new = x - learning_rate * gradient
-                # print(x_new)
-                if np.linalg.norm(x_new - x) < tolerance:
-                    # print("stop at iteration %d" % i)
-                    break
-                x = x_new
-            return x
-        solved_parameters=gradient_descent(A_array, B_array,initial)
-        x0_c, vx_c, y0_c, vy_c, z0_c, vz_c = solved_parameters
-        # print(initial)
-        # print(x0_c, vx_c, y0_c, vy_c, z0_c, vz_c)
-        rotation_matrix_back=rotate_matrix_coordinate(self.camera_rpy_back[0],self.camera_rpy_back[1],self.camera_rpy_back[2])
-        x_0,y_0,z_0 = transform_coordinate(np.array([x0_c,y0_c,z0_c]),rotation_matrix_back,[0,0,0])
-        vx, vy, vz = transform_coordinate(np.array([vx_c, vy_c, vz_c]), rotation_matrix_back, [0, 0, 0])
-        return x_0,y_0,z_0,vx,vy,vz
-    def mono_pixel_fitter(self):
-        pass
+        init_position, velocity, inliers, points_3d = adaptive_ransac_parabola_3d(world_coords, self.data[:, 3])
+        predeicted_params = {
+            "points": points_3d,
+            'params': {
+                'x0': init_position[0],
+                'y0': init_position[1],
+                'z0': init_position[2],
+                'vx': velocity[0],
+                'vy': velocity[1],
+                'vz': velocity[2],
+            } ,
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+    def predict(self):
+        params = self.predeicted_params['params']
+        x0 = params['x0']
+        y0 = params['y0']
+        z0 = params['z0']
+        vx = params['vx']
+        vy = params['vy']
+        vz = params['vz']
+        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        impact_t = abs(x0 / vx)
+        impact_y = y0 + vy * impact_t
+        impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
+        impact_point = [0, impact_y, impact_z]
+        return impact_point
 
 
 
