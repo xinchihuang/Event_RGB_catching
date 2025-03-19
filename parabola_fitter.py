@@ -782,7 +782,6 @@ class MonoRansac:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2

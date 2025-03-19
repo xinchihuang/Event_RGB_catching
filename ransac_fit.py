@@ -3,17 +3,7 @@ from utils import BboxKeys, compute_area_from_bboxes
 import cv2
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-GRAVITY = np.array([0, 9.81, 0])  # in positive y direction
-
-camera_matrix = np.array([[592.9264, 0.0, 312.6777],
-                          [0.0, 592.4369, 229.7782],
-                          [0.000000, 0.000000, 1.000000]])
-distortion_coeffs = np.array([-0.3940, 0.2683, 0.0007603, 0.0001349])
-
-
-
-
-
+GRAVITY = np.array([0, 0, -9.81])  # in positive y direction
 
 def bboxes_to_3d_points(bboxes, area_ball=.1 ** 2, camera_matrix=None, distortion_coeffs=None, distortion_model=None):
     # get depth from area
@@ -41,6 +31,7 @@ def minimal_solution_parabola(points_3d, time):
 
     v = (p1_gravity_comp - p0_gravity_comp) / (t1 - t0)
     p = p0_gravity_comp - v * t0
+    # print(p1_gravity_comp,p0_gravity_comp,t1,t0)
 
     return p, v
 

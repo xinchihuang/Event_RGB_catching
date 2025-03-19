@@ -96,14 +96,15 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def read_from_raw(shared_event_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/9.raw",mode="mixed", delta_t=10000, n_events=10000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     while system_state.value=='e':
         continue
-
+    event_count=0
     while not stop_event.is_set():
-
+        print(event_count)
+        event_count+=1
         start_time = time.perf_counter()
         # if event_queue.full():
         #     event_queue.get()  # Remove the oldest item
@@ -116,7 +117,7 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
         event_data['y']+=1279
 
-        dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
+        # dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
         dt=500
         # Attach to the shared memory and create a NumPy array view
         shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
@@ -693,69 +694,27 @@ def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
     sys.exit(0)
-def checker(shared_flir_data,shared_event_data,stop_event):
+def checker(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
-
-    flir_memory, flir_dtype, flir_shape = shared_flir_data
-    flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     rgb_width, rgb_height = 1080, 1440
     event_width, event_height = 720, 1280
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_width, sensor_height=event_height,
                                                        fps=100,
                                                        palette=ColorPalette.Dark)
-
-    # def on_cd_frame_cb(ts, cd_frame):
-    #     print(cd_frame)
-    #     # return cd_frame
-    #     # window.show_async(cd_frame)
-    #
-    # event_frame_gen.set_output_callback(on_cd_frame_cb)
-
+    count=0
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
-        # EventLoop.poll_and_dispatch
         event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
-
         event_frame_gen.generate_frame(event_data,event_frame)
-
         image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        print("frame:", count)
+        count+=1
+        #
 
-        # 二值化处理
-        _, binary = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
-        # print(binary)
-
-        # 获取所有前景点的坐标
-        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
-
-
-        # **检查 points 是否为空**
-        if points.shape[0] == 0:
-            continue
-        # 使用 DBSCAN 聚类
-        dbscan = DBSCAN(eps=5, min_samples=30).fit(points)
-
-        # 获取不同簇的标签
-        labels = dbscan.labels_
-
-        # 统计有多少个簇（-1 代表噪声点）
-        num_clusters = len(set(labels)) - (1 if -1 in labels else 0)
-        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        # 计算每个簇的边界框（bounding box）
-        for cluster_id in set(labels):
-            if cluster_id == -1:  # -1 代表噪声点，不处理
-                continue
-            cluster_points = points[labels == cluster_id]
-            x, y, w, h = cv2.boundingRect(cluster_points)
-            cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-            print(x,y,w,h)
-            break
-        cv2.imshow('event ', color_image)
-        cv2.waitKey(1)
         # cv2.imshow('FLIR ', flir_data)
         # cv2.waitKey(1)
 
@@ -787,27 +746,34 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
         points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
         if points.shape[0] == 0:
             continue
-        dbscan = DBSCAN(eps=11, min_samples=100).fit(points)
+        dbscan = DBSCAN(eps=10, min_samples=100).fit(points)
         labels = dbscan.labels_
         color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         for cluster_id in set(labels):
+            print("frame:", count)
             if cluster_id == -1:  # -1 代表噪声点，不处理
                 continue
             # print(labels)
             # if len(labels)>1:
             #     continue
             cluster_points = points[labels == cluster_id]
-            y, x, w, h = cv2.boundingRect(cluster_points)
+            # print(cluster_points)
+            # y, x, w, h = cv2.boundingRect(cluster_points)
+            y=min(cluster_points[:,0])
+            x=min(cluster_points[:,1])
+            w=max(cluster_points[:,0])-y
+            h=max(cluster_points[:,1])-x
             cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-            print(x,y,w,h)
+            # print(x,y,w,h)
             # print(system_state.value)
             # cv2.imshow('event ', color_image)
             # cv2.waitKey(0)
+
             if system_state.value == 's':
                 ball_num = ball_observations.value
-                ball_pixel_3D[ball_num][0] = float(x)
-                ball_pixel_3D[ball_num][1] = float(y)
-                ball_pixel_3D[ball_num][2] = float((w+h)/2-3)
+                ball_pixel_3D[ball_num][0] = float(x+h/2)
+                ball_pixel_3D[ball_num][1] = float(y+h/2)
+                ball_pixel_3D[ball_num][2] = float(h)
                 ball_pixel_3D[ball_num][3] = time.time()
                 # print(time.time())
                 if ball_num < 100:
@@ -819,6 +785,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
             break
         if system_state.value == 's':
             cv2.imshow('event ', color_image)
+            cv2.imwrite(f'/home/xinchi/Event_RGB_catching_data/frames/{count}.jpg', color_image)
             cv2.waitKey(1)
             # print(count)
             count += 1
@@ -915,7 +882,7 @@ if __name__ == '__main__':
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
     flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state, stop_event))
     model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event))
-    event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
+    event_tracking_process = Process(target=checker,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
     # landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))

@@ -4,22 +4,24 @@ import pickle
 import plotly.graph_objects as go
 
 def compute_distance_stats(array1, array2):
-    # 确保输入数组是二维的
-    if array1.ndim == 1:
-        array1 = array1.reshape(1, -1)
-    if array2.ndim == 1:
-        array2 = array2.reshape(1, -1)
+    """
+       计算 array1[i] 和 array2[i] 之间的欧式距离，并返回这些距离的均值和方差。
+       假设 array1 和 array2 的形状完全一致，比如 (M, D)。
+       """
+    # 1. 如果形状不同，需要先确保它们能一一对应
+    assert array1.shape == array2.shape, "array1 和 array2 的形状必须相同"
 
-    # 计算所有点对之间的欧式距离
-    diff = array1[:, np.newaxis, :] - array2[np.newaxis, :, :]
-    squared_diff = diff ** 2
-    sum_squared_diff = np.sum(squared_diff, axis=2)
-    distances = np.sqrt(sum_squared_diff)
-
-    # 计算均值和方差
-    mean = np.mean(distances)
-    variance = np.var(distances)
-
+    # 2. 计算每一行对应点的距离
+    #    (array1 - array2) 会得到形状 (M, D)
+    #    np.linalg.norm(..., axis=1) 会对第2维进行范数计算，得到形状 (M,)
+    distances = np.linalg.norm(array1 - array2, axis=1)
+    mask = distances <= 0.3
+    print(len(distances))
+    filtterd_distances=distances[mask]
+    print(len(filtterd_distances))
+    # 3. 计算这些距离的均值和方差
+    mean = np.mean(filtterd_distances)
+    variance = np.var(filtterd_distances)
     return mean, variance
 def draw_3D_trajetory(data, i=0):
     """
