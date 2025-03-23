@@ -15,7 +15,7 @@ def compute_distance_stats(array1, array2):
     #    (array1 - array2) 会得到形状 (M, D)
     #    np.linalg.norm(..., axis=1) 会对第2维进行范数计算，得到形状 (M,)
     distances = np.linalg.norm(array1 - array2, axis=1)
-    mask = distances <= 0.3
+    mask = distances <= 0.9
     print(len(distances))
     filtterd_distances=distances[mask]
     print(len(filtterd_distances))
@@ -186,15 +186,15 @@ def draw_multi_3D_trajetory(raw_data):
         ))
 
     # # Configure the 3D scene settings
-    # fig.update_layout(
-    #     scene=dict(
-    #         xaxis=dict(title='X', range=[0, 4], dtick=1),
-    #         yaxis=dict(title='Y', range=[-1, 1], dtick=1),
-    #         zaxis=dict(title='Z', range=[0, 3], dtick=1),
-    #         camera=dict(eye=dict(x=1.5, y=1.5, z=0.5))  # Set the camera perspective
-    #     ),
-    #     margin=dict(l=0, r=0, b=0, t=30)  # Adjust figure margins
-    # )
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='X', range=[0, 4], dtick=1),
+            yaxis=dict(title='Y', range=[-1, 1], dtick=1),
+            zaxis=dict(title='Z', range=[0, 3], dtick=1),
+            camera=dict(eye=dict(x=1.5, y=1.5, z=0.5))  # Set the camera perspective
+        ),
+        margin=dict(l=0, r=0, b=0, t=30)  # Adjust figure margins
+    )
 
     # Plot the camera position (Yellow)
     fig.add_trace(go.Scatter3d(

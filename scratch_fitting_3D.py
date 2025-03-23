@@ -21,21 +21,6 @@ def cal_position(point_index,y_bias=0,z_bias=0.8):
         y = -(col) * 0.1 + y_bias + 0.05
         z = (row) * 0.1 + z_bias + 0.05
         return [0, y, z]
-def compute_distance_stats(array1, array2):
-    if array1.ndim == 1:
-        array1 = array1.reshape(1, -1)
-    if array2.ndim == 1:
-        array2 = array2.reshape(1, -1)
-
-    diff = array1[:, np.newaxis, :] - array2[np.newaxis, :, :]
-    squared_diff = diff ** 2
-    sum_squared_diff = np.sum(squared_diff, axis=2)
-    distances = np.sqrt(sum_squared_diff)
-
-    mean = np.mean(distances)
-    variance = np.var(distances)
-
-    return mean, variance
 
 
 def main():
