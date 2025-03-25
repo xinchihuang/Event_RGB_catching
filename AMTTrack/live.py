@@ -103,7 +103,7 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         continue
     event_count=0
     while not stop_event.is_set():
-        print(event_count)
+        # print(event_count)
         event_count+=1
         start_time = time.perf_counter()
         # if event_queue.full():
@@ -317,18 +317,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     is_tracker_initialiezed=False
     initial_bbox = None
 
-    # with MTWindow(title="Metavision Events Viewer", width=1080, height=1440,
-    #               mode=BaseWindow.RenderMode.BGR) as window:
 
-    # Event Frame Generator
-    # event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=1280, sensor_height=720, fps=25,
-    #                                                    palette=ColorPalette.Dark)
-    #
-    # def on_cd_frame_cb(ts, cd_frame):
-    #     cd_frame = cv2.rotate(cd_frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    #     # window.show_async(cd_frame)
-    #
-    # event_frame_gen.set_output_callback(on_cd_frame_cb)
 
     first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching/AMTTrack/100.jpg")
     system_state.value = 'w'
@@ -405,195 +394,6 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
         end_t = time.time()
         # print("model fps:",1/(end_t - start_time))
 
-def pure_event_tracking(shared_event_data,shared_ROI_data,shared_ball_pixel_data,ball_observations,keyboard_input,stop_event):
-
-
-    from metavision_core.event_io import EventsIterator
-    from metavision_core.event_io import LiveReplayEventsIterator, is_live_camera
-    from metavision_sdk_analytics import TrackingAlgorithm, TrackingConfig, draw_tracking_results
-    from metavision_sdk_core import BaseFrameGenerationAlgorithm, RollingEventBufferConfig, RollingEventCDBuffer
-    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
-    from metavision_sdk_cv import ActivityNoiseFilterAlgorithm, TrailFilterAlgorithm
-    from metavision_sdk_ui import EventLoop, BaseWindow, MTWindow, UIAction, UIKeyEvent
-    # Event tracker SDK args
-    # This need to be carefully tuned to set good parameters
-    # Some parameters that related to the events iterator should be modified in the read_from_event
-    def parse_args():
-        import argparse
-        """Parse command line arguments."""
-        parser = argparse.ArgumentParser(description='Generic Tracking sample.',
-                                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-        # Base options
-        base_options = parser.add_argument_group('Base options')
-        # /home/yifan/Documents/metavision/recordings/recording_2024-12-09_15-44-35.raw"
-        base_options.add_argument(
-            '-i', '--input-event-file', dest='event_file_path',
-            default="",
-            help="Path to input event file (RAW or HDF5). If not specified, the camera live stream is used. "
-                 "If it's a camera serial number, it will try to open that camera instead.")
-        base_options.add_argument('--process-from', dest='process_from', type=int, default=0,
-                                  help='Start time to process events (in us).')
-        base_options.add_argument('--process-to', dest='process_to', type=int, default=None,
-                                  help='End time to process events (in us).')
-
-        parser.add_argument('--update-frequency', dest='update_frequency', type=float,
-                            default=10000., help="Tracker's update frequency, in Hz.")
-        parser.add_argument('-a', '--acc-time', dest='accumulation_time_us', type=int, default=1000,
-                            help='Duration of the time slice to store in the rolling event buffer at each tracking step')
-
-        # Min/Max size options
-        minmax_size_options = parser.add_argument_group('Min/Max size options')
-        minmax_size_options.add_argument('--min-size', dest='min_size', type=int,
-                                         default=30, help='Minimal size of an object to track (in pixels).')
-        minmax_size_options.add_argument('--max-size', dest='max_size', type=int,
-                                         default=50, help='Maximal size of an object to track (in pixels).')
-
-        # Filtering options
-        filter_options = parser.add_argument_group('Filtering options')
-        filter_options.add_argument(
-            '--activity-time-ths', dest='activity_time_ths', type=int, default=0,
-            help='Length of the time window for activity filtering (in us, disabled if equal to 0).')
-        filter_options.add_argument('--activity-trail-ths', dest='activity_trail_ths', type=int, default=0,
-                                    help='Length of the time window for trail filtering (in us, disabled if equal to 0).')
-
-        # Outcome Options
-        outcome_options = parser.add_argument_group('Outcome options')
-        outcome_options.add_argument(
-            '-o', '--out-video', dest='out_video', type=str, default="",
-            help="Path to an output AVI file to save the resulting video. A frame is generated every time the tracking callback is called.")
-
-        # Replay Option
-        replay_options = parser.add_argument_group('Replay options')
-        replay_options.add_argument(
-            '-f', '--replay_factor', type=float, default=1,
-            help="Replay Factor. If greater than 1.0 we replay with slow-motion, otherwise this is a speed-up over real-time.")
-        # print(parser)
-        args = parser.parse_args()
-
-        if args.process_to and args.process_from > args.process_to:
-            print(f"The processing time interval is not valid. [{args.process_from,}, {args.process_to}]")
-            exit(1)
-        # print(args)
-        return args
-    def ROI_filter(evs,ROI,outer_range=5000):
-
-        x,y,w,h = ROI
-        # print(ROI)
-        # print(f'ROI: {x},{y},{w},{h}')
-        x=x*2/3
-        y=y*8/9
-        # evs=np.array(evs)
-
-        # print(x,max(0,x - outer_range),min(720,x + w + outer_range),y,max(0,y - outer_range),min(1280,y + h + outer_range))
-        mask = (
-                    (evs['x'] > int(max(0,x - outer_range))) &
-                    (evs['x'] < int(min(720,x  + w + outer_range))) &
-                    (evs['y'] > int(max(0,y - outer_range))) &
-                    (evs['y'] < int(min(1280,y + h + outer_range)))
-                )
-        new_evs = evs[mask]
-        return new_evs
-
-
-
-    args = parse_args()
-    buffer_config = RollingEventBufferConfig.make_n_us(args.accumulation_time_us)
-    rolling_buffer = RollingEventCDBuffer(buffer_config)
-
-    width = 720
-    height = 1280
-    # Noise + Trail filter that will be applied to events
-    activity_noise_filter = ActivityNoiseFilterAlgorithm(width, height, args.activity_time_ths)
-    # print("threshold",activity_noise_filter.width,activity_noise_filter.height)
-    trail_filter = TrailFilterAlgorithm(width, height, args.activity_trail_ths)
-
-    # Tracking Algorithm
-    tracking_config = TrackingConfig()  # Default configuration
-
-    tracking_algo = TrackingAlgorithm(sensor_width=width, sensor_height=height, tracking_config=tracking_config)
-    tracking_algo.min_size = args.min_size
-    tracking_algo.max_size = args.max_size
-
-    output_img = np.zeros((height, width, 3), np.uint8)
-
-    events_buf = ActivityNoiseFilterAlgorithm.get_empty_output_buffer()
-    tracking_results = tracking_algo.get_empty_output_buffer()
-
-    event_memory, event_dtype, event_shape = shared_event_data
-    event_shm = shared_memory.SharedMemory(name=event_memory.name)
-
-    ROI_memory, ROI_dtype, ROI_shape = shared_ROI_data
-    ROI_shm = shared_memory.SharedMemory(name=ROI_memory.name)
-
-    ball_pixel_memory,ball_pixel_dtype,ball_pixel_shape = shared_ball_pixel_data
-    ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
-
-    ball_pixel = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
-    # Event Frame Generator
-
-    with MTWindow(title="Generic Tracking", width=width, height=height, mode=BaseWindow.RenderMode.BGR) as window:
-        # window.show_async(output_img)
-        count=0
-        while not stop_event.is_set():
-
-            start_t = time.time()
-            try:
-                # print(count)
-                count+=1
-                # if count>10000:
-                #     break
-                raw_evs = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-                ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
-                evs=raw_evs
-                # print(evs.shape)
-                EventLoop.poll_and_dispatch()
-                # Process events
-
-                # print(evs.shape)
-                activity_noise_filter.process_events(evs, events_buf)
-                # print(events_buf.numpy())
-
-                rolling_buffer.insert_events(events_buf.numpy())
-                tracking_algo.process_events(rolling_buffer, tracking_results)
-                BaseFrameGenerationAlgorithm.generate_frame(rolling_buffer, output_img)
-
-                # output_img = PeriodicFrameGenerationAlgorithm(sensor_width=width, sensor_height=height,
-                #                                                    accumulation_time_us=1000, fps=25,
-                #                                                    palette=ColorPalette.Dark)
-
-                draw_tracking_results(evs['t'][-1], tracking_results, output_img)
-                # output = cv2.rotate(output_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                # print(output.shape)
-                # cv2.rotate(output_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                if keyboard_input.value=='s':
-                    # print(tracking_results.numpy())
-                    # print(ball_observations)
-
-                    if not len(tracking_results.numpy())==0:
-                        if tracking_results.numpy()[0][2]==-1:
-                            continue
-
-                        ball_num=ball_observations.value
-                        ball_pixel[ball_num][0]=tracking_results.numpy()[0][0]
-                        ball_pixel[ball_num][1]=tracking_results.numpy()[0][1]
-                        ball_pixel[ball_num][2]=tracking_results.numpy()[0][2]/1000000.
-                        # print(time.time())
-                        if ball_num<999:
-                            ball_num+=1
-                        ball_observations.value=ball_num
-                    # print(ball_pixel)
-                else:
-                    ball_observations.value=0
-                window.show_async(output_img)
-
-            except Exception as e:
-                # print(f"No Object (event)")
-                continue
-            end_t = time.time()
-            # print("event fps:", 1 / (end_t - start_t))
-
-
 def keyboard(shared_value,system_state):
     from pynput import keyboard
     def on_press(key):
@@ -609,40 +409,57 @@ def keyboard(shared_value,system_state):
     with keyboard.Listener(on_press=on_press) as listener:
 
         listener.join()
-# def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,stop_event,odometry=None):
-#     from parabola_fitter import ParabolaFitter
-#     from fitting import fit_3d_trajectory_with_distortion
-#
-#     ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_3D_data
-#     ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
-#
-#
-#     # print(ball_pixels)
-#
-#     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
-#     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
-#     impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-#
-#     parabola_fitter = ParabolaFitter(camera_rpy_to=[0, 45, -90], camera_rpy_back=[45, 0, 90],
-#                                      min_data_samples=30)
-#     while not stop_event.is_set():
-#         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
-#         ball_pixels = ball_pixels[:ball_observations.value]
-#
-#         try:
-#             if len(ball_pixels) >= 10:
-#                 ball_memory = transform_pixel_to_coordinate(ball_pixels)
-#                 # print("ball_memory", ball_memory)
-#                 # np.save("ball_memory", ball_memory)
-#                 impact_point = ekf_predict(ball_memory)
-#                 print(impact_point)
-#                 impact_point_array[0] = impact_point[0]
-#                 impact_point_array[1] = impact_point[1]
-#                 impact_point_array[2] = impact_point[2]
-#                 break
-#
-#         except:
-#             continue
+def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event):
+
+    from parabola_fitter import MonoRansac
+    from utils import rotate_matrix_coordinate
+
+    camera_config = {
+        'fx': 739.9,
+        'fy': 739.9,
+        'cx': 310,
+        'cy': 710,
+        'dist_'
+        'dist_coeffs': [-0.1060764147484086, -0.001306849716448579, -0.0005920424312549498, -5.0607348313996e-05, 0]
+
+    }
+    camera_rpy_to = [0, 45, -90]
+    camera_rpy_back = [45, 0, 90]
+    rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
+    rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
+
+    ball_pixel_memory, ball_pixel_dtype, ball_pixel_shape = shared_ball_pixel_3D_data
+    ball_pixel_shm = shared_memory.SharedMemory(name=ball_pixel_memory.name)
+    impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
+    impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
+    impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
+    fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
+
+    while not stop_event.is_set():
+        ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
+        ball_pixels = ball_pixels[:ball_observations.value]
+
+        try:
+            if system_state.value == 's':
+                if len(ball_pixels) >= 10:
+                    # print(ball_pixels)
+
+                    ball_memory = ball_pixels
+
+                    observations = ball_memory
+                    # print(observations)
+                    observations[:, 3] = observations[:, 3] - observations[0, 3]
+                    # arr_3d = observations.reshape(-1, 1, observations.shape[1])  # -> shape (4, 5, 4)
+                    # arr_means = arr_3d.mean(axis=1)
+                    # observations = arr_means
+                    # print(observations)
+                    fitter.set_data(observations)
+                    result = fitter.get_params()
+                    impact_point=fitter.predict()
+                    print(impact_point)
+
+        except:
+            continue
 
 def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     from pcan_cybergear import CANMotorController
@@ -694,9 +511,9 @@ def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
     sys.exit(0)
-def checker(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event):
+def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
-    from sklearn.cluster import DBSCAN
+
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     rgb_width, rgb_height = 1080, 1440
@@ -704,6 +521,9 @@ def checker(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_obs
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_width, sensor_height=event_height,
                                                        fps=100,
                                                        palette=ColorPalette.Dark)
+    flir_memory, flir_dtype, flir_shape = shared_flir_data
+    flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+    flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
     count=0
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
@@ -714,7 +534,8 @@ def checker(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_obs
         print("frame:", count)
         count+=1
         #
-
+        cv2.imshow('Event ', event_frame)
+        cv2.waitKey(1)
         # cv2.imshow('FLIR ', flir_data)
         # cv2.waitKey(1)
 
@@ -736,7 +557,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
     while not stop_event.is_set():
 
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-        t=event_data['t']
+        t = event_data['t'][-1] / 1000000
         # print(t)
         event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
@@ -750,7 +571,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
         labels = dbscan.labels_
         color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         for cluster_id in set(labels):
-            print("frame:", count)
+            # print("frame:", count)
             if cluster_id == -1:  # -1 代表噪声点，不处理
                 continue
             # print(labels)
@@ -774,7 +595,8 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
                 ball_pixel_3D[ball_num][0] = float(x+h/2)
                 ball_pixel_3D[ball_num][1] = float(y+h/2)
                 ball_pixel_3D[ball_num][2] = float(h)
-                ball_pixel_3D[ball_num][3] = time.time()
+                ball_pixel_3D[ball_num][3] = t
+
                 # print(time.time())
                 if ball_num < 100:
                     ball_num += 1
@@ -876,24 +698,24 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 's')
-    system_state=Value('u', 's')
+    system_state=Value('u', 'e')
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
     flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state, stop_event))
     model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event))
-    event_tracking_process = Process(target=checker,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
-    # landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_data,ball_observations,shared_impact_point_data,stop_event))
+    event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event))
+    landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
     # checker_process=Process(target=checker,args=(shared_flir_data,shared_event_data,stop_event))
     # Start processes
     event_process.start()
-    # flir_process.start()
+    flir_process.start()
     # checker_process.start()
-    # model_tracking_process.start()
+    model_tracking_process.start()
     event_tracking_process.start()
-    # landing_prediction_process.start()
+    landing_prediction_process.start()
     keyboard_process.start()
     # robot_control_process.start()
 
@@ -901,10 +723,10 @@ if __name__ == '__main__':
     try:
         # cuda_process.join()
         event_process.join()
-        # flir_process.join()
-        # model_tracking_process.join()
+        flir_process.join()
+        model_tracking_process.join()
         event_tracking_process.join()
-        # landing_prediction_process.join()
+        landing_prediction_process.join()
         keyboard_process.join()
         # robot_control_process.join()
     except KeyboardInterrupt:
@@ -912,7 +734,7 @@ if __name__ == '__main__':
         event_process.terminate()
         flir_process.terminate()
         model_tracking_process.terminate()
-        event_tracking_process.terminate()
+        # event_tracking_process.terminate()
         # landing_prediction_process.terminate()
         keyboard_process.terminate()
         # robot_control_process.terminate()
