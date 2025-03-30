@@ -13,7 +13,7 @@ import signal
 import numpy as np
 import time
 
-from torch.fx.experimental import recording
+# from torch.fx.experimental import recording
 
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:

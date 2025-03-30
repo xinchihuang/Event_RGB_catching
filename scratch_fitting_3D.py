@@ -85,5 +85,5 @@ def main():
     draw_multi_3D_trajetory(raw_data=exp_results)
 
 if __name__ == "__main__":
-    main()
-    # print(cal_position(-63))
+    # main()
+    print(cal_position(14))
