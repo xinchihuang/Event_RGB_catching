@@ -26,9 +26,10 @@ def sample_target(im, target_bb, search_area_factor, output_sz=None, mask=None):
         x, y, w, h = target_bb.tolist()
     else:
         x, y, w, h = target_bb
+    # print(x,y,w,h)
     # Crop image
     crop_sz = math.ceil(math.sqrt(w * h) * search_area_factor)
-
+    # print(crop_sz)
     if crop_sz < 1:
         w = h = 1
         crop_sz = 1
@@ -49,6 +50,7 @@ def sample_target(im, target_bb, search_area_factor, output_sz=None, mask=None):
     # Crop target
     crop_coor = [x1 + x1_pad, x2 - x2_pad, y1 + y1_pad, y2 - y2_pad]
     im_crop = im[y1 + y1_pad:y2 - y2_pad, x1 + x1_pad:x2 - x2_pad, :]
+    # print(im_crop.shape)
     if mask is not None:
         mask_crop = mask[y1 + y1_pad:y2 - y2_pad, x1 + x1_pad:x2 - x2_pad]
 

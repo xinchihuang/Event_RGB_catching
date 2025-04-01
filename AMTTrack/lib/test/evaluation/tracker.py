@@ -84,7 +84,6 @@ class Tracker:
 
         # Get init information
         init_info = seq.init_info(0)
-        # print("AAAAAAAAAAAAAA",init_info)
         tracker = self.create_tracker(params)
 
         output = self._track_sequence(tracker, seq, init_info)
@@ -112,7 +111,7 @@ class Tracker:
         # frame i
         # time[i] is either the processing time for frame i, or an OrderedDict containing processing times for each
         # object in frame i
-        print(init_info)
+        # print(init_info)
         output = {'target_bbox': [],
                   'time': []}
         if tracker.params.save_all_boxes:
@@ -192,7 +191,7 @@ class Tracker:
             start_time = time.time()
 
             info = seq.frame_info(frame_num)
-            print(info)
+            # print(info)
             info['previous_output'] = prev_output
 
             if len(seq.ground_truth_rect) > 1:

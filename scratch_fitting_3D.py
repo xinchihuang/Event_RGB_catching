@@ -43,7 +43,13 @@ def main():
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
 
 
-    label = [14,-44,-62,54,-74,63,22,-54,44,-61,24,62,-53,72,32,33,-35,43,51,-24]
+    # label = [14,-44,-62,54,-74,63,22,-54,44,-61,24,62,-53,72,32,33,-35,43,51,-24]
+    label = [-61,31,-61,0,0,-11,-21,-42,-51,73,
+             -31,-13,-51,52,41,-51,-41,61,-31,62,
+             -41,12,52,-61,-14,-13,72,46,53,-55,
+             21,33,24,21,41,21,-42,-42,61,61,
+             62,43,-15,-24,72,32,-22,-23,74,32
+             ]
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
     # fitter = MonoPixelFitter(camera_params=camera_config, rotation_matrix_to=rotation_matrix_to,
     #                          rotation_matrix_back=rotation_matrix_back)

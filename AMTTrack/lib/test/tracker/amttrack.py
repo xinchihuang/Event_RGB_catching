@@ -16,7 +16,7 @@ from lib.test.tracker.data_utils import Preprocessor
 from lib.utils.box_ops import clip_box
 from lib.utils.ce_utils import generate_mask_cond
 
-
+import time
 class AMTTrack(BaseTracker):
     def __init__(self, params, dataset_name):
         super(AMTTrack, self).__init__(params)
@@ -55,6 +55,7 @@ class AMTTrack(BaseTracker):
         z_patch_arr, resize_factor, z_amask_arr, crop_coor = sample_target(image, info['init_bbox'],
                                                                            self.params.template_factor,
                                                                            output_sz=self.params.template_size)
+        # print(z_patch_arr.shape,image.shape)
         self.z_patch_arr = z_patch_arr
         template = self.preprocessor.process(z_patch_arr, z_amask_arr)
         with torch.no_grad():
@@ -79,6 +80,7 @@ class AMTTrack(BaseTracker):
         event_template[:, 2] = (event_template[:, 2]+0.5) / 19
         indices = (event_template[:, 0] >= 0) & (event_template[:, 0] <= 1) & (
                 event_template[:, 1] >= 0) & (event_template[:, 1] <= 1)
+        # print(event_template)
         event_template = torch.index_select(event_template, dim=0, index=indices.nonzero().squeeze(1))
 
         event_template = event_template.unsqueeze(0).unsqueeze(0)
@@ -88,6 +90,7 @@ class AMTTrack(BaseTracker):
         elif event_template.shape[2] < 1024:
             pad_len_temp = 1024 - event_template.shape[2]
         event_template = F.pad(event_template.transpose(-1, -2), (0, pad_len_temp), mode='constant', value=0)
+
         self.event_template = event_template
         # save states
         self.state = info['init_bbox']
@@ -103,6 +106,7 @@ class AMTTrack(BaseTracker):
         x_patch_arr, resize_factor, x_amask_arr, crop_coor = sample_target(image, self.state, self.params.search_factor,
                                                                 output_sz=self.params.search_size)   # (x1, y1, w, h)
         search = self.preprocessor.process(x_patch_arr, x_amask_arr)
+
         event_search = event_search.cuda()
         z = copy.deepcopy(event_search[:, 0])
         x, y = event_search[:, 1], event_search[:, 2]
@@ -133,10 +137,12 @@ class AMTTrack(BaseTracker):
             x_dict = search
             # merge the template and the search
             # run the transformer
+            net_start = time.time()
             out_dict = self.network.forward(
                 template=self.z_dict1.tensors, search=x_dict.tensors, event_template=self.event_template,
                 event_search=event_search,  ce_template_mask=self.box_mask_z)
-    
+            net_end=time.time()
+            print("net time:", net_end-net_start)
         # add hann windows
         pred_score_map = out_dict['score_map']
         response = self.output_window * pred_score_map

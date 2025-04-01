@@ -17,38 +17,6 @@ prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
-def transform_pixel_to_coordinate(ball_pixels):
-    cx = 619.674
-    cy = 333.682
-    fx = 673.797
-    fy = 673.797
-    intrinsic_matrix = np.array([[fx, 0, cx],
-                                 [0, fy, cy],
-                                 [0, 0, 1]])
-    distort_matrix = np.array([-0.269418, 0.048704, -.000727, 0.002795, 0])
-    distorted_pixel = ball_pixels[:,:2].astype(float)
-    # print(distorted_pixel)
-    # distorted_pixel = distorted_pixel.astype(float)
-    start_t=ball_pixels[0][2]
-    # print(start_t)
-    time_array=ball_pixels[:,2]-start_t
-    time_array = time_array.reshape(-1, 1).astype(float)
-    # print(time_array)
-    # distorted_pixel = distorted_pixel.reshape(-1, )
-    # return intrinsic_matrix, distorted_pixel
-    undistorted_pixel = cv2.undistortPoints(distorted_pixel, intrinsic_matrix, distort_matrix, P=intrinsic_matrix).reshape(-1,2)
-    # print(undistorted_pixel)
-
-    # return undistorted_pixel
-    # undistorted_pixel[:,0] -= cx
-    # undistorted_pixel[:,1] -= cy
-    # undistorted_pixel[:,0] /= fx
-    # undistorted_pixel[:,1] /= fy
-    # print(undistorted_pixel,time_array)
-    coordinate=np.concatenate((undistorted_pixel,time_array),axis=1)
-    # print(coordinate)
-    return coordinate
-
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
@@ -69,7 +37,7 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     current_events = torch.tensor(current_events,device=device).float()
     # print(current_events)
     voxel_output = voxel_generator(current_events)
-    # print(voxel_output)
+
     # 假设一份点云数据是N*4，那么经过pillar生成后会得到三份数据
     # voxels代表了每个生成的voxel数据，维度是[M, 5, 4]
     # coordinates代表了每个生成的voxel所在的zyx轴坐标，维度是[M,3]
@@ -99,8 +67,10 @@ def read_from_raw(shared_event_data,system_state, stop_event):
     event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
+    print(system_state.value)
     while system_state.value=='e':
         continue
+    print(system_state.value)
     event_count=0
     while not stop_event.is_set():
         # print(event_count)
@@ -111,7 +81,7 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         try:
             event_data = next(event_iterator)
         except StopIteration:
-            # system_state.value='e'
+            system_state.value='e'
             break
         # event_data[:,[0,1]]=event_data[:,[1,0]]
         event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
@@ -144,10 +114,9 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     print(f"Video FPS: {fps}, Frame Interval: {frame_time:.4f} seconds")
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
-
-
     while system_state.value=='e':
         continue
+    print(system_state.value)
     count=0
     while not stop_event.is_set():
         start_time = time.perf_counter()
@@ -158,18 +127,17 @@ def read_from_video(shared_flir_data,system_state, stop_event):
             if not ret:
                 # If no frame is returned, the video has ended
                 print("End of video.")
-                # system_state.value='e'
+                system_state.value='e'
                 break
             cv_image = frame
             count+=1
-            # <if count<100:
+            # if count<100:
             #     system_state.value='w'
             # else:
-            #     system_state.value='s'>
+            #     system_state.value='s'
 
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
-            cv2.imwrite(f"/home/xinchi/Event_RGB_catching_data/AMTTrack/video_image/{count}.jpg",cv_image)
             # 计算处理时间，并睡眠以维持帧率
             elapsed_time = time.perf_counter() - start_time
             sleep_time = max(0, frame_time - elapsed_time)
@@ -232,6 +200,9 @@ def read_from_flir(shared_flir_data, stop_event):
             flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
+            # print(shm)
+            # print(flir_shm)
+            # flir_shm.close()
             image_result.Release()
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
@@ -245,7 +216,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     from lib.test.evaluation.tracker import Tracker
     from spconv.pytorch.utils import PointToVoxel
     def draw_initial_bbox(image):
-        return 385,1210,60,60
+        return 528,964,40,40
         # Convert from BGR to HSV color space
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -278,7 +249,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
         # 给定每个voxel的长宽高  [0.05, 0.05, 0.1]
         vsize_xyz=[1000, 10, 10],  # [0.2, 0.25, 0.16]  # [50, 10, 10]  [50, 35, 26] 因此坐标范围（20,20,20）  (20, 34/35, 26)
         # 给定点云的范围 [  0.  -40.   -3.   70.4  40.    1. ]
-        coors_range_xyz=[  0.,  0,   0,   10000,  1280 ,   720 ],
+        coors_range_xyz=[  0.,  0,   0,   100000,  1280 ,   720 ],
         # 给定每个点云的特征维度，这里是x，y，z，r 其中r是激光雷达反射强度       # 346x260  t,x,y
         num_point_features=4,
         # 最多选取多少个voxel，训练16000，推理40000
@@ -307,62 +278,94 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     ROI_shm = shared_memory.SharedMemory(name=ROI_memory.name)
     ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
 
-    # print(shm)
-    # event_shm.close()
-
 
     event_template = torch.zeros([1024, 19])
-    is_tracker_initialiezed=False
-    initial_bbox = None
-    first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching_data/AMTTrack/video_image/91.jpg")
+
+
+    first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching/AMTTrack/52.jpg")
     initial_bbox = draw_initial_bbox(first_flir_image)
-    # print(initial_bbox)
-    if initial_bbox is None:
-        pass
-    else:
-        x, y, w, h = initial_bbox
-        bbox = [x, y, w, h]
-        flir_data = first_flir_image
-        # print(first_flir_image)
-        cv2.rectangle(flir_data, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        init_info = {'init_bbox': bbox}
-        out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
-        is_tracker_initialiezed = True
+
+    x, y, w, h = initial_bbox
+    bbox = [x, y, w, h]
+    # cv2.rectangle(flir_data, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    # cv2.imshow("flir", flir_data)
+    # cv2.waitKey(0)
+    init_info = {'init_bbox': bbox}
+    out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
+    #run one iter
+    event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+    flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+    start_time = time.time()
+    info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
+    # info['previous_output'] = None
+    voxel_start = time.time()
+    coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
+                                                device=device)
+    voxel_end = time.time()
+    print("Voxel time:", voxel_end - voxel_start)
+    # print(coor.shape, features.shape)
+    event_search = torch.cat((coor, features), dim=1)
+    tracker.state = bbox
+    inference_start = time.time()
+    out = tracker.track(flir_data, event_search, info)
+    inference_end = time.time()
+    print("Inference time:", inference_end - inference_start)
+    # print("OUT",out)
+    bbox = out['target_bbox']
+
+    print("START")
+    print("")
+
     system_state.value = 's'
+    count=1
     while not stop_event.is_set():
-        if system_state.value == 's':
-            start_time = time.time()
-            # try:
+
+        try:
             event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
 
-            info = {'previous_output':{'target_bbox':bbox},'gt_bbox':bbox}
-            # print(info)
-            coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
-                                                        device=device)
-            # print(coor)
-            event_search =  torch.cat((coor, features), dim=1)
-            # if event_search==None:
-            #     continue
-            tracker.state=bbox
-            out = tracker.track(flir_data, event_search, info)
-            # print("OUT",out)
-            bbox=out['target_bbox']
-            # print(bbox)
-            state = [int(s) for s in bbox]
-            ROI[0]=state[0]
-            ROI[1]=state[1]
-            ROI[2]=state[2]
-            ROI[3]=state[3]
-            cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
-            cv2.imshow('Image with Bounding Box', flir_data)
-            cv2.waitKey(1)
-            end_time = time.time()
-            print("time:",str(end_time-start_time))
-        # except Exception as e:
-        #     print(f"No Objects")
+        except Exception as e:
+            print(f"No Object")
+            continue
+        try:
+            if system_state.value == 's':
+                print(count)
+                start_time = time.time()
+                info = {'previous_output':{'target_bbox':bbox},'gt_bbox':bbox}
+                # info['previous_output'] = None
+                voxel_start=time.time()
+                coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
+                                                            device=device)
+                voxel_end=time.time()
+                print("Voxel time:",voxel_end-voxel_start)
+                # print(coor.shape, features.shape)
+                event_search =  torch.cat((coor, features), dim=1)
+                if event_search==None:
+                    continue
+                tracker.state=bbox
+                inference_start=time.time()
+                out = tracker.track(flir_data, event_search, info)
+                inference_end=time.time()
+                print("Inference time:",inference_end-inference_start)
+                # print("OUT",out)
+                bbox=out['target_bbox']
 
-        end_t = time.time()
+                state = [int(s) for s in bbox]
+                ROI[0]=state[0]
+                ROI[1]=state[1]
+                ROI[2]=state[2]
+                ROI[3]=state[3]
+                # print(state,ROI)
+                cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
+                end_t = time.time()
+                print("RGB time:", end_t - start_time)
+                count+=1
+            # Display the image
+        except Exception as e:
+            print(f"No Events")
+        cv2.imshow('Image with Bounding Box', flir_data)
+        cv2.waitKey(1)
+
         # print("model fps:",1/(end_t - start_time))
 
 def keyboard(shared_value,system_state):
@@ -375,8 +378,7 @@ def keyboard(shared_value,system_state):
             if key.char=='s':
                 system_state.value='s'
         except AttributeError:
-            pass
-            # system_state.value='e'
+            system_state.value='e'
 
     with keyboard.Listener(on_press=on_press) as listener:
 
@@ -406,11 +408,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
     impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
-    while system_state.value=='e':
-        continue
+
     while not stop_event.is_set():
-
-
         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
         ball_pixels = ball_pixels[:ball_observations.value]
 
@@ -441,10 +440,12 @@ def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     import can
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
-    # bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=1000000)
-    # motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
-    # motor1.set_0_pos()
-    # motor1.enable()
+    bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=1000000)
+    motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
+    motor1.set_0_pos()
+    motor1.enable()
+    while system_state.value == 'e':
+        continue
     while not stop_event.is_set():
 
         # print(len(ball_pixels))
@@ -454,32 +455,24 @@ def robot_control(shared_impact_point_data,keyboard_input,stop_event):
                 impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
                 if all(impact_point_array)==0.:
                     continue
-                # print(impact_point_array.shape)
+                print(impact_point_array.shape)
                 x, y, z = impact_point_array
-                # print(x, y, z)
-                break
-                # write your code here
-                # print(x,y,z)
-
-
-
-                # break
-                # shaft_length = 0.5
-                # joint_height = 0.7
-                # delta_height = z + joint_height
-                # if delta_height>0 and delta_height<0.5:
-                #     angle = np.pi/2 - np.arctan(delta_height/shaft_length)
-                #     # if angle<0:
-                #     #     angle = max(angle, np.pi/4)
-                #     if angle>0:
-                #         angle=min(angle, np.pi/4)
-                #     if y < 0:
-                #         angle = -angle
-                #     print('angle',angle)
-                    # motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
-                    # time.sleep(2.5)
-                    # motor1.disable()
-                    # bus.shutdown()
+                shaft_length = 0.5
+                joint_height = 0.7
+                delta_height = z + joint_height
+                if delta_height>0 and delta_height<0.5:
+                    angle = np.pi/2 - np.arctan(delta_height/shaft_length)
+                    # if angle<0:
+                    #     angle = max(angle, np.pi/4)
+                    if angle>0:
+                        angle=min(angle, np.pi/4)
+                    if y < 0:
+                        angle = -angle
+                    print('angle',angle)
+                    motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
+                    time.sleep(2.5)
+                    motor1.disable()
+                    bus.shutdown()
         except:
             continue
 def signal_handler(sig, frame):
@@ -508,6 +501,7 @@ def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, sto
         image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
         print("frame:", count)
         count+=1
+        #
         cv2.imshow('Event ', event_frame)
         cv2.waitKey(1)
         # cv2.imshow('FLIR ', flir_data)
@@ -528,46 +522,36 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
     ball_pixel_3D_shm = shared_memory.SharedMemory(name=ball_pixel_3D_memory.name)
     ball_pixel_3D = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype, buffer=ball_pixel_3D_shm.buf)
     count=0
-    while system_state.value=='e':
+    while system_state.value == 'e':
         continue
     while not stop_event.is_set():
-        # print(system_state.value)
-        if system_state.value == 's':
-            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-            t = event_data['t'][-1] / 1000000
-            # print(t)
-            event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
-            event_frame = np.ascontiguousarray(event_frame)
-            event_frame_gen.generate_frame(event_data,event_frame)
-            image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
-            points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
-            if points.shape[0] == 0:
+
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        t = event_data['t'][-1] / 1000000
+        # print(t)
+        event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
+        event_frame = np.ascontiguousarray(event_frame)
+        event_frame_gen.generate_frame(event_data,event_frame)
+        image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+        if points.shape[0] == 0:
+            continue
+        dbscan = DBSCAN(eps=10, min_samples=100).fit(points)
+        labels = dbscan.labels_
+        color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        for cluster_id in set(labels):
+            # print("frame:", count)
+            if cluster_id == -1:  # -1 代表噪声点，不处理
                 continue
-            dbscan = DBSCAN(eps=10, min_samples=100).fit(points)
-            labels = dbscan.labels_
-            color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-            for cluster_id in set(labels):
-                # print("frame:", count)
-                if cluster_id == -1:  # -1 代表噪声点，不处理
-                    continue
-                # print(labels)
-                # if len(labels)>1:
-                #     continue
-                cluster_points = points[labels == cluster_id]
-                # print(cluster_points)
-                # y, x, w, h = cv2.boundingRect(cluster_points)
-                y=min(cluster_points[:,0])
-                x=min(cluster_points[:,1])
-                w=max(cluster_points[:,0])-y
-                h=max(cluster_points[:,1])-x
-                cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-                # print(x,y,w,h)
-                # print(system_state.value)
-                # cv2.imshow('event ', color_image)
-                # cv2.waitKey(0)
 
-
+            cluster_points = points[labels == cluster_id]
+            y=min(cluster_points[:,0])
+            x=min(cluster_points[:,1])
+            w=max(cluster_points[:,0])-y
+            h=max(cluster_points[:,1])-x
+            cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+            if system_state.value == 's':
                 ball_num = ball_observations.value
                 ball_pixel_3D[ball_num][0] = float(x+h/2)
                 ball_pixel_3D[ball_num][1] = float(y+h/2)
@@ -578,7 +562,11 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
                 if ball_num < 100:
                     ball_num += 1
                 ball_observations.value = ball_num
-                break
+
+            else:
+                ball_observations.value = 0
+            break
+        if system_state.value == 's':
             cv2.imshow('event ', color_image)
             cv2.imwrite(f'/home/xinchi/Event_RGB_catching_data/frames/{count}.jpg', color_image)
             cv2.waitKey(1)
@@ -590,7 +578,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
                 [f for f in os.listdir(save_dir) if os.path.isfile(os.path.join(save_dir, f))])
             save_path = f"{save_dir}/{num_file}.npy"
             filtered_arr = ball_pixel_3D[~np.any(ball_pixel_3D == 0, axis=1)]
-            # print(filtered_arr)
+            print(filtered_arr)
             print("save to:", save_path)
             np.save(save_path, filtered_arr)
             break

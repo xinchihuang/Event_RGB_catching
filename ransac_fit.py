@@ -118,7 +118,7 @@ def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.999, num_max_ransa
 
     p_opt, v_opt = least_squares_solution_parabola(points_3d[inliers], time[inliers])
     # p_opt, v_opt = max_p, max_v #least_squares_solution_parabola(points_3d[inliers], time[inliers])
-    print(f"NUM OF INLIERS {num_inliers}, NUM OF POINTS {points_3d.shape[0]}")
+    # print(f"NUM OF INLIERS {num_inliers}, NUM OF POINTS {points_3d.shape[0]}")
     # print("INLIERS")
     # print(points_3d[inliers])
     # print("FULL ARRAY")
@@ -144,7 +144,7 @@ def fit_parabola_to_bboxes(points_4d, confidence=0.99, num_max_ransac_iter=100, 
     points_4d[:, -1] -= points_4d[0, -1]
 
     points_3d = points_4d[:, :3]
-    print(points_3d,points_4d[:,-1])
+    # print(points_3d,points_4d[:,-1])
     init_position, velocity, inliers, points_3d = adaptive_ransac_parabola_3d(points_3d, points_4d[:, -1], confidence,
                                                                               num_max_ransac_iter, inlier_threshold)
     return init_position, velocity, inliers, points_3d
