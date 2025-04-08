@@ -142,7 +142,7 @@ class AMTTrack(BaseTracker):
                 template=self.z_dict1.tensors, search=x_dict.tensors, event_template=self.event_template,
                 event_search=event_search,  ce_template_mask=self.box_mask_z)
             net_end=time.time()
-            print("net time:", net_end-net_start)
+            # print("net time:", net_end-net_start)
         # add hann windows
         pred_score_map = out_dict['score_map']
         response = self.output_window * pred_score_map

@@ -16,7 +16,21 @@ import time
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
-
+def align_to_rgb(event_data, rgb_width=1080, rgb_height=1440, event_width=720, event_height=1280):
+    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+    rgb_center_x = rgb_width / 2
+    rgb_center_y = rgb_height / 2
+    event_center_x = event_width / 2
+    event_center_y = event_height / 2
+    event_pixel = 3.6
+    rgb_pixel = 4.86
+    x=(x_e-event_center_x)*rgb_pixel/event_pixel+rgb_center_x
+    y=(y_e-event_center_y)*rgb_pixel/event_pixel+rgb_center_y
+    # print(x,y)
+    x=np.clip(x, 0, rgb_width)
+    y=np.clip(y, 0, rgb_height)
+    # print(x_e,y_e,x.astype(int),y.astype(int))
+    return x.astype(int),y.astype(int)
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
@@ -67,10 +81,8 @@ def read_from_raw(shared_event_data,system_state, stop_event):
     event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
-    print(system_state.value)
     while system_state.value=='e':
         continue
-    print(system_state.value)
     event_count=0
     while not stop_event.is_set():
         # print(event_count)
@@ -84,11 +96,13 @@ def read_from_raw(shared_event_data,system_state, stop_event):
             system_state.value='e'
             break
         # event_data[:,[0,1]]=event_data[:,[1,0]]
-        event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
-        event_data['y']+=1279
-
+        # print(event_data)
+        event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
+        event_data['y'] += 1279
+        # print(event_data)
+        # print(event_data)
         # dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
-        dt=500
+        dt=5000
         # Attach to the shared memory and create a NumPy array view
         shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
         shm[:] = np.zeros(event_shape, dtype=event_dtype)
@@ -106,7 +120,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     if not cap.isOpened():
         print("Error: Could not open video.")
         exit()
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = 10*cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
         fps = 30  # 如果获取失败，默认设为 30FPS
     frame_time = 1.0 / fps  # 计算每帧应间隔的时间
@@ -116,7 +130,6 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     while system_state.value=='e':
         continue
-    print(system_state.value)
     count=0
     while not stop_event.is_set():
         start_time = time.perf_counter()
@@ -127,7 +140,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
             if not ret:
                 # If no frame is returned, the video has ended
                 print("End of video.")
-                system_state.value='e'
+                # system_state.value='e'
                 break
             cv_image = frame
             count+=1
@@ -146,10 +159,9 @@ def read_from_video(shared_flir_data,system_state, stop_event):
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
 
-def read_from_event(shared_event_data, stop_event):
+def read_from_event(shared_event_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator
-
-    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=1000))
+    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=10000, n_events=10000))
     while not stop_event.is_set():
         try:
             # if event_queue.full():
@@ -158,11 +170,8 @@ def read_from_event(shared_event_data, stop_event):
             # event_data[:,[0,1]]=event_data[:,[1,0]]
             event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
             event_data['y']+=1279
-            # print(event_data['y'])
-            # print(max(event_data['x']), max(event_data['y']))
-            # print(event_data.shape)
+            # event_data['x'], event_data['y'] = align_to_rgb(event_data)
 
-            # event_queue.put(event_data, timeout=0.01)
             event_memory,event_dtype,event_shape=shared_event_data
             event_shm = shared_memory.SharedMemory(name=event_memory.name)
             # Attach to the shared memory and create a NumPy array view
@@ -170,14 +179,11 @@ def read_from_event(shared_event_data, stop_event):
             # print(event_data.shape)
             shm[:] = np.zeros(event_shape, dtype=event_dtype)
             shm[:event_data.shape[0]] = event_data
-            # print(event_data.shape)
-            # print(shm)
-            # event_shm.close()
         except Exception as e:
             print(f"Error in read_from_event: {e}")
             continue
 
-def read_from_flir(shared_flir_data, stop_event):
+def read_from_flir(shared_flir_data,system_state, stop_event):
     import PySpin
     system = PySpin.System.GetInstance()
     cam_list = system.GetCameras()
@@ -193,16 +199,10 @@ def read_from_flir(shared_flir_data, stop_event):
             image_data = image_result.GetNDArray()
             cv_image = cv2.cvtColor(image_data, cv2.COLOR_BAYER_RG2RGB)
             cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_CLOCKWISE)
-            # if flir_queue.full():
-            #     flir_queue.get()
-            # flir_queue.put(cv_image, timeout=0.1)
             flir_memory,flir_dtype,flir_shape=shared_flir_data
             flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
-            # print(shm)
-            # print(flir_shm)
-            # flir_shm.close()
             image_result.Release()
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
@@ -312,8 +312,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     print("Inference time:", inference_end - inference_start)
     # print("OUT",out)
     bbox = out['target_bbox']
-
-    print("START")
+    print("READY")
     print("")
 
     system_state.value = 's'
@@ -323,13 +322,14 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
         try:
             event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+            event_data['x'], event_data['y'] = align_to_rgb(event_data)
 
         except Exception as e:
             print(f"No Object")
             continue
         try:
             if system_state.value == 's':
-                print(count)
+                # print(count)
                 start_time = time.time()
                 info = {'previous_output':{'target_bbox':bbox},'gt_bbox':bbox}
                 # info['previous_output'] = None
@@ -337,7 +337,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
                 coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
                                                             device=device)
                 voxel_end=time.time()
-                print("Voxel time:",voxel_end-voxel_start)
+                # print("Voxel time:",voxel_end-voxel_start)
                 # print(coor.shape, features.shape)
                 event_search =  torch.cat((coor, features), dim=1)
                 if event_search==None:
@@ -346,7 +346,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
                 inference_start=time.time()
                 out = tracker.track(flir_data, event_search, info)
                 inference_end=time.time()
-                print("Inference time:",inference_end-inference_start)
+                # print("Inference time:",inference_end-inference_start)
                 # print("OUT",out)
                 bbox=out['target_bbox']
 
@@ -358,7 +358,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
                 # print(state,ROI)
                 cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
                 end_t = time.time()
-                print("RGB time:", end_t - start_time)
+                # print("RGB time:", end_t - start_time)
                 count+=1
             # Display the image
         except Exception as e:
@@ -415,6 +415,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
 
         try:
             if system_state.value == 's':
+
                 if len(ball_pixels) >= 10:
                     # print(ball_pixels)
 
@@ -423,19 +424,20 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     observations = ball_memory
                     # print(observations)
                     observations[:, 3] = observations[:, 3] - observations[0, 3]
-                    # arr_3d = observations.reshape(-1, 1, observations.shape[1])  # -> shape (4, 5, 4)
-                    # arr_means = arr_3d.mean(axis=1)
-                    # observations = arr_means
-                    # print(observations)
                     fitter.set_data(observations)
                     result = fitter.get_params()
                     impact_point=fitter.predict()
                     # print(impact_point)
-
+                    # print(impact_point_arrays)
+                    impact_point_array[0] = impact_point[0]
+                    impact_point_array[1] = impact_point[1]
+                    impact_point_array[2] = impact_point[2]
+                    # print(impact_point)
+                    system_state.value='c'
         except:
             continue
 
-def robot_control(shared_impact_point_data,keyboard_input,stop_event):
+def robot_control(shared_impact_point_data,system_state,stop_event):
     from pcan_cybergear import CANMotorController
     import can
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
@@ -444,42 +446,42 @@ def robot_control(shared_impact_point_data,keyboard_input,stop_event):
     motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
     motor1.set_0_pos()
     motor1.enable()
+    motor1.send_motor_control_command(torque=0, target_angle=0, target_velocity=0, Kp=100, Kd=1)
+    print("motor start")
     while system_state.value == 'e':
         continue
     while not stop_event.is_set():
 
         # print(len(ball_pixels))
-        try:
-            if keyboard_input.value=='s':
 
-                impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-                if all(impact_point_array)==0.:
-                    continue
-                print(impact_point_array.shape)
-                x, y, z = impact_point_array
-                shaft_length = 0.5
-                joint_height = 0.7
-                delta_height = z + joint_height
-                if delta_height>0 and delta_height<0.5:
-                    angle = np.pi/2 - np.arctan(delta_height/shaft_length)
-                    # if angle<0:
-                    #     angle = max(angle, np.pi/4)
-                    if angle>0:
-                        angle=min(angle, np.pi/4)
-                    if y < 0:
-                        angle = -angle
-                    print('angle',angle)
-                    motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
-                    time.sleep(2.5)
-                    motor1.disable()
-                    bus.shutdown()
-        except:
-            continue
+        if system_state.value=='c':
+
+            impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
+            # print(impact_point_array)
+            x, y, z = impact_point_array
+            shaft_length = 0.5
+            joint_height = 0.7
+            delta_height = z + joint_height
+            if delta_height>0:
+                angle = np.pi/2 - np.arctan(delta_height/shaft_length)
+                # if angle<0:
+                #     angle = max(angle, np.pi/4)
+                if angle>0:
+                    angle=min(angle, np.pi/4)
+                if y < 0:
+                    angle = -angle
+                print('angle',angle)
+                motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
+                time.sleep(2.5)
+                motor1.disable()
+                bus.shutdown()
+            system_state.value='e'
+
 def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
     sys.exit(0)
-def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event):
+def checker(shared_event_data,shared_flir_data,stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
     event_memory, event_dtype, event_shape = shared_event_data
@@ -495,17 +497,17 @@ def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, sto
     count=0
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        # print(event_data)
         event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
         event_frame_gen.generate_frame(event_data,event_frame)
-        image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-        print("frame:", count)
+        image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+        event_image=cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+        # print("frame:", count)
         count+=1
-        #
-        cv2.imshow('Event ', event_frame)
+        cv2.imshow('Event ', event_image)
         cv2.waitKey(1)
-        # cv2.imshow('FLIR ', flir_data)
-        # cv2.waitKey(1)
 
 def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
@@ -537,7 +539,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
         points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
         if points.shape[0] == 0:
             continue
-        dbscan = DBSCAN(eps=10, min_samples=100).fit(points)
+        dbscan = DBSCAN(eps=10, min_samples=80).fit(points)
         labels = dbscan.labels_
         color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
         for cluster_id in set(labels):
@@ -559,6 +561,7 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
                 ball_pixel_3D[ball_num][3] = t
 
                 # print(time.time())
+                print(ball_num)
                 if ball_num < 100:
                     ball_num += 1
                 ball_observations.value = ball_num
@@ -658,7 +661,7 @@ if __name__ == '__main__':
     impact_point[:] = np.zeros(3)
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
-    keyboard_input = Value('u', 's')
+    keyboard_input = Value('u', 'e')
     system_state=Value('u', 'e')
     ball_observations = Value('i',0)
     # Processes
@@ -669,15 +672,15 @@ if __name__ == '__main__':
     landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
-    # checker_process=Process(target=checker,args=(shared_flir_data,shared_event_data,stop_event))
+    checker_process=Process(target=checker,args=(shared_event_data,shared_flir_data,stop_event))
     # Start processes
     event_process.start()
     flir_process.start()
     # checker_process.start()
     model_tracking_process.start()
-    event_tracking_process.start()
-    landing_prediction_process.start()
-    keyboard_process.start()
+    # event_tracking_process.start()
+    # landing_prediction_process.start()
+    # keyboard_process.start()
     # robot_control_process.start()
 
     # Wait for processes to finish
@@ -689,7 +692,7 @@ if __name__ == '__main__':
         event_tracking_process.join()
         landing_prediction_process.join()
         keyboard_process.join()
-        # robot_control_process.join()
+        robot_control_process.join()
     except KeyboardInterrupt:
         stop_event.set()
         event_process.terminate()

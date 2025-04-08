@@ -749,7 +749,7 @@ class MonoEKF3D:
         return impact_point
 
 class MonoRansac:
-    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back,ball_diameter=0.14):
+    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back,ball_diameter=0.8):
         self.camera_params = camera_params
         self.rotation_matrix_to = rotation_matrix_to
         self.rotation_matrix_back = rotation_matrix_back

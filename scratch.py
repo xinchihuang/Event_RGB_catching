@@ -1,12 +1,18 @@
-import torch
-print(torch.version.__version__)
-# Path to your .tar file
-checkpoint_path = '/home/xinchi/Event_RGB_catching_data/AMTTrack/output/checkpoints/train/amttrack/amttrack_felt/AMTTrack_ep0050.pth.tar'
+import cv2
 
-with open(checkpoint_path, 'rb') as f:
-    checkpoint = torch.load(f, map_location='cpu')
+video_path="/home/xinchi/Event_RGB_catching_data/saved_data/rgb/0.mp4"
+cap = cv2.VideoCapture(video_path)
+count=0
+while True:
+    ret, frame = cap.read()
 
-print("Checkpoint keys:", checkpoint.keys())
+    if not ret:
+        # If no frame is returned, the video has ended
+        print("End of video.")
+        break
+    cv2.imshow("frame", frame)
+    cv2.waitKey(1)
+    cv2.imwrite("/home/xinchi/Event_RGB_catching_data/frames/"+str(count)+".jpg",frame)
+    count+=1
 
-# Load model state dict (assuming 'net' contains the model weights)
-model_state_dict = checkpoint['net']
+
