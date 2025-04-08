@@ -17,7 +17,8 @@ prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 def align_to_rgb(event_data, rgb_width=1080, rgb_height=1440, event_width=720, event_height=1280):
-    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+    x_e,y_e=event_data['y'].copy(),-event_data['x'].copy()+1279
+    # print(x_e,y_e)
     rgb_center_x = rgb_width / 2
     rgb_center_y = rgb_height / 2
     event_center_x = event_width / 2
@@ -27,9 +28,6 @@ def align_to_rgb(event_data, rgb_width=1080, rgb_height=1440, event_width=720, e
     x=(x_e-event_center_x)*rgb_pixel/event_pixel+rgb_center_x
     y=(y_e-event_center_y)*rgb_pixel/event_pixel+rgb_center_y
     # print(x,y)
-    x=np.clip(x, 0, rgb_width)
-    y=np.clip(y, 0, rgb_height)
-    # print(x_e,y_e,x.astype(int),y.astype(int))
     return x.astype(int),y.astype(int)
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
@@ -81,8 +79,10 @@ def read_from_raw(shared_event_data,system_state, stop_event):
     event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
+    print(system_state.value)
     while system_state.value=='e':
         continue
+    print(system_state.value)
     event_count=0
     while not stop_event.is_set():
         # print(event_count)
@@ -99,10 +99,11 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         # print(event_data)
         event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
         event_data['y'] += 1279
-        # print(event_data)
-        # print(event_data)
+        print(e)
+        # event_data['x'],event_data['y']=align_to_rgb(event_data)
+
         # dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
-        dt=5000
+        dt=500
         # Attach to the shared memory and create a NumPy array view
         shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
         shm[:] = np.zeros(event_shape, dtype=event_dtype)
@@ -120,7 +121,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     if not cap.isOpened():
         print("Error: Could not open video.")
         exit()
-    fps = 10*cap.get(cv2.CAP_PROP_FPS)
+    fps = cap.get(cv2.CAP_PROP_FPS)
     if fps <= 0:
         fps = 30  # 如果获取失败，默认设为 30FPS
     frame_time = 1.0 / fps  # 计算每帧应间隔的时间
@@ -130,6 +131,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     while system_state.value=='e':
         continue
+    print(system_state.value)
     count=0
     while not stop_event.is_set():
         start_time = time.perf_counter()
@@ -140,7 +142,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
             if not ret:
                 # If no frame is returned, the video has ended
                 print("End of video.")
-                # system_state.value='e'
+                system_state.value='e'
                 break
             cv_image = frame
             count+=1
@@ -315,14 +317,13 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     print("READY")
     print("")
 
-    system_state.value = 's'
+    # system_state.value = 's'
     count=1
     while not stop_event.is_set():
 
         try:
             event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
             flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
-            event_data['x'], event_data['y'] = align_to_rgb(event_data)
 
         except Exception as e:
             print(f"No Object")
@@ -363,8 +364,8 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
             # Display the image
         except Exception as e:
             print(f"No Events")
-        cv2.imshow('Image with Bounding Box', flir_data)
-        cv2.waitKey(1)
+        # cv2.imshow('Image with Bounding Box', flir_data)
+        # cv2.waitKey(1)
 
         # print("model fps:",1/(end_t - start_time))
 
@@ -457,7 +458,7 @@ def robot_control(shared_impact_point_data,system_state,stop_event):
         if system_state.value=='c':
 
             impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-            # print(impact_point_array)
+            print(impact_point_array)
             x, y, z = impact_point_array
             shaft_length = 0.5
             joint_height = 0.7
@@ -497,14 +498,13 @@ def checker(shared_event_data,shared_flir_data,stop_event):
     count=0
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-        # print(event_data)
         event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
         event_frame_gen.generate_frame(event_data,event_frame)
         image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
         event_image=cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-        # print("frame:", count)
+        print("frame:", count)
         count+=1
         cv2.imshow('Event ', event_image)
         cv2.waitKey(1)
@@ -662,7 +662,7 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 'e')
-    system_state=Value('u', 'e')
+    system_state=Value('u', 's')
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
@@ -676,11 +676,11 @@ if __name__ == '__main__':
     # Start processes
     event_process.start()
     flir_process.start()
-    # checker_process.start()
-    model_tracking_process.start()
+    checker_process.start()
+    # model_tracking_process.start()
     # event_tracking_process.start()
     # landing_prediction_process.start()
-    # keyboard_process.start()
+    keyboard_process.start()
     # robot_control_process.start()
 
     # Wait for processes to finish
