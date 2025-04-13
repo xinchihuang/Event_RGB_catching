@@ -16,7 +16,21 @@ import time
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
+def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
+    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+    rgb_center_x=rgb_width/2
+    rgb_center_y=rgb_height/2
+    # print(rgb_center_x,rgb_center_y)
+    event_center_x=event_width/2
+    event_center_y=event_height/2
+    event_pixel=3.45
+    rgb_pixel=4.86
 
+    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+35
+    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y-25
+    x= np.clip(x, 0, rgb_width)
+    y= np.clip(y, 0, rgb_height)
+    return x.astype(int), y.astype(int)
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
@@ -86,9 +100,10 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         # event_data[:,[0,1]]=event_data[:,[1,0]]
         event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
         event_data['y']+=1279
+        event_data['x'], event_data['y'] = align_to_rgb(event_data)
 
         # dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000
-        dt=500
+        dt=1200
         # Attach to the shared memory and create a NumPy array view
         shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
         shm[:] = np.zeros(event_shape, dtype=event_dtype)
@@ -106,7 +121,7 @@ def read_from_video(shared_flir_data,system_state, stop_event):
     if not cap.isOpened():
         print("Error: Could not open video.")
         exit()
-    fps = cap.get(cv2.CAP_PROP_FPS)
+    fps = 30
     if fps <= 0:
         fps = 30  # 如果获取失败，默认设为 30FPS
     frame_time = 1.0 / fps  # 计算每帧应间隔的时间
@@ -201,8 +216,14 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     from metavision_sdk_ui import EventLoop, BaseWindow, MTWindow, UIAction, UIKeyEvent
     from lib.test.evaluation.tracker import Tracker
     from spconv.pytorch.utils import PointToVoxel
+
+    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
+    rgb_width, rgb_height = 1080, 1440
+    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
+                                                       fps=100,
+                                                       palette=ColorPalette.Dark)
     def draw_initial_bbox(image):
-        return 600,970,50,50
+        return 580,1410,30,30
         # Convert from BGR to HSV color space
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
@@ -268,13 +289,13 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     event_template = torch.zeros([1024, 19])
 
 
-    first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching/AMTTrack/39.jpg")
+    first_flir_image=cv2.imread("/home/xinchi/Event_RGB_catching/AMTTrack/0.jpg")
     initial_bbox = draw_initial_bbox(first_flir_image)
 
     x, y, w, h = initial_bbox
     bbox = [x, y, w, h]
     # cv2.rectangle(first_flir_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    # cv2.imshow("flir", first_flir_image)
+    # cv2.imshow("flir", first_flir_image[800:,:,:])
     # cv2.waitKey(0)
     init_info = {'init_bbox': bbox}
     out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
@@ -285,6 +306,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
     # info['previous_output'] = None
     voxel_start = time.time()
+    event_data['x'], event_data['y'] = align_to_rgb(event_data)
     coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
                                                 device=device)
     voxel_end = time.time()
@@ -305,13 +327,16 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
     count=1
     while not stop_event.is_set():
 
-        try:
-            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-            flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
 
-        except Exception as e:
-            print(f"No Object")
-            continue
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+        # print("old",event_data)
+        # x_rgb,y_rgb=align_to_rgb(event_data)
+        # event_data['x'], event_data['y'] = x_rgb,y_rgb
+            # print("new",event_data)
+        # except Exception as e:
+        #     print(f"No Object")
+        #     continue
         try:
             if system_state.value == 's':
                 # print(count)
@@ -342,14 +367,33 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,system_state, stop
                 ROI[3]=state[3]
                 # print(state,ROI)
                 cv2.rectangle(flir_data, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),color=(0, 255, 0), thickness=2)
+
                 end_t = time.time()
                 # print("RGB time:", end_t - start_time)
                 count+=1
+                event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+                event_frame_gen.generate_frame(event_data, event_frame)
+                event_frame = np.ascontiguousarray(event_frame)
+                # cv2.waitKey(1)
+                # cv2.imshow('Image with Bounding Box', event_frame)
+                image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+                _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+                # print(binary)
+                event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+                cv2.rectangle(event_image, (state[0], state[1]), (state[2] + state[0], state[3] + state[1]),
+                              color=(0, 255, 0), thickness=2)
+
+                rgb_image = flir_data
+
+                # 将两张图片水平拼接
+                combined = np.hstack((rgb_image, event_image))
+
+                cv2.imshow('Image with Bounding Box', combined)
+                cv2.waitKey(1)
             # Display the image
         except Exception as e:
             print(f"No Events")
-        cv2.imshow('Image with Bounding Box', flir_data)
-        cv2.waitKey(1)
+
 
         # print("model fps:",1/(end_t - start_time))
 
@@ -466,14 +510,13 @@ def signal_handler(sig, frame):
     print("Terminating processes...")
     stop_event.set()
     sys.exit(0)
-def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, stop_event):
+def checker(shared_event_data,shared_flir_data, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     rgb_width, rgb_height = 1080, 1440
-    event_width, event_height = 720, 1280
-    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_width, sensor_height=event_height,
+    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
                                                        fps=100,
                                                        palette=ColorPalette.Dark)
     flir_memory, flir_dtype, flir_shape = shared_flir_data
@@ -482,9 +525,9 @@ def checker(shared_event_data,shared_flir_data,shared_ROI_data,system_state, sto
     count=0
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-        event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
+        event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+        event_frame_gen.generate_frame(event_data, event_frame)
         event_frame = np.ascontiguousarray(event_frame)
-        event_frame_gen.generate_frame(event_data,event_frame)
         image=cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
         print("frame:", count)
         count+=1
@@ -657,15 +700,15 @@ if __name__ == '__main__':
     landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
-    # checker_process=Process(target=checker,args=(shared_flir_data,shared_event_data,stop_event))
+    checker_process=Process(target=checker,args=(shared_event_data,shared_flir_data,stop_event))
     # Start processes
     event_process.start()
     flir_process.start()
     # checker_process.start()
     model_tracking_process.start()
-    event_tracking_process.start()
-    landing_prediction_process.start()
-    keyboard_process.start()
+    # event_tracking_process.start()
+    # landing_prediction_process.start()
+    # keyboard_process.start()
     # robot_control_process.start()
 
     # Wait for processes to finish

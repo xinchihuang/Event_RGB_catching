@@ -14,8 +14,7 @@ from lib.models.amttrack.vit import vit_base_patch16_224
 from lib.models.amttrack.vit_ce import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 # from lib.models.amttrack.vit_ce_BACKUPS import vit_large_patch16_224_ce, vit_base_patch16_224_ce
 from lib.utils.box_ops import box_xyxy_to_cxcywh
-
-
+### Model Defined here
 class AMTTrack(nn.Module):
     """ This is the base class for amttrack """
 

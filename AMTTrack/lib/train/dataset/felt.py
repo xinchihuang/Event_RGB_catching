@@ -20,6 +20,7 @@ class Felt(BaseVideoDataset):
         self.sequence_list = self._get_sequence_list()
 
         # seq_id is the index of the folder inside the got10k root path
+
         if split is not None:
             if seq_ids is not None:
                 raise ValueError('Cannot set both split_name and seq_ids.')
@@ -29,9 +30,11 @@ class Felt(BaseVideoDataset):
                 file_path = os.path.join(self.root, 'val.txt')
             else:
                 raise ValueError('Unknown split name')
+            print(file_path)
             seq_ids = pandas.read_csv(file_path, header=None, dtype=np.int64).squeeze("columns").values.tolist()
         elif seq_ids is None:
             seq_ids = list(range(0, len(self.sequence_list)))
+        print(seq_ids)
 
         self.sequence_list = [self.sequence_list[i] for i in seq_ids]
 

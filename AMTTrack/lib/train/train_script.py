@@ -18,7 +18,7 @@ import importlib
 
 from ..utils.focal_loss import FocalLoss
 
-
+### the training script
 def run(settings):
     settings.description = 'Training script for STARK-S, STARK-ST stage1, and STARK-ST stage2'
 
@@ -51,6 +51,7 @@ def run(settings):
         cfg.ckpt_dir = settings.save_dir
 
     # Create network
+    ### Call net here
     if settings.script_name == "amttrack":
         net = build_amttrack(cfg)
     else:
