@@ -608,13 +608,13 @@ class MonoEKF3D:
 
         # 内部函数：利用像素信息和深度，估计初始状态
         def estimate_state(u, v, z_c, vu, vv, vz, R_back, T=np.zeros(3)):
-            print(u, v, z_c, vu, vv, vz)
+            # print(u, v, z_c, vu, vv, vz)
             x_c = (u - cx) * z_c / fx
             y_c = (v - cy) * z_c / fy
             vx_c = vu * z_c / fx
             vy_c = vv * z_c / fy
             vz_c = vz * z_c / fx
-            print(vx_c,vy_c,vz_c)
+            # print(vx_c,vy_c,vz_c)
             camera_point = np.array([x_c, y_c, z_c])
             world_point = R_back @ camera_point - T
             # 这里对速度进行了一个简单处理，可以根据需要调整

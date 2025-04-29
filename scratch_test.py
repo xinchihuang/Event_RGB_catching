@@ -19,10 +19,13 @@ def read_from_raw(index):
     while True:
         # print(event_count)
         event_count+=1
+
         try:
             event_data = next(event_iterator)
         except StopIteration:
             break
+        if not event_count % 10 == 0:
+            continue
         event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
         event_data['y']+=1279
         t = event_data['t'][-1]/1000000
@@ -47,7 +50,7 @@ def read_from_raw(index):
             #     continue
             print("ball:", ball_num, t)
             cluster_points = points[labels == cluster_id]
-            print(len(cluster_points))
+            # print(len(cluster_points))
             y, x, w, h = cv2.boundingRect(cluster_points)
             # y = min(cluster_points[:, 0])
             # x = min(cluster_points[:, 1])
@@ -77,6 +80,6 @@ def read_from_raw(index):
     print("save to:", save_path)
     np.save(save_path, filtered_arr)
 if __name__ == '__main__':
-    for i in range(20):
+    for i in range(50):
         read_from_raw(i)
 

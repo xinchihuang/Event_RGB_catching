@@ -41,6 +41,7 @@ def names2datasets(name_list: list, settings, image_loader):
             datasets.append(VisEvent(settings.env.visevent_dir, split='train', image_loader=image_loader))
         # if name == "VisEvent_VAL":
         #     datasets.append(VisEvent(settings.env.visevent_val_dir, split='val', image_loader=image_loader))
+
         if name == "FELT":
             datasets.append(Felt(settings.env.felt_dir, split='train', image_loader=image_loader))
 
@@ -114,18 +115,21 @@ def build_dataloaders(cfg, settings):
     settings.num_search = getattr(cfg.DATA.SEARCH, "NUMBER", 1)
     sampler_mode = getattr(cfg.DATA, "SAMPLER_MODE", "causal")
     train_cls = getattr(cfg.TRAIN, "TRAIN_CLS", False)
-    print("sampler_mode", sampler_mode)
+    # print(train_cls)
+    # print("sampler_mode", sampler_mode)
     dataset_train = sampler.TrackingSampler(datasets=names2datasets(cfg.DATA.TRAIN.DATASETS_NAME, settings, opencv_loader),
                                             p_datasets=cfg.DATA.TRAIN.DATASETS_RATIO,
                                             samples_per_epoch=cfg.DATA.TRAIN.SAMPLE_PER_EPOCH,
                                             max_gap=cfg.DATA.MAX_SAMPLE_INTERVAL, num_search_frames=settings.num_search,
                                             num_template_frames=settings.num_template, processing=data_processing_train,
                                             frame_sample_mode=sampler_mode, train_cls=train_cls)
-   
-
+    # print("DATA")
+    # print("data_set",dataset_train.__len__())
+    #
+    # print("data_set",dataset_train.getitem())
     train_sampler = DistributedSampler(dataset_train) if settings.local_rank != -1 else None
     shuffle = False if settings.local_rank != -1 else True
-   
+    # print("data", cfg.TRAIN.BATCH_SIZE)
     loader_train = LTRLoader('train', dataset_train, training=True, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=shuffle,
                              num_workers=cfg.TRAIN.NUM_WORKER, drop_last=True, stack_dim=1, sampler=train_sampler)
    

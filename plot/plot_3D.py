@@ -216,6 +216,124 @@ def draw_multi_3D_trajetory(raw_data):
     print(compute_distance_stats(np.array(impact_point_real), np.array(impact_point_predict)))
 
 
+
+def draw_multi_3D_trajetory_cls(raw_data):
+    """
+    Visualizes the 3D trajectory of a moving ball and compares predicted and actual impact points.
+    Categories the distance between predicted and actual landing points and colors them accordingly.
+
+    Parameters:
+    - raw_data (list): A list of dictionaries containing:
+        - 'impact' (tuple): The predicted impact point (impact_x, impact_y, impact_z).
+        - 'label' (tuple): The actual impact point (label_x, label_y, label_z).
+        - 'points' (ndarray): An array of shape (N, 3) representing the observed trajectory (x, y, z).
+
+    Returns:
+    - None (Displays a 3D Plotly figure)
+    """
+
+    def compute_distance(point1, point2):
+        """
+        计算两点之间的欧几里得距离。
+        """
+        return np.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2 + (point1[2] - point2[2]) ** 2)
+
+    impact_point_real = []
+    impact_point_predict = []
+    fig = go.Figure()  # Create a new 3D figure
+    success_count = 0
+    for i in range(len(raw_data)):
+        data = raw_data[i]
+        # Extract impact and label (ground truth) coordinates
+        impact_x, impact_y, impact_z = data['impact']
+        label_x, label_y, label_z = data['label']
+
+        # Extract trajectory points
+        ball = data['points']
+        x = ball[:, 0]  # X-coordinates of the trajectory
+        y = ball[:, 1]  # Y-coordinates of the trajectory
+        z = ball[:, 2]  # Z-coordinates of the trajectory
+        impact_point_predict.append([impact_y, impact_z])
+        impact_point_real.append([label_y, label_z])
+
+        # Calculate the distance between predicted and actual landing points
+        distance = compute_distance([impact_x, impact_y, impact_z], [label_x, label_y, label_z])
+
+        # Set color based on the distance
+        color = 'blue' if distance <= 0.25 else 'red'  # Blue for small distance, Red for large distance
+        name = 'Success' if distance <= 0.25 else 'Fail'
+        success_count+=1 if distance <= 0.25 else 0
+        # Plot the predicted impact point
+        fig.add_trace(go.Scatter3d(
+            x=[0],
+            y=[impact_y],
+            z=[impact_z],
+            mode='markers',
+            name=f'{i}: {name}',
+            marker=dict(
+                size=8,
+                color=color,  # Color based on distance
+                symbol='circle'
+            ),
+            showlegend=True
+        ))
+
+        # # Plot the actual impact point
+        # fig.add_trace(go.Scatter3d(
+        #     x=[0],
+        #     y=[label_y],
+        #     z=[label_z],
+        #     mode='markers',
+        #     name=f'real {i}',
+        #     marker=dict(
+        #         size=8,
+        #         color=color,  # Color based on distance
+        #         symbol='circle'
+        #     ),
+        #     showlegend=True
+        # ))
+
+        # Plot the observed trajectory of the ball
+        fig.add_trace(go.Scatter3d(
+            x=x, y=y, z=z,
+            mode='lines+markers',
+            name=f'observation {i}',
+            line=dict(width=2)
+        ))
+
+    # Configure the 3D scene settings
+    fig.update_layout(
+        scene=dict(
+            xaxis=dict(title='X', range=[0, 4], dtick=1),
+            yaxis=dict(title='Y', range=[-1, 1], dtick=1),
+            zaxis=dict(title='Z', range=[0, 3], dtick=1),
+            camera=dict(eye=dict(x=1.5, y=1.5, z=0.5))  # Set the camera perspective
+        ),
+        margin=dict(l=0, r=0, b=0, t=30)  # Adjust figure margins
+    )
+
+    # Plot the camera position (Yellow)
+    fig.add_trace(go.Scatter3d(
+        x=[0],
+        y=[0],
+        z=[0],
+        mode='markers',
+        name=f'camera',
+        marker=dict(
+            size=20,
+            color='yellow',  # Yellow marker representing the camera position
+            symbol='circle'
+        ),
+        showlegend=True
+    ))
+
+    # Show the 3D plot
+    fig.show()
+    print(f"Success Rate: {success_count}/{len(raw_data)}")
+    print(compute_distance_stats(np.array(impact_point_real), np.array(impact_point_predict)))
+
+
+
 if __name__ == '__main__':
     with open('../data.pkl', 'rb') as f:
         loaded_data = pickle.load(f)

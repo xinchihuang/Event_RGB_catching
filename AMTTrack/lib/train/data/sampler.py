@@ -91,6 +91,7 @@ class TrackingSampler(torch.utils.data.Dataset):
         return random.choices(valid_ids, k=num_ids)
 
     def __getitem__(self, index):
+        # print(index)
         if self.train_cls:
             return self.getitem_cls()
         else:
@@ -103,6 +104,7 @@ class TrackingSampler(torch.utils.data.Dataset):
             TensorDict - dict containing all the data blocks
         """
         valid = False
+        # print(self.datasets)
         while not valid :
             # Select a dataset
             dataset = random.choices(self.datasets, self.p_datasets)[0]
@@ -111,6 +113,7 @@ class TrackingSampler(torch.utils.data.Dataset):
 
             # sample a sequence from the given dataset
             seq_id, visible, seq_info_dict = self.sample_seq_from_dataset(dataset, is_video_dataset)             #seq_id:index of sequence
+
             # visible, seq_info_dict = self.sample_seq_from_dataset(dataset, is_video_dataset)             #seq_id:index of sequence
             
             if is_video_dataset:
@@ -148,6 +151,7 @@ class TrackingSampler(torch.utils.data.Dataset):
                 search_frame_ids = [1] * self.num_search_frames
             try:
                 template_frames, template_anno, meta_obj_train, template_event_frames, template_event_img_frame = dataset.get_frames(seq_id, template_frame_ids, seq_info_dict)
+                # print(template_event_frames)
                 search_frames, search_anno, meta_obj_test, search_event_frames, search_event_img_frame = dataset.get_frames(seq_id, search_frame_ids, seq_info_dict)
                 # template_frames[0] = cv2.addWeighted(template_frames[0], 1, template_event_img_frame[0], 0.2, 0)
                 # search_frames[0] = cv2.addWeighted(search_frames[0], 1, search_event_img_frame[0], 0.2, 0)
