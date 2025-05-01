@@ -2,7 +2,7 @@ import numpy as np
 from fitting import fit_3d_trajectory_with_distortion
 from utils import rotate_matrix_coordinate
 import os
-from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory
+from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory,draw_multi_3D_trajetory_cls
 from parabola_fitter import MonoPixelFitter, MonoFitter, MonoFitter3D,MonoPixelFitter3D,MonoRansac
 
 
@@ -26,7 +26,7 @@ def cal_position(point_index,y_bias=0,z_bias=0.8):
 def main():
     """ Main """
 
-    plot_index=20
+    plot_index=50
     save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixels_3D"
     camera_config = {
         'fx': 739.9,
@@ -58,9 +58,13 @@ def main():
     # fitter = PixelSizeFitter(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
     exp_results = []
+
     for i in range(0,plot_index):
         ball_memory=np.load(f"{save_dir}/{i}.npy")
-        ball_memory=ball_memory[150:350]
+        ball_memory=ball_memory[5:45]
+        if len(ball_memory)<40:
+            continue
+        # print(len(ball_memory))
         if len(ball_memory)==0:
             continue
 
@@ -76,7 +80,7 @@ def main():
 
         fitter.set_data(observations)
         result=fitter.get_params()
-        print(result)
+
         impact_point_real=cal_position(label[i])
         ball = result['points']
 
@@ -88,8 +92,8 @@ def main():
              'label':impact_point_real,
              }
         exp_results.append(dict_to_save)
-    draw_multi_3D_trajetory(raw_data=exp_results)
+    draw_multi_3D_trajetory_cls(raw_data=exp_results)
 
 if __name__ == "__main__":
-    # main()
-    print(cal_position(14))
+    main()
+    # print(cal_position(14))

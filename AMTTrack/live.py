@@ -99,7 +99,6 @@ def read_from_raw(shared_event_data,system_state, stop_event):
         # print(event_data)
         event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
         event_data['y'] += 1279
-        print(e)
         # event_data['x'],event_data['y']=align_to_rgb(event_data)
 
         # dt = event_data['t'].max() - event_data['t'].min() if 't' in event_data.dtype.names else 1000

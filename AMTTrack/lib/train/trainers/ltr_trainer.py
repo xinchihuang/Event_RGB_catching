@@ -26,6 +26,7 @@ class LTRTrainer(BaseTrainer):
             settings - Training settings
             lr_scheduler - Learning rate scheduler
         """
+        print("LTRTrainer: __init__")
         super().__init__(actor, loaders, optimizer, settings, lr_scheduler)
 
         self._set_default_settings()
@@ -65,13 +66,18 @@ class LTRTrainer(BaseTrainer):
 
     def cycle_dataset(self, loader):
         """Do a cycle of training or validation."""
-        
+
+        # print("cycle_dataset", loader.name, self.epoch)
         self.actor.train(loader.training)
         torch.set_grad_enabled(loader.training)
 
         self._init_timing()
+        # print(len(loader), loader.__len__())
+        # print(type(loader))
 
+        # self.epoch=40
         for i, data in enumerate(loader, 1):
+            # print(i,data)
             self.data_read_done_time = time.time()
             # get inputs
             # breakpoint()
@@ -85,10 +91,11 @@ class LTRTrainer(BaseTrainer):
             # forward pass
             if not self.use_amp:
                 loss, stats = self.actor(data)
+
             else:
                 with autocast():
                     loss, stats = self.actor(data)
-
+            # print(loss,stats)
             # backward pass and update weights
             if loader.training:
                 self.optimizer.zero_grad()
@@ -127,7 +134,10 @@ class LTRTrainer(BaseTrainer):
     def train_epoch(self):
         """Do one epoch for each loader."""
         for loader in self.loaders:
+
             if self.epoch % loader.epoch_interval == 0:
+                # print("train_epoch", self.epoch, loader.epoch_interval)
+
                 # 2021.1.10 Set epoch
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(self.epoch)
@@ -195,7 +205,7 @@ class LTRTrainer(BaseTrainer):
                     # else:
                     #     print_str += '%s: %r  ,  ' % (name, val)
 
-            print(print_str[:-5])
+            # print(print_str[:-5])
             log_str = print_str[:-5] + '\n'
             with open(self.settings.log_file, 'a') as f:
                 f.write(log_str)

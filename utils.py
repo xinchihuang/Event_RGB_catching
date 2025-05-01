@@ -134,7 +134,7 @@ def undistort(u, v, fx, fy, cx, cy, k1, k2, p1, p2, k3):
 
     return new_u, new_v
 # pixel_to_world
-def pixel_to_world(observations, camera_params, rotation_matrix_back, ball_diameter=0.14):
+def pixel_to_world(observations, camera_params, rotation_matrix_back, ball_diameter=0.12):
     """
     Converts pixel coordinates to world coordinates in batch processing.
 

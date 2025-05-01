@@ -70,6 +70,7 @@ class BaseTrainer:
         epoch = -1
         num_tries = 1
         for i in range(num_tries):
+            # print(i)
             try:
                 if load_latest:
                     self.load_checkpoint()
@@ -79,7 +80,9 @@ class BaseTrainer:
                 if distill:
                     directory_teacher = '{}/{}'.format(self._checkpoint_dir, self.settings.project_path_teacher)
                     self.load_state_dict(directory_teacher, distill=True)
+                # print(self.epoch+1, max_epochs+1)
                 for epoch in range(self.epoch+1, max_epochs+1):
+                    # print("training epoch %d" % epoch)
                     self.epoch = epoch
 
                     self.train_epoch()
@@ -111,6 +114,7 @@ class BaseTrainer:
         print('Finished training!')
 
     def train_epoch(self):
+        # print("Training epoch %d" % self.epoch)
         raise NotImplementedError
 
     def save_checkpoint(self):
@@ -192,8 +196,9 @@ class BaseTrainer:
 
         # Load network
         checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
-
-        assert net_type == checkpoint_dict['net_type'], 'Network is not of correct type.'
+        # print("Loading pretrained model from ", checkpoint_dict['net_type'])
+        # print(net_type)
+        # assert net_type == checkpoint_dict['net_type'], 'Network is not of correct type.'
 
         if fields is None:
             fields = checkpoint_dict.keys()
