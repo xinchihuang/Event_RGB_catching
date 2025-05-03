@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-
+import enum
 # from AMTTrack.tracking.scratch import image
 
 
@@ -187,12 +187,6 @@ def world_to_pixel(observations, camera_params, rotation_matrix_to, ball_diamete
     d_pix=fx*ball_diameter/z_c
 
     return u,v,d_pix
-
-
-
-import numpy as np
-import enum
-
 ####
 class BboxKeys(enum.IntEnum):
     time = 0

@@ -16,6 +16,30 @@ import time
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
+def ROI_filter(events, ROI_data):
+    """
+    Return the sub-array of `events` whose (x, y) lie inside a rectangular ROI.
+
+    Parameters
+    ----------
+    events : np.ndarray
+        Structured array with the dtype shown above.  Shape: (N,)
+    ROI_data : tuple (x_r, y_r, w_r, h_r)
+        Top-left corner (x_r, y_r) and width/height of the rectangle.
+
+    Returns
+    -------
+    np.ndarray
+        A **view** (no copy) of the original array containing only the
+        events inside the ROI.  Use .copy() if you need an independent copy.
+    """
+    x_r, y_r, w_r, h_r = ROI_data
+    mask = (
+            (events['x'] >= x_r) & (events['x'] < x_r + w_r) &
+            (events['y'] >= y_r) & (events['y'] < y_r + h_r)
+    )
+    new_event=events[mask]
+    return new_event
 def align_to_rgb(event_data, rgb_width=1080, rgb_height=1440, event_width=720, event_height=1280):
     x_e,y_e=event_data['y'].copy(),-event_data['x'].copy()+1279
     # print(x_e,y_e)
@@ -76,7 +100,7 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def read_from_raw(shared_event_data,system_state, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw",mode="mixed", delta_t=10000, n_events=10000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/1.raw",mode="mixed", delta_t=10000, n_events=10000))
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     print(system_state.value)
@@ -452,12 +476,10 @@ def robot_control(shared_impact_point_data,system_state,stop_event):
         continue
     while not stop_event.is_set():
 
-        # print(len(ball_pixels))
-
         if system_state.value=='c':
 
             impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-            print(impact_point_array)
+            # print(impact_point_array)
             x, y, z = impact_point_array
             shaft_length = 0.5
             joint_height = 0.7
@@ -522,12 +544,17 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
     ball_pixel_3D_memory,ball_pixel_3D_dtype,ball_pixel_3D_shape = shared_ball_pixel_3D_data
     ball_pixel_3D_shm = shared_memory.SharedMemory(name=ball_pixel_3D_memory.name)
     ball_pixel_3D = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype, buffer=ball_pixel_3D_shm.buf)
+    ROI_data_memory, ROI_dtype, ROI_shape = shared_ROI_data
+    ROI_shm = shared_memory.SharedMemory(name=ROI_data_memory.name)
+
     count=0
     while system_state.value == 'e':
         continue
-    while not stop_event.is_set():
-
+    while not stop_event.is_set() and system_state.value=='s':
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        ROI_data = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
+        ROI_data=[0,0,720,960]
+        event_data=ROI_filter(event_data,ROI_data)
         t = event_data['t'][-1] / 1000000
         # print(t)
         event_frame = np.zeros((event_height,event_width,3), dtype=np.uint8)
@@ -632,7 +659,7 @@ if __name__ == '__main__':
     ROI_memory=shared_memory.SharedMemory(create=True, size=np.prod(ROI_shape) * np.dtype(ROI_dtype).itemsize)
     # ROI_memory=np.zeros(4)
     ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_memory.buf)
-    ROI[:]=np.zeros(4)
+    ROI[:]=np.array([0,0,720,1280])
     shared_ROI_data=(ROI_memory,ROI_dtype,ROI_shape)
 
     ball_pixel_dtype = np.float64
@@ -661,7 +688,7 @@ if __name__ == '__main__':
     shared_impact_point_data = (impact_point_memory, impact_point_dtype, impact_point_shape)
 
     keyboard_input = Value('u', 'e')
-    system_state=Value('u', 's')
+    system_state=Value('u', 'w')
     ball_observations = Value('i',0)
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state, stop_event))
@@ -675,9 +702,9 @@ if __name__ == '__main__':
     # Start processes
     event_process.start()
     flir_process.start()
-    checker_process.start()
+    # checker_process.start()
     # model_tracking_process.start()
-    # event_tracking_process.start()
+    event_tracking_process.start()
     # landing_prediction_process.start()
     keyboard_process.start()
     # robot_control_process.start()
