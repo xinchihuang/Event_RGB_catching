@@ -169,6 +169,7 @@ def read_from_flir(shared_flir_data,system_state, stop_event):
 def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,system_state, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
+
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     rgb_width, rgb_height = 1080, 1440
@@ -189,18 +190,22 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
     event_dir = f"{save_dir}/{num_file}/event/"
     if not os.path.exists(event_dir):
         os.makedirs(event_dir)  # Corrected function name
-
+    dbscan = DBSCAN(eps=10, min_samples=80)
     count=0
+    print("start event tracking")
     while system_state.value == 'w':
         continue
+
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
         if system_state.value == 't':
+            start_t=time.time()
             try:
                 event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
                 ROI_data = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
                 ROI_data = [0, 0, 720, 720]
+                event_data = ROI_filter(event_data, ROI_data)
 
                 t = event_data['t'][-1] / 1000000
                 # print(t)
@@ -212,40 +217,31 @@ def event_tracking_3D(shared_event_data,shared_ROI_data,shared_ball_pixel_3D_dat
                 points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
                 if points.shape[0] == 0:
                     continue
-                dbscan = DBSCAN(eps=10, min_samples=80).fit(points)
+                dbscan.fit(points)
                 labels = dbscan.labels_
                 color_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-                for cluster_id in set(labels):
-                    # print("frame:", count)
-                    if cluster_id == -1:  # -1 代表噪声点，不处理
-                        continue
-                    cluster_points = points[labels == cluster_id]
+                cluster_points = points[labels != -1]
+                if not len(cluster_points)==0:
                     y = min(cluster_points[:, 0])
                     x = min(cluster_points[:, 1])
                     w = max(cluster_points[:, 0]) - y
                     h = max(cluster_points[:, 1]) - x
                     cv2.rectangle(color_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-                    if system_state.value == 's':
-                        ball_num = ball_observations.value
-                        ball_pixel_3D[ball_num][0] = float(x + h / 2)
-                        ball_pixel_3D[ball_num][1] = float(y + h / 2)
-                        ball_pixel_3D[ball_num][2] = float(h)
-                        ball_pixel_3D[ball_num][3] = t
-
-                        # print(time.time())
-                        print(ball_num)
-                        if ball_num < 100:
-                            ball_num += 1
-                        ball_observations.value = ball_num
-
-                    else:
-                        ball_observations.value = 0
-
+                    ball_num = ball_observations.value
+                    ball_pixel_3D[ball_num][0] = float(x + h / 2)
+                    ball_pixel_3D[ball_num][1] = float(y + h / 2)
+                    ball_pixel_3D[ball_num][2] = float(h)
+                    ball_pixel_3D[ball_num][3] = t
+                    if ball_num < 100:
+                        ball_num += 1
+                    ball_observations.value = ball_num
                 cv2.imshow('event ', color_image)
                 cv2.waitKey(1)
-                # # print(count)
+                print("iters:",count)
+                print("ball_observations",ball_observations.value)
                 count += 1
-
+                end_t = time.time()
+                print("Event time:", end_t - start_t)
             except Exception as e:
                 print(f"Error in event tracking: {e}")
                 continue
