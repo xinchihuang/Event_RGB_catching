@@ -330,8 +330,9 @@ def robot_control(shared_impact_point_data,system_state,stop_event):
                 print('angle',angle)
                 motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=100, Kd=1)
                 time.sleep(2.5)
-                motor1.send_motor_control_command(torque=0, target_angle=0, target_velocity=0, Kp=10, Kd=1)
-                time.sleep(2.5)
+                for degree in range(100):
+                    motor1.send_motor_control_command(torque=0, target_angle=angle*degree/100, target_velocity=0, Kp=10, Kd=1)
+                    time.sleep(0.025)
                 motor1.disable()
                 bus.shutdown()
             system_state.value='t'
