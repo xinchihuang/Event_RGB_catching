@@ -1,5 +1,5 @@
 import cv2
-
+import pyttsx3
 import argparse
 import os
 
@@ -154,12 +154,18 @@ def record_event(shared_event_data, keyboard_input, stop_event):
             if key == 'r' and recording == False:
                 recording = True
                 print(f"Event recording toggled: {'ON' if recording else 'OFF'}")
+                out_path = os.path.join(save_dir, "event")
+                num_file = len(
+                    [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
+                # print(num_file)
+                log_path = f"{out_path}/{num_file}.raw"
 
                 if device.get_i_events_stream():
-                    out_path = os.path.join(save_dir, "event")
-                    num_file = len(
-                        [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
-                    log_path = f"{out_path}/{num_file}.raw"
+                    # out_path = os.path.join(save_dir, "event")
+                    # num_file = len(
+                    #     [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
+                    # # print(num_file)
+                    # log_path = f"{out_path}/{num_file}.raw"
 
                     print(f'Recording to {log_path}')
                     device.get_i_events_stream().log_raw_data(log_path)
@@ -169,6 +175,7 @@ def record_event(shared_event_data, keyboard_input, stop_event):
             if key == 'f' and recording == True:
                 recording = False
                 print(f"Event recording toggled: {'ON' if recording else 'OFF'}")
+
                 if device.get_i_events_stream():
                     device.get_i_events_stream().stop_log_raw_data()
 
@@ -203,7 +210,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     out_video = None  # Initialize as None to handle lazy initialization
     recording = False  # Flag to manage recording state
     save_dir = "/home/xinchi/Event_RGB_catching_data/saved_data"
-
+    print(f"Press r to start recording, f to stop recording, and q to quit.")
     while not stop_event.is_set():
         image_result = cam.GetNextImage(10000)
         if image_result.IsIncomplete():
@@ -218,6 +225,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
             print(f"Recording toggled: {'ON' if recording else 'OFF'}")
 
             if out_video is None:
+
                 print("Initializing video recording...")
                 out_path = os.path.join(save_dir, "rgb")
                 num_file = len(
@@ -256,11 +264,31 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     cv2.destroyAllWindows()
 def keyboard(shared_value):
     from pynput import keyboard
+    engine = pyttsx3.init()
+    engine.say("system start event")
+    engine.runAndWait()
     def on_press(key):
         try:
             # Update the shared value with the last key pressed
+            save_dir = "/home/xinchi/Event_RGB_catching_data/saved_data"
             print(f"Key {key} pressed")
-            shared_value.value = key.char if hasattr(key, 'char') else str(key)
+            out_path = os.path.join(save_dir, "event")
+            num_file = len(
+                [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
+            if key.char=='r':
+                shared_value.value = key.char if hasattr(key, 'char') else str(key)
+                engine.say(f"{num_file}")
+                engine.runAndWait()
+                engine.say(f"throw the ball now")
+                engine.runAndWait()
+
+            elif key.char=='f':
+                shared_value.value = key.char if hasattr(key, 'char') else str(key)
+                engine.say(f"finish recording")
+                engine.runAndWait()
+                engine.runAndWait()
+            elif key.char=='q':
+                shared_value.value = key.char if hasattr(key, 'char') else str(key)
         except AttributeError:
             shared_value.value = str(key)
 
