@@ -22,7 +22,7 @@ if prj_path not in sys.path:
 def read_from_event(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=10000))
     while not stop_event.is_set():
         try:
             # if event_queue.full():
@@ -68,7 +68,7 @@ def read_from_flir(shared_flir_data, stop_event):
 def read_from_raw(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 
-    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/1.raw",mode="mixed", delta_t=1000, n_events=5000))
+    event_iterator = iter(EventsIterator(input_path="/home/xinchi/Event_RGB_catching_data/saved_data/event/5.raw",mode="mixed", delta_t=1000, n_events=5000))
     while not stop_event.is_set():
         try:
             # if event_queue.full():
@@ -203,7 +203,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     first_flir_image = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
     # output_filename = 'output_video.mp4'
     rgb_width, rgb_height = 1080, 1440
-    rgb_frame_rate = 100
+    rgb_frame_rate = 180
     rgb_frame_size = (rgb_width, rgb_height)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # Define codec and create VideoWriter object
@@ -211,6 +211,8 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     recording = False  # Flag to manage recording state
     save_dir = "/home/xinchi/Event_RGB_catching_data/saved_data"
     print(f"Press r to start recording, f to stop recording, and q to quit.")
+    frame_count = 0
+    start_time = time.time()
     while not stop_event.is_set():
         image_result = cam.GetNextImage(10000)
         if image_result.IsIncomplete():
@@ -223,7 +225,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
         if key == 'r' and recording==False:
             recording = True
             print(f"Recording toggled: {'ON' if recording else 'OFF'}")
-
+            start_time = time.time()
             if out_video is None:
 
                 print("Initializing video recording...")
@@ -233,6 +235,7 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
 
                 output_filename = os.path.join(out_path, f"{num_file}.mp4")
                 out_video = cv2.VideoWriter(output_filename, fourcc, rgb_frame_rate, rgb_frame_size)
+
             else:
                 print("Recording already initialized.")
 
@@ -243,13 +246,22 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
                 print("Stopping video recording...")
                 out_video.release()
                 out_video = None
+                print(f"{frame_count} record fps= {frame_count / (time.time() - start_time)}")
         # Process FLIR data
+        frame_count += 1
         if flir_data is not None:
             # Resize flir_data if necessary
             if (flir_data.shape[1], flir_data.shape[0]) != rgb_frame_size:
                 flir_data = cv2.resize(flir_data, rgb_frame_size)
             # Display the camera feed
-            cv2.imshow('original_image', flir_data)
+            scale=0.6
+            width = int(flir_data.shape[1] * scale)
+            height = int(flir_data.shape[0] * scale)
+            new_size = (width, height)
+
+            resized_img = cv2.resize(flir_data, new_size, interpolation=cv2.INTER_AREA)
+
+            cv2.imshow('flir', resized_img)
             # Write frame to video if recording
             if recording and out_video:
                 out_video.write(flir_data)
@@ -358,7 +370,7 @@ if __name__ == '__main__':
     keyboard_input = Value('u', 's')
 
 
-    record=True
+    record=False
     if record==True:
         record_flir_process = Process(target=record_flir, args=(shared_flir_data,keyboard_input, stop_event))
         record_event_process = Process(target=record_event, args=(shared_event_data,keyboard_input, stop_event))

@@ -55,17 +55,19 @@ class AMTTrack(BaseTracker):
         z_patch_arr, resize_factor, z_amask_arr, crop_coor = sample_target(image, info['init_bbox'],
                                                                            self.params.template_factor,
                                                                            output_sz=self.params.template_size)
-        # print(z_patch_arr.shape,image.shape)
         self.z_patch_arr = z_patch_arr
         template = self.preprocessor.process(z_patch_arr, z_amask_arr)
+        print(template)
         with torch.no_grad():
             self.z_dict1 = template
 
         self.box_mask_z = None
+        # print(self.cfg.MODEL.BACKBONE.CE_LOC)
         if self.cfg.MODEL.BACKBONE.CE_LOC:
             template_bbox = self.transform_bbox_to_crop(info['init_bbox'], resize_factor,
                                                         template.tensors.device).squeeze(1)
             self.box_mask_z = generate_mask_cond(self.cfg, 1, template.tensors.device, template_bbox)
+            # print(template_bbox)
         event_template = event_template.cuda()
         z = copy.deepcopy(event_template[:, 0])
         x, y = event_template[:, 1], event_template[:, 2]
@@ -91,6 +93,8 @@ class AMTTrack(BaseTracker):
             pad_len_temp = 1024 - event_template.shape[2]
         event_template = F.pad(event_template.transpose(-1, -2), (0, pad_len_temp), mode='constant', value=0)
 
+        torch.set_printoptions(profile="full")
+        print(event_template.cpu().shape)
         self.event_template = event_template
         # save states
         self.state = info['init_bbox']
@@ -99,6 +103,7 @@ class AMTTrack(BaseTracker):
             '''save all predicted boxes'''
             all_boxes_save = info['init_bbox'] * self.cfg.MODEL.NUM_OBJECT_QUERIES
             return {"all_boxes": all_boxes_save}
+
 
     def track(self, image, event_search, info: dict = None):
         H, W, _ = image.shape
@@ -124,6 +129,7 @@ class AMTTrack(BaseTracker):
         event_search = torch.index_select(event_search, dim=0, index=indices.nonzero().squeeze(1))
 
         event_search = event_search.unsqueeze(0).unsqueeze(0)
+
         # event frame  need to keep same length  16,12-->20, 20
         if event_search.shape[2] < 4096:
             pad_len_search = 4096 - event_search.shape[2]

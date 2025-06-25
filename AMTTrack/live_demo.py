@@ -99,7 +99,6 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     coor[:, [0, 1, 2]] = coor[:, [2, 1, 0]]
 
     return coor, features
-
 def keyboard(shared_value,system_state):
     from pynput import keyboard
     def on_press(key):
@@ -299,6 +298,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     # ball_observations.value = 0
 
             except Exception as e:
+
+
                     print(f"Error in Landing prediction: {e}")
                     continue
 
@@ -390,9 +391,6 @@ def reseter(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel
             system_state.value='t'
             time.sleep(0.01)
             print("reset system state to tracking")
-
-
-
 
 def signal_handler(sig, frame):
     print("Terminating processes...")

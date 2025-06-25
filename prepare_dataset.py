@@ -13,20 +13,6 @@ prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
-def align_position(rgb_bbox,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
-    x,y,w,h=rgb_bbox
-    rgb_center_x=rgb_width/2
-    rgb_center_y=rgb_height/2
-    event_center_x=event_width/2
-    event_center_y=event_height/2
-    event_pixel=3.7
-    rgb_pixel=4.86
-
-    x_e = (x-rgb_center_x) * event_pixel / rgb_pixel + event_center_x-25
-    y_e = (y-rgb_center_y) * event_pixel / rgb_pixel + event_center_y-30
-    w_e = w * event_pixel/ rgb_pixel
-    h_e = h * event_pixel / rgb_pixel
-    return int(x_e), int(y_e), int(w_e), int(h_e)
 def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
     x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
     rgb_center_x=rgb_width/2
@@ -48,7 +34,7 @@ def align_buffer(root_dir,index,bias=0):
     from metavision_core.event_io import EventsIterator
     event_iterator = iter(
         EventsIterator(input_path=f"/home/xinchi/Event_RGB_catching_data/saved_data/event/{index}.raw", mode="mixed",
-                       delta_t=10000, n_events=10000))
+                       delta_t=1000, n_events=10000))
     event_dtype = {
         'names': ['x', 'y', 'p', 't'],
         'formats': ['<u2', '<u2', '<i2', '<i8'],
