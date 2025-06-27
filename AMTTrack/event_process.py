@@ -40,10 +40,10 @@ def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, 
     event_center_x=event_width/2
     event_center_y=event_height/2
     event_pixel=3.45
-    rgb_pixel=4.98
+    rgb_pixel=4.79
 
-    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+40
-    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+10
+    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+30
+    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+20
     y= np.clip(y, 0, rgb_height)
     return x.astype(int), y.astype(int)
 def read_from_raw(shared_event_data, system_state, num_event,
@@ -201,6 +201,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                     w = max(cluster_points[:, 0]) - y
                     h = max(cluster_points[:, 1]) - x
                     cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+                    # cv2.rectangle(event_image, (535,715), (545, 725), (0, 255, 0), 2)
                     # cv2.rectangle(event_image, (x_r, y_r), (x_r + h_r, y_r + w_r), (255, 255, 0), 2)
                     ball_num = ball_observations.value
                     ball_pixel_3D[ball_num][0] = float(x + h / 2)

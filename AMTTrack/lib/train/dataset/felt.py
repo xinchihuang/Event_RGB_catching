@@ -34,8 +34,11 @@ class Felt(BaseVideoDataset):
             seq_ids = pandas.read_csv(file_path, header=None, dtype=np.int64).squeeze("columns").values.tolist()
         elif seq_ids is None:
             seq_ids = list(range(0, len(self.sequence_list)))
+        # print(seq_ids)
+        # print(self.sequence_list)
 
         self.sequence_list = [self.sequence_list[i] for i in seq_ids]
+        # print(self.sequence_list)
 
     def get_name(self):
         return 'felt'

@@ -1,3 +1,4 @@
+import math
 
 import cv2
 import csv
@@ -6,35 +7,39 @@ import numpy as np
 import time
 import os
 import shutil
-
+import multiprocessing
+from sklearn.cluster import DBSCAN
+from AMTTrack.event_process import *
+from AMTTrack.RGB_process import *
+from AMTTrack.fitting_process import *
 
 # from ekf_predict import ekf_predict
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
-def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
-    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
-    rgb_center_x=rgb_width/2
-    rgb_center_y=rgb_height/2
-    # print(rgb_center_x,rgb_center_y)
-    event_center_x=event_width/2
-    event_center_y=event_height/2
-    event_pixel=3.1
-    rgb_pixel=4.86
-
-    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+40
-    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y-25
-    x= np.clip(x, 0, rgb_width)
-    y= np.clip(y, 0, rgb_height)
-    return x.astype(int), y.astype(int)
-def align_buffer(root_dir,index,bias=0):
+# def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
+#     x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+#     rgb_center_x=rgb_width/2
+#     rgb_center_y=rgb_height/2
+#     # print(rgb_center_x,rgb_center_y)
+#     event_center_x=event_width/2
+#     event_center_y=event_height/2
+#     event_pixel=3.1
+#     rgb_pixel=4.86
+#
+#     x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+40
+#     y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y-25
+#     x= np.clip(x, 0, rgb_width)
+#     y= np.clip(y, 0, rgb_height)
+#     return x.astype(int), y.astype(int)
+def align_buffer_old(root_dir,index,bias=0):
     # gc.collect()
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from metavision_core.event_io import EventsIterator
     event_iterator = iter(
         EventsIterator(input_path=f"/home/xinchi/Event_RGB_catching_data/saved_data/event/{index}.raw", mode="mixed",
-                       delta_t=1000, n_events=10000))
+                       delta_t=2000, n_events=10000))
     event_dtype = {
         'names': ['x', 'y', 'p', 't'],
         'formats': ['<u2', '<u2', '<i2', '<i8'],
@@ -84,12 +89,12 @@ def align_buffer(root_dir,index,bias=0):
         os.makedirs(f"{root_dir}/{index}/rgb")
         os.makedirs(f"{root_dir}/{index}/event")
     absent_list=[]
-    if bias > 0:
-        for _ in range(bias):
-            _, _ = cap.read()
-            rgb_frame_count += 1
-    elif bias < 0:
-        event_index += -bias
+    # if bias > 0:
+    #     for _ in range(bias):
+    #         _, _ = cap.read()
+    #         rgb_frame_count += 1
+    # elif bias < 0:
+    #     event_index += -bias
     while rgb_frame_count<total_frames:
         print("rgb frame:", rgb_index, "event frame:", event_index)
         start_time = time.perf_counter()
@@ -131,6 +136,7 @@ def align_buffer(root_dir,index,bias=0):
         _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
         event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
+
         if has_ball:
             absent_list.append(1)
             cv2.rectangle(event_image, (x, y), (x + w, y + h), (0, 0, 255), 2)  # 在原图上绘制红色矩形
@@ -142,7 +148,7 @@ def align_buffer(root_dir,index,bias=0):
         cv2.imwrite(f"{root_dir}/{index}/rgb/" + str(rgb_index) + ".jpg", cv_image)
         cv2.imwrite(f"{root_dir}/{index}/event/" + str(rgb_index) + ".jpg", event_image)
         rgb_index += 1
-        event_index+=1
+        event_index += 1
         elapsed_time = time.perf_counter() - start_time
         sleep_time = max(0, frame_time - elapsed_time)
         time.sleep(sleep_time)
@@ -158,9 +164,164 @@ def align_buffer(root_dir,index,bias=0):
         for box in bbox:
             writer.writerow(box)
 
+def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
+    # gc.collect()
+    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
+    from metavision_core.event_io import EventsIterator
+
+    event_iterator = iter(
+        EventsIterator(input_path=f"{raw_data_dir}/event/{index}.raw", mode="mixed",
+                       delta_t=2000, n_events=10000))
+    event_buffer=[]
+    for ev in event_iterator:
+        ev['x'], ev['y'] = ev['y'].copy(), -ev['x'].copy()
+        ev['y'] += 1279
+        ev['x'], ev['y'] = align_to_rgb(ev)
+        event_buffer.append(ev)
+    mod = len(event_buffer)
+    print(mod,len(event_buffer))
+    event_buffer = event_buffer[:] if mod != 0 else event_buffer
+    event_count = len(event_buffer)
+    video_path = f"{raw_data_dir}/rgb/{index}.mp4"
+
+    cap = cv2.VideoCapture(video_path)
+    rgb_buffer = []
+    ret, frame = cap.read()
+    while ret:
+        rgb_buffer.append(frame)
+        ret, frame = cap.read()
+
+    rgb_count = len(rgb_buffer)
+    print("total rgb frames:", rgb_count)
+    print("total event frames:", event_count)
+    print("align start")
+
+    frame_index = 0
+    rgb_width, rgb_height = 1080, 1440
+    event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
+                                                       fps=100,
+                                                       palette=ColorPalette.Dark)
+    dbscan = DBSCAN(eps=10, min_samples=80)
+
+    if not os.path.exists(f"{root_dir}/{index}"):
+        os.makedirs(f"{root_dir}/{index}")
+        os.makedirs(f"{root_dir}/{index}/rgb")
+        os.makedirs(f"{root_dir}/{index}/event")
+        os.makedirs(f"{root_dir}/{index}/combined")
+    absent_list=[]
+    bbox = []
+    ratio=(event_count-bias)/(rgb_count-1)
+    # ratio=15
+    print(ratio)
+    while True:
+        if frame_index<skip:
+            frame_index += 1
+            continue
+        if frame_index >= rgb_count or frame_index * ratio >= event_count:
+            break
+        rgb_image = rgb_buffer[frame_index]
+
+        event_data= event_buffer[int(frame_index * ratio)]
+        event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+        event_frame = np.ascontiguousarray(event_frame)
+        event_frame_gen.generate_frame(event_data, event_frame)
+        event_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        _, binary = cv2.threshold(event_gray, 40, 255, cv2.THRESH_BINARY)
+        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+        if points.shape[0] > 0:
+            np.set_printoptions(threshold=np.inf, linewidth=200)
+            dbscan.fit(points)
+            labels = dbscan.labels_
+            cluster_points = points[labels != -1]
+        else:
+            cluster_points = np.array([]).reshape(0, 2)  # 如果没有点，创建一个空的数组
+
+
+        event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+        hsv = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
+        lower_hsv = np.array([30, 90, 0])  # H,S,V
+        upper_hsv = np.array([50, 255, 255])
+
+        # 直接在 BGR 上 inRange
+        mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+        contours, hierarchy = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        bbox_range=10
+        absent= False
+        if len(contours) > 0 and len(cluster_points) > 0:
+            c = max(contours, key=cv2.contourArea)
+            x_r, y_r, w_r, h_r = cv2.boundingRect(c)
+            y_e = min(cluster_points[:, 0])
+            x_e = min(cluster_points[:, 1])
+            w_e = max(cluster_points[:, 0])- y_e
+            h_e = max(cluster_points[:, 1])- x_e
+            x=min(x_r, x_e)
+            y=min(y_r, y_e)
+            w=max(x_r + w_r, x_e + w_e) - x
+            h=max(y_r + h_r, y_e + h_e) - y
+            bbox.append([x, y, w, h])
+            absent_list.append(1)
+        elif len(contours) > 0:
+            c = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(c)
+            bbox.append([x, y, w, h])
+            absent_list.append(1)
+
+        elif len(cluster_points)>0:
+            y = min(cluster_points[:, 0])
+            x = min(cluster_points[:, 1])
+            w = max(cluster_points[:, 0])-y
+            h = max(cluster_points[:, 1])-x
+            bbox.append([x, y, w, h])
+            absent_list.append(1)
+        else:
+            absent = True
+            absent_list.append(0)
+            x, y, w, h = 0, 0, 0, 0
+        x=x-bbox_range
+        y=y-bbox_range
+        w=w+2*bbox_range
+        h=h+2*bbox_range
+        cv2.rectangle(rgb_image, (x, y), (x+ w, y + h), (0, 255, 0), 2)
+        cv2.rectangle(event_image, (x, y), (x+ w, y + h), (0, 255, 0), 2)
+
+
+
+
+        alpha = 0.7  # 0 = 全透明（看不到前景），1 = 不透明
+
+        combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
+        cv2.imshow('combined', combined)
+        cv2.waitKey(1)
+        # combined = np.hstack((rgb_image, event_image))
+        cv2.imwrite(f"{root_dir}/{index}/rgb/" + str(frame_index) + ".jpg", rgb_image)
+        cv2.imwrite(f"{root_dir}/{index}/event/" + str(frame_index) + ".jpg", event_image)
+        cv2.imwrite(f"{root_dir}/{index}/combined/" + str(frame_index) + ".jpg", combined)
+
+        frame_index+=1
+
+
+
+    shutil.copy(f"{raw_data_dir}/event/{index}.raw", f"{root_dir}/{index}/event.raw")
+    with open(f"{root_dir}/{index}/absent.txt", 'w', newline='') as f:
+        for a in absent_list:
+            f.write(str(a)+"\n")
+    with open(f"{root_dir}/{index}/groundtruth.txt", 'w', newline='') as f:
+        writer = csv.writer(f)
+        # 写入每个 bounding box
+        for box in bbox:
+            writer.writerow(box)
+
+
+
 root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
+raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_lab"
 
 
 # for index in range(12, 50):
-index=12
-align_buffer(root_dir,index,bias=-3)
+index=0
+align_buffer(root_dir,raw_data_dir,index,bias=50,skip=120)
