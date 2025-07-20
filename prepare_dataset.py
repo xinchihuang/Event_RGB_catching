@@ -8,6 +8,8 @@ import time
 import os
 import shutil
 import multiprocessing
+import scipy
+from spconv.pytorch.utils import PointToVoxel
 from sklearn.cluster import DBSCAN
 from AMTTrack.event_process import *
 from AMTTrack.RGB_process import *
@@ -163,15 +165,42 @@ def align_buffer_old(root_dir,index,bias=0):
         # 写入每个 bounding box
         for box in bbox:
             writer.writerow(box)
+def transform_points_to_voxels(data_dict, voxel_generator, device,
+                               save_voxel=5_000):
+    """略微精简，并使 save_voxel 显式可调"""
+    pts = data_dict['points'].to(device)
+    shuffle = torch.randperm(pts.shape[0], device=device)
+    pts = pts[shuffle]
 
-def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
+    voxels, coords, num_pts = voxel_generator(pts)
+    # 选密度最高的前 save_voxel 个 voxel
+    if num_pts.shape[0] > save_voxel:
+        _, idx = torch.topk(num_pts, save_voxel)
+        voxels, coords, num_pts = voxels[idx], coords[idx], num_pts[idx]
+
+    coords = coords.to(device)
+    coords[:, [0, 1, 2]] = coords[:, [2, 1, 0]]  # (y,x,t)→(t,x,y)
+    feats = voxels[:, :, 3]                      # 取极性通道
+
+    return coords, feats
+def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
     # gc.collect()
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from metavision_core.event_io import EventsIterator
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
     event_iterator = iter(
-        EventsIterator(input_path=f"{raw_data_dir}/event/{index}.raw", mode="mixed",
-                       delta_t=2000, n_events=10000))
+        EventsIterator(input_path=f"{raw_data_dir}/event/{index}.raw", mode="delta_t",
+                       delta_t=2000, n_events=1000000))
+    voxel_gen = PointToVoxel(
+        vsize_xyz=[50, 10, 10],
+        coors_range_xyz=[0, 0, 0, 1000, 345, 259],
+        num_point_features=4,
+        max_num_voxels=16000,
+        max_num_points_per_voxel=16,
+        device=device)
+    save_voxel = 5000
+
     event_buffer=[]
     for ev in event_iterator:
         ev['x'], ev['y'] = ev['y'].copy(), -ev['x'].copy()
@@ -179,7 +208,7 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
         ev['x'], ev['y'] = align_to_rgb(ev)
         event_buffer.append(ev)
     mod = len(event_buffer)
-    print(mod,len(event_buffer))
+
     event_buffer = event_buffer[:] if mod != 0 else event_buffer
     event_count = len(event_buffer)
     video_path = f"{raw_data_dir}/rgb/{index}.mp4"
@@ -202,22 +231,33 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
                                                        fps=100,
                                                        palette=ColorPalette.Dark)
     dbscan = DBSCAN(eps=10, min_samples=80)
-
+    if os.path.exists(f"{root_dir}/{index}"):
+        shutil.rmtree(f"{root_dir}/{index}")
     if not os.path.exists(f"{root_dir}/{index}"):
         os.makedirs(f"{root_dir}/{index}")
         os.makedirs(f"{root_dir}/{index}/rgb")
         os.makedirs(f"{root_dir}/{index}/event")
         os.makedirs(f"{root_dir}/{index}/combined")
+        os.makedirs(f"{root_dir}/{index}/voxel")
+
     absent_list=[]
     bbox = []
     ratio=(event_count-bias)/(rgb_count-1)
-    # ratio=15
-    print(ratio)
+    if ratio > 10:
+        ratio=10
+    else:
+        rgb_buffer= rgb_buffer[rgb_count-(event_count-bias)//10:]
+        # skip_start=rgb_count-(event_count-bias)//10
+
     while True:
-        if frame_index<skip:
+        if frame_index<=skip_start:
             frame_index += 1
             continue
-        if frame_index >= rgb_count or frame_index * ratio >= event_count:
+        if frame_index>rgb_count-skip_end:
+            print(rgb_count-skip_end)
+            break
+
+        if frame_index >= rgb_count or frame_index * ratio >= event_count or frame_index >= len(rgb_buffer):
             break
         rgb_image = rgb_buffer[frame_index]
 
@@ -263,25 +303,43 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
             y=min(y_r, y_e)
             w=max(x_r + w_r, x_e + w_e) - x
             h=max(y_r + h_r, y_e + h_e) - y
-            bbox.append([x, y, w, h])
-            absent_list.append(1)
+            if w>100 or h>100 or y> 1280:
+                x, y, w, h = 0, 0, 0, 0
+                bbox.append([x, y, w, h])
+                absent_list.append(0)
+            else:
+                bbox.append([x, y, w, h])
+                absent_list.append(1)
         elif len(contours) > 0:
             c = max(contours, key=cv2.contourArea)
             x, y, w, h = cv2.boundingRect(c)
-            bbox.append([x, y, w, h])
-            absent_list.append(1)
+            if w > 100 or h > 100 or y> 1280:
+                x, y, w, h = 0, 0, 0, 0
+                bbox.append([x, y, w, h])
+                absent_list.append(0)
+            else:
+                bbox.append([x, y, w, h])
+                absent_list.append(1)
 
         elif len(cluster_points)>0:
             y = min(cluster_points[:, 0])
             x = min(cluster_points[:, 1])
             w = max(cluster_points[:, 0])-y
             h = max(cluster_points[:, 1])-x
-            bbox.append([x, y, w, h])
-            absent_list.append(1)
+            if w > 100 or h > 100 or y> 1280:
+                x, y, w, h = 0, 0, 0, 0
+                bbox.append([x, y, w, h])
+                absent_list.append(0)
+            else:
+                bbox.append([x, y, w, h])
+                absent_list.append(1)
         else:
             absent = True
-            absent_list.append(0)
+
+
             x, y, w, h = 0, 0, 0, 0
+            bbox.append([x, y, w, h])
+            absent_list.append(0)
         x=x-bbox_range
         y=y-bbox_range
         w=w+2*bbox_range
@@ -298,14 +356,42 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
         cv2.imshow('combined', combined)
         cv2.waitKey(1)
         # combined = np.hstack((rgb_image, event_image))
-        cv2.imwrite(f"{root_dir}/{index}/rgb/" + str(frame_index) + ".jpg", rgb_image)
-        cv2.imwrite(f"{root_dir}/{index}/event/" + str(frame_index) + ".jpg", event_image)
-        cv2.imwrite(f"{root_dir}/{index}/combined/" + str(frame_index) + ".jpg", combined)
+        cv2.imwrite(f"{root_dir}/{index}/rgb/" + str(frame_index-skip_start) + ".jpg", rgb_image)
+        cv2.imwrite(f"{root_dir}/{index}/event/" + str(frame_index-skip_start) + ".jpg", event_image)
+        cv2.imwrite(f"{root_dir}/{index}/combined/" + str(frame_index-skip_start) + ".jpg", combined)
+
+        # if event_data['t'].shape[0] == 0:
+        #     print("No events in this frame, skipping...")
+        #     frame_index += 1
+        #     continue
+        # t_event = torch.as_tensor(event_data["t"], dtype=torch.float32, device=device).unsqueeze(1)
+        #
+        # x_event = torch.as_tensor(event_data["x"].astype(np.int16), device=device).unsqueeze(1)
+        # y_event = torch.as_tensor(event_data["y"].astype(np.int16), device=device).unsqueeze(1)
+        #
+        # p_event = torch.as_tensor(event_data["p"].astype(np.int8), device=device).unsqueeze(1)
+        # p_event[p_event == 0] = -1  # 负极标为 -1
+        # dt = t_event[-1] - t_event[0]
+        # t_event = ((t_event - t_event[0]) / dt * 1000) if dt > 0 else torch.zeros_like(t_event)
+        #
+        # event_points = torch.cat((t_event, x_event, y_event, p_event), dim=1)  # (N,4)
+        # coor, feats = transform_points_to_voxels(
+        #     {'points': event_points},
+        #     voxel_generator=voxel_gen,
+        #     device=device,
+        #     save_voxel=save_voxel  # 传参而不是用全局
+        # )
+        #
+        # scipy.io.savemat(
+        #     os.path.join(f'{root_dir}/{index}/voxel', f"{frame_index-skip_start}.mat"),
+        #     {"coor": coor.cpu().numpy(),
+        #      "features": feats.cpu().numpy()}
+        # )
 
         frame_index+=1
 
 
-
+    print("align finished")
     shutil.copy(f"{raw_data_dir}/event/{index}.raw", f"{root_dir}/{index}/event.raw")
     with open(f"{root_dir}/{index}/absent.txt", 'w', newline='') as f:
         for a in absent_list:
@@ -315,13 +401,17 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip=0):
         # 写入每个 bounding box
         for box in bbox:
             writer.writerow(box)
-
+    with open(f"{root_dir}/{index}/adjust.txt", 'w', newline='') as f:
+        writer = csv.writer(f)
+        # 写入每个 bounding box
+        writer.writerow([bias, skip_start, skip_end])
 
 
 root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_lab"
+raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_l"
 
 
 # for index in range(12, 50):
-index=0
-align_buffer(root_dir,raw_data_dir,index,bias=50,skip=120)
+# index=1
+for index in range(0,100):
+    align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0)

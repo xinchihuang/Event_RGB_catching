@@ -16,7 +16,7 @@ from event_process import *
 from RGB_process import *
 from fitting_process import *
 def starter(system_state,stop_event):
-    time.sleep(5)
+    time.sleep(30)
 
     system_state.value = 't'
 def signal_handler(sig, frame):
@@ -39,7 +39,7 @@ def keyboard(shared_value,system_state):
 
         listener.join()
 def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,
-                             shared_impact_point_data,raw_count,num_event,record_index,system_state,stop_event):
+                             shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
     event_memory, event_dtype, event_shape = shared_event_data
@@ -56,8 +56,13 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
+        # print(event_broadcasting.value,video_broadcasting.value)
+        if event_broadcasting.value=='f' and video_broadcasting.value=='f':
+            system_state.value='r'
+        # if event_broadcasting.value=='f' :
+        #     system_state.value='r'
         if system_state.value == 'r':
-            print("waiting for reset")
+            print("Waiting for reset")
             time.sleep(1)
             # 清空 event memory
             event_array = np.ndarray(event_shape, dtype=np.dtype(event_dtype), buffer=event_shm.buf)
@@ -88,11 +93,16 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
             num_event.value = 0
             # 下一个record
             record_index.value += 1
+            if record_index.value>100:
+                system_state.value='e'
+            start_ts.value = 0.0
             # 重置 system_state
             system_state.value = 'w'
-            time.sleep(1)
-            system_state.value='t'
-            print("reset system state to tracking")
+            # time.sleep(10)
+            # system_state.value='t'
+            video_broadcasting.value='s'
+            event_broadcasting.value='s'
+            print("Reset system state to tracking")
 def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
@@ -118,9 +128,9 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
         os.makedirs(f"{root_dir}/{index}/combined")
         os.makedirs(f"{root_dir}/{index}/rgb")
         os.makedirs(f"{root_dir}/{index}/event")
-    time.sleep(5)
+    time.sleep(10)
     print("start tracking")
-    system_state.value='t'
+    # system_state.value='t'
     buffered_frame=np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
     while not stop_event.is_set():
         if system_state.value == 'e':
@@ -222,33 +232,43 @@ if __name__ == '__main__':
 
     keyboard_input = Value('u', 'e')
     system_state=Value('u', 'w')
+    event_broadcasting = Value('u', 'f')
+    video_broadcasting = Value('u', 'f')
     ball_observations = Value('i',0)
     raw_count = Value('i', 0)
     num_event = Value('i', 0)
     record_index = Value('i', 0)
     start_ts = Value('d', 0.0)
+
+    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l'
+
     # Processes
-    event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event))
-    flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state,raw_count,record_index,start_ts, stop_event))
-    model_tracking_process = Process(target=pure_RGB, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,system_state, stop_event))
+    event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))
+    flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir))
+    model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,system_state, stop_event))
     event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,system_state, stop_event))
-    landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event))
+    RGB_tracking_process = Process(target=RGB_tracking_3D,
+                                     args=(shared_event_data, shared_flir_data, shared_ROI_data,
+                                           shared_ball_pixel_3D_data, ball_observations, num_event, system_state,
+                                           stop_event))
+    landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event))
     keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
     robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
     checker_process=Process(target=check_align,args=(shared_event_data,shared_flir_data,num_event,system_state,stop_event))
     reset_process= Process(target=reseter_for_multi_record, args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,
-                             shared_impact_point_data,raw_count,num_event,record_index,system_state,stop_event))
+                             shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event))
     starter_process = Process(target=starter, args=(system_state,stop_event))
 
     # Start processes
-    starter_process.start()
+    # starter_process.start()
     event_process.start()
     flir_process.start()
     # checker_process.start()
     model_tracking_process.start()
     event_tracking_process.start()
-    # landing_prediction_process.start()
-    # reset_process.start()
+    # RGB_tracking_process.start()
+    landing_prediction_process.start()
+    reset_process.start()
     # keyboard_process.start()
     # robot_control_process.start()
     # Wait for processes to finish

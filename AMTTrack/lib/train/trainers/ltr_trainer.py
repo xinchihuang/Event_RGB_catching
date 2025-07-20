@@ -72,12 +72,11 @@ class LTRTrainer(BaseTrainer):
         torch.set_grad_enabled(loader.training)
 
         self._init_timing()
-        # print(len(loader), loader.__len__())
-        # print(type(loader))
 
-        # self.epoch=40
+        print("start epoch: %d, loader: %s, training: %r" % (self.epoch, loader.name, loader.training))
+        print(loader)
         for i, data in enumerate(loader, 1):
-            # print(i,data)
+
             self.data_read_done_time = time.time()
             # get inputs
             # breakpoint()
@@ -134,13 +133,13 @@ class LTRTrainer(BaseTrainer):
     def train_epoch(self):
         """Do one epoch for each loader."""
         for loader in self.loaders:
-
             if self.epoch % loader.epoch_interval == 0:
                 # print("train_epoch", self.epoch, loader.epoch_interval)
 
                 # 2021.1.10 Set epoch
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(self.epoch)
+                print("cycle_dataset", loader.name, self.epoch)
                 self.cycle_dataset(loader)
 
         self._stats_new_epoch()

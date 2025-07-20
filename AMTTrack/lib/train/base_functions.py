@@ -1,7 +1,7 @@
 import torch
 from torch.utils.data.distributed import DistributedSampler
 # datasets related
-from lib.train.dataset import Coesot, Fe108, VisEvent, Felt
+from lib.train.dataset import Coesot, Fe108, VisEvent, Felt, Ball
 from lib.train.data import sampler, opencv_loader, processing, LTRLoader
 import lib.train.data.transforms as tfm
 from lib.utils.misc import is_main_process
@@ -28,7 +28,7 @@ def names2datasets(name_list: list, settings, image_loader):
     assert isinstance(name_list, list)
     datasets = []
     for name in name_list:
-        assert name in [ 'COESOT','COESOT_VAL','FE108','FE108_VAL','VisEvent','VisEvent_VAL','FELT']
+        assert name in [ 'COESOT','COESOT_VAL','FE108','FE108_VAL','VisEvent','VisEvent_VAL','FELT','BALL']
         if name == "COESOT":
             datasets.append(Coesot(settings.env.coesot_dir, split='train', image_loader=image_loader))
         # if name == "COESOT_VAL":
@@ -44,6 +44,9 @@ def names2datasets(name_list: list, settings, image_loader):
 
         if name == "FELT":
             datasets.append(Felt(settings.env.felt_dir, split='train', image_loader=image_loader))
+
+        if name == "BALL":
+            datasets.append(Ball(settings.env.ball_dir, split='train', image_loader=image_loader))
 
     return datasets
 
@@ -130,13 +133,15 @@ def build_dataloaders(cfg, settings):
     train_sampler = DistributedSampler(dataset_train) if settings.local_rank != -1 else None
     shuffle = False if settings.local_rank != -1 else True
     # print("data", cfg.TRAIN.BATCH_SIZE)
+    print('len(dataset)=', len(dataset_train))
+    # print('next sample =', dataset_train[0])
     loader_train = LTRLoader('train', dataset_train, training=True, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=shuffle,
                              num_workers=cfg.TRAIN.NUM_WORKER, drop_last=True, stack_dim=1, sampler=train_sampler)
    
     # loader_train = LTRLoader('train', dataset_train, training=True, batch_size=cfg.TRAIN.BATCH_SIZE, collate_fn=collate_fn, shuffle=False,
     #                          num_workers=cfg.TRAIN.NUM_WORKER, drop_last=True, stack_dim=1, sampler=train_sampler)
    
-    # Validation samplers and loaders
+
     dataset_val = sampler.TrackingSampler(datasets=names2datasets(cfg.DATA.VAL.DATASETS_NAME, settings, opencv_loader),
                                           p_datasets=cfg.DATA.VAL.DATASETS_RATIO,
                                           samples_per_epoch=cfg.DATA.VAL.SAMPLE_PER_EPOCH,

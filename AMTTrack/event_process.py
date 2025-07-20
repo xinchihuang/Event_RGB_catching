@@ -20,10 +20,14 @@ def ROI_filter(events, ROI_data):
         A **view** (no copy) of the original array containing only the
         events inside the ROI.  Use .copy() if you need an independent copy.
     """
+    roi_range=200
     x_r, y_r, w_r, h_r = ROI_data
-    if x_r==0 and y_r==0 and w_r==0 and h_r==0:
+    if x_r == 0 and y_r == 0 and w_r == 0 and h_r == 0:
         return events
-
+    x_r = max(x_r - roi_range, 0)
+    y_r = max(y_r - roi_range, 0)
+    w_r = w_r + 2 * roi_range
+    h_r = h_r + 2 * roi_range
     events_cp=events.copy()
     mask = (
             (events_cp['x'] >= x_r) & (events_cp['x'] < x_r + w_r) &
@@ -40,15 +44,15 @@ def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, 
     event_center_x=event_width/2
     event_center_y=event_height/2
     event_pixel=3.45
-    rgb_pixel=4.79
+    rgb_pixel=4.86
 
     x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+30
-    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+20
+    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+29
     y= np.clip(y, 0, rgb_height)
     return x.astype(int), y.astype(int)
 def read_from_raw(shared_event_data, system_state, num_event,
-                  raw_count, record_index, start_ts, stop_event,
-                  record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_lab'):
+                  raw_count, record_index, start_ts, stop_event,event_broadcasting,
+                  record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l'):
     """
     播放 .raw / event 流：
     1.  先把整段 .raw 全部读取到 event_buffer（按 2 ms 一块）
@@ -104,9 +108,11 @@ def read_from_raw(shared_event_data, system_state, num_event,
             loop_idx = event_count
             target_time = start_ts.value + loop_idx * period
 
-            if loop_idx >= len(event_buffer):      # 播完
-                system_state.value = 'r'
+            if loop_idx >= len(event_buffer):
+                # 播完
+                event_broadcasting.value='f'
                 initialized = False
+                print("End of event data.")
                 continue
 
             ev = event_buffer[event_count]
@@ -115,7 +121,7 @@ def read_from_raw(shared_event_data, system_state, num_event,
             # === 必须整块清零 ===
             shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
             # === 写本块事件 ===
-            shm[:n] = ev
+            shm[:n] = ev[:100000]
 
             # === 到下一个周期刻度 ===
             sleep_time = target_time + period - time.perf_counter()
@@ -152,7 +158,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     event_dir = f"{save_dir}/{num_file}/event/"
     if not os.path.exists(event_dir):
         os.makedirs(event_dir)  # Corrected function name
-    dbscan = DBSCAN(eps=10, min_samples=80)
+    dbscan = DBSCAN(eps=10, min_samples=60)
     count=0
     # time.sleep(3)
     # system_state.value='t'
@@ -166,7 +172,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
 
         # print(system_state.value)
         if system_state.value == 't':
-            # start_t=time.time()
+            start_t=time.time()
             try:
                 raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
                 flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
@@ -210,6 +216,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                     ball_pixel_3D[ball_num][3] = t
                     if ball_num < 100:
                         ball_num += 1
+                    print(ball_num)
                     ball_observations.value = ball_num
 
                 rgb_image = flir_data
@@ -228,6 +235,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                 # cv2.imwrite(f"{save_dir}/{0}/event/" + str(count) + ".jpg", combined)
                 # print("iters:",count)
                 # print("ball_observations",ball_observations.value)
+
                 count += 1
                 end_t = time.time()
                 # print("Event time:", end_t - start_t)

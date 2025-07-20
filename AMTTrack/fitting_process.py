@@ -1,7 +1,8 @@
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
-def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,system_state,stop_event):
+import csv
+def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event):
 
     from parabola_fitter import MonoRansac
     from utils import rotate_matrix_coordinate
@@ -39,14 +40,19 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
     impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
-
+    buffered_impact_point = [0,0,0]
+    last_index=0
+    saved_impact_point_dir = "impact_point_mode_l.csv"
     while not stop_event.is_set():
         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
         ball_pixels = ball_pixels[:ball_observations.value]
-
+        # print(ball_observations.value)
         try:
             if system_state.value == 't':
-
+                if ball_observations.value == last_index:
+                    continue
+                else:
+                    last_index = ball_observations.value
                 if len(ball_pixels) >= 10:
                     # print(ball_pixels)
 
@@ -58,13 +64,28 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     fitter.set_data(observations)
                     result = fitter.get_params()
                     impact_point=fitter.predict()
-                    print(impact_point)
+                    if -1.5<impact_point[1]<1.5 and 0<impact_point[2]<2:
+                        buffered_impact_point = impact_point
+                    else:
+                        impact_point = buffered_impact_point
+
                     # print(impact_point_arrays)
                     impact_point_array[0] = impact_point[0]
                     impact_point_array[1] = impact_point[1]
                     impact_point_array[2] = impact_point[2]
                     # print(impact_point)
                     # system_state.value='c'
+                    with open(saved_impact_point_dir, mode='a', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow([
+                            record_index.value,
+                            ball_observations.value,
+                            impact_point[0],
+                            impact_point[1],
+                            impact_point[2],
+                            time.time()
+                        ])
+
         except:
             continue
 def robot_control(shared_impact_point_data,system_state,stop_event):
