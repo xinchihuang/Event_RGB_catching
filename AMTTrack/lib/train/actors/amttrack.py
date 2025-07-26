@@ -27,6 +27,7 @@ class AMTTrackActor(BaseActor):
             loss    - the training loss
             status  -  dict containing detailed losses
         """
+        # print(data)
         # forward pass
         out_dict = self.forward_pass(data)
 
@@ -91,6 +92,7 @@ class AMTTrackActor(BaseActor):
 
         # Get boxes
         pred_boxes = pred_dict['pred_boxes']
+        # print(gt_bbox, pred_boxes)
         if torch.isnan(pred_boxes).any():
             raise ValueError("Network outputs is NAN! Stop Training")
         num_queries = pred_boxes.size(1)

@@ -10,4 +10,4 @@ class EnvironmentSettings:
         self.visevent_dir = '/home/xinchi/Event_RGB_catching/AMTTrack/data/VisEvent/train'
         self.visevent_val_dir = '/home/xinchi/Event_RGB_catching/AMTTrack/data/VisEvent/test'
         self.felt_dir = '/home/xinchi/FELT_dataset'
-        self.ball_dir = '/home/xinchi/Event_RGB_catching_data/dataset'
+        self.ball_dir = '/media/xinchi/data/Event_RGB_catching_data/dataset'

@@ -40,6 +40,11 @@ class Ball(BaseVideoDataset):
         self.sequence_list = [self.sequence_list[i] for i in seq_ids]
         # print(self.sequence_list)
 
+        # --- Debug: Overfit on a small batch ---
+        print("\n\n--- DEBUG: Overfitting on a small batch of 2 sequences. ---\n\n")
+        self.sequence_list = self.sequence_list[:2]
+        # -----------------------------------------
+
     def get_name(self):
         return 'felt'
 
@@ -51,6 +56,7 @@ class Ball(BaseVideoDataset):
         return dir_list
 
     def _read_bb_anno(self, seq_path):
+
         bb_anno_file = os.path.join(seq_path, "groundtruth.txt")
         gt = pandas.read_csv(bb_anno_file, delimiter=',', header=None, dtype=np.float32, na_filter=False, low_memory=False).values
         return torch.tensor(gt)
@@ -108,13 +114,13 @@ class Ball(BaseVideoDataset):
         seq_event_path = self._get_event_img_sequence_path(seq_id)
         frame_event_img_list = [self._get_frame(seq_event_path, f_id) for f_id in frame_ids]
         # print(frame_event_img_list[0].shape)
+
         if anno is None:
             anno = self.get_sequence_info(seq_id)
 
         anno_frames = {}
         for key, value in anno.items():
             anno_frames[key] = [value[f_id, ...].clone() for f_id in frame_ids]
-        # print(anno_frames)
         object_meta = OrderedDict({'object_class_name': None,
                                    'motion_class': None,
                                    'major_class': None,
@@ -123,7 +129,6 @@ class Ball(BaseVideoDataset):
 
         seq_event_path = self._get_event_sequence_path(seq_id)
         frame_event_list = self._get_event_frame(seq_event_path, frame_ids)
-        # print(frame_event_list )
         # breakpoint()
         return frame_list, anno_frames, object_meta, frame_event_list, frame_event_img_list   # frame_event_img_list
 

@@ -189,6 +189,7 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
     from metavision_core.event_io import EventsIterator
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+    print("AAA")
     event_iterator = iter(
         EventsIterator(input_path=f"{raw_data_dir}/event/{index}.raw", mode="delta_t",
                        delta_t=2000, n_events=1000000))
@@ -335,11 +336,10 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
                 absent_list.append(1)
         else:
             absent = True
-
-
             x, y, w, h = 0, 0, 0, 0
             bbox.append([x, y, w, h])
             absent_list.append(0)
+
         x=x-bbox_range
         y=y-bbox_range
         w=w+2*bbox_range
@@ -360,33 +360,33 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
         cv2.imwrite(f"{root_dir}/{index}/event/" + str(frame_index-skip_start) + ".jpg", event_image)
         cv2.imwrite(f"{root_dir}/{index}/combined/" + str(frame_index-skip_start) + ".jpg", combined)
 
-        # if event_data['t'].shape[0] == 0:
-        #     print("No events in this frame, skipping...")
-        #     frame_index += 1
-        #     continue
-        # t_event = torch.as_tensor(event_data["t"], dtype=torch.float32, device=device).unsqueeze(1)
-        #
-        # x_event = torch.as_tensor(event_data["x"].astype(np.int16), device=device).unsqueeze(1)
-        # y_event = torch.as_tensor(event_data["y"].astype(np.int16), device=device).unsqueeze(1)
-        #
-        # p_event = torch.as_tensor(event_data["p"].astype(np.int8), device=device).unsqueeze(1)
-        # p_event[p_event == 0] = -1  # 负极标为 -1
-        # dt = t_event[-1] - t_event[0]
-        # t_event = ((t_event - t_event[0]) / dt * 1000) if dt > 0 else torch.zeros_like(t_event)
-        #
-        # event_points = torch.cat((t_event, x_event, y_event, p_event), dim=1)  # (N,4)
-        # coor, feats = transform_points_to_voxels(
-        #     {'points': event_points},
-        #     voxel_generator=voxel_gen,
-        #     device=device,
-        #     save_voxel=save_voxel  # 传参而不是用全局
-        # )
-        #
-        # scipy.io.savemat(
-        #     os.path.join(f'{root_dir}/{index}/voxel', f"{frame_index-skip_start}.mat"),
-        #     {"coor": coor.cpu().numpy(),
-        #      "features": feats.cpu().numpy()}
-        # )
+        if event_data['t'].shape[0] == 0:
+            print("No events in this frame, skipping...")
+            frame_index += 1
+            continue
+        t_event = torch.as_tensor(event_data["t"], dtype=torch.float32, device=device).unsqueeze(1)
+
+        x_event = torch.as_tensor(event_data["x"].astype(np.int16), device=device).unsqueeze(1)
+        y_event = torch.as_tensor(event_data["y"].astype(np.int16), device=device).unsqueeze(1)
+
+        p_event = torch.as_tensor(event_data["p"].astype(np.int8), device=device).unsqueeze(1)
+        p_event[p_event == 0] = -1  # 负极标为 -1
+        dt = t_event[-1] - t_event[0]
+        t_event = ((t_event - t_event[0]) / dt * 1000) if dt > 0 else torch.zeros_like(t_event)
+
+        event_points = torch.cat((t_event, x_event, y_event, p_event), dim=1)  # (N,4)
+        coor, feats = transform_points_to_voxels(
+            {'points': event_points},
+            voxel_generator=voxel_gen,
+            device=device,
+            save_voxel=save_voxel  # 传参而不是用全局
+        )
+
+        scipy.io.savemat(
+            os.path.join(f'{root_dir}/{index}/voxel', f"{frame_index-skip_start}.mat"),
+            {"coor": coor.cpu().numpy(),
+             "features": feats.cpu().numpy()}
+        )
 
         frame_index+=1
 
@@ -408,7 +408,7 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
 
 
 root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_l"
+raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_c"
 
 
 # for index in range(12, 50):

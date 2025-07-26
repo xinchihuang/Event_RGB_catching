@@ -361,7 +361,8 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
         if system_state.value == 'w' and not initialized:
             print('Model Initializing')
-            AMtracker = Tracker('amttrack', 'amttrack_felt', 'felt', None)
+            # AMtracker = Tracker('amttrack', 'amttrack_felt', 'felt', None)
+            AMtracker = Tracker('amttrack', 'amttrack_ball', 'ball', None)
 
             params = AMtracker.get_parameters()
             # print(params)
@@ -424,6 +425,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
             state = [int(s) for s in bbox]
             x_r, y_r, w_r, h_r = state
+            print(state)
 
             ROI[0]=x_r
             ROI[1]=y_r

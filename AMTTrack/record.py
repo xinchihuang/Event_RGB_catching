@@ -240,7 +240,7 @@ if __name__ == '__main__':
     record_index = Value('i', 0)
     start_ts = Value('d', 0.0)
 
-    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l'
+    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
 
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))
