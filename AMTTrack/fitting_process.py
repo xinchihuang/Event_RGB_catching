@@ -42,7 +42,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
     buffered_impact_point = [0,0,0]
     last_index=0
-    saved_impact_point_dir = "impact_point_mode_l.csv"
+    saved_impact_point_dir = "impact_point_model.csv"
     while not stop_event.is_set():
         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
         ball_pixels = ball_pixels[:ball_observations.value]
