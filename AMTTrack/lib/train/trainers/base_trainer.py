@@ -196,6 +196,7 @@ class BaseTrainer:
             raise TypeError
 
         # Load network
+        print(checkpoint_path)
         checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
         # print("Loading pretrained model from ", checkpoint_dict['net_type'])
         # print(net_type)

@@ -74,8 +74,8 @@ class LTRTrainer(BaseTrainer):
         self._init_timing()
 
         print("start epoch: %d, loader: %s, training: %r" % (self.epoch, loader.name, loader.training))
-        print(loader)
         for i, data in enumerate(loader, 1):
+            # print(i)
 
             self.data_read_done_time = time.time()
             # get inputs
@@ -94,7 +94,8 @@ class LTRTrainer(BaseTrainer):
             else:
                 with autocast():
                     loss, stats = self.actor(data)
-            # print(loss,stats)
+
+            print(loss,stats)
             # backward pass and update weights
             if loader.training:
                 self.optimizer.zero_grad()
@@ -132,13 +133,17 @@ class LTRTrainer(BaseTrainer):
 
     def train_epoch(self):
         """Do one epoch for each loader."""
+        start_time = time.time()
         for loader in self.loaders:
             if self.epoch % loader.epoch_interval == 0:
                 # print("train_epoch", self.epoch, loader.epoch_interval)
 
                 # 2021.1.10 Set epoch
+                print(f"Sampler type: {type(loader.sampler)}")
                 if isinstance(loader.sampler, DistributedSampler):
                     loader.sampler.set_epoch(self.epoch)
+                elapsed = time.time() - start_time
+                print(f"[{self.epoch}] | Time: {elapsed:.1f}s")
                 print("cycle_dataset", loader.name, self.epoch)
                 self.cycle_dataset(loader)
 

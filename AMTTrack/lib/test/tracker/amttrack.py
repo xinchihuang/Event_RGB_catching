@@ -57,7 +57,7 @@ class AMTTrack(BaseTracker):
                                                                            output_sz=self.params.template_size)
         self.z_patch_arr = z_patch_arr
         template = self.preprocessor.process(z_patch_arr, z_amask_arr)
-        print(template)
+        # print(template)
         with torch.no_grad():
             self.z_dict1 = template
 

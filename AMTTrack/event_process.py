@@ -151,13 +151,13 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     ball_pixel_3D = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype, buffer=ball_pixel_3D_shm.buf)
     ROI_data_memory, ROI_dtype, ROI_shape = shared_ROI_data
     ROI_shm = shared_memory.SharedMemory(name=ROI_data_memory.name)
-    save_dir = "/home/xinchi/Event_RGB_catching_data/frames"
-    num_file = len(
-        [f for f in os.listdir(save_dir) if os.path.isdir(os.path.join(save_dir, f))])
-
-    event_dir = f"{save_dir}/{num_file}/event/"
-    if not os.path.exists(event_dir):
-        os.makedirs(event_dir)  # Corrected function name
+    # save_dir = "/home/xinchi/Event_RGB_catching_data/frames"
+    # num_file = len(
+    #     [f for f in os.listdir(save_dir) if os.path.isdir(os.path.join(save_dir, f))])
+    #
+    # event_dir = f"{save_dir}/{num_file}/event/"
+    # if not os.path.exists(event_dir):
+    #     os.makedirs(event_dir)  # Corrected function name
     dbscan = DBSCAN(eps=10, min_samples=60)
     count=0
     # time.sleep(3)
