@@ -16,7 +16,7 @@ from event_process import *
 from RGB_process import *
 from fitting_process import *
 def starter(system_state,stop_event):
-    time.sleep(30)
+    time.sleep(5)
 
     system_state.value = 't'
 def signal_handler(sig, frame):
@@ -56,7 +56,7 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
-        # print(event_broadcasting.value,video_broadcasting.value)
+        print(event_broadcasting.value,video_broadcasting.value)
         if event_broadcasting.value=='f' and video_broadcasting.value=='f':
             system_state.value='r'
         # if event_broadcasting.value=='f' :
@@ -93,8 +93,9 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
             num_event.value = 0
             # 下一个record
             record_index.value += 1
-            if record_index.value>100:
-                system_state.value='e'
+            print(record_index.value)
+            # if record_index.value>100:
+            #     system_state.value='e'
             start_ts.value = 0.0
             # 重置 system_state
             system_state.value = 'w'
@@ -240,7 +241,7 @@ if __name__ == '__main__':
     record_index = Value('i', 0)
     start_ts = Value('d', 0.0)
 
-    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
+    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_l'
 
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))
@@ -260,11 +261,11 @@ if __name__ == '__main__':
     starter_process = Process(target=starter, args=(system_state,stop_event))
 
     # Start processes
-    # starter_process.start()
+    starter_process.start()
     event_process.start()
     flir_process.start()
     # checker_process.start()
-    model_tracking_process.start()
+    # model_tracking_process.start()
     event_tracking_process.start()
     # RGB_tracking_process.start()
     landing_prediction_process.start()

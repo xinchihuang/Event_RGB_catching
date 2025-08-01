@@ -375,6 +375,9 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
 
             start_time = time.time()
+            x, y, w, h = initial_bbox
+            bbox = [x, y, w, h]
+            init_info = {'init_bbox': bbox}
             info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
             voxel_start = time.time()
             coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,

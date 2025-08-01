@@ -228,7 +228,11 @@ def _create_vision_transformer(pretrained=False, **kwargs):
         if 'npz' in pretrained:
             model.load_pretrained(pretrained, prefix='')
         else:
-            checkpoint = torch.load(pretrained, map_location="cpu")
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..', '..'))
+            pretrained_model_path = os.path.join(project_root, 'pretrained_models', pretrained)
+            checkpoint = torch.load(pretrained_model_path, map_location="cpu")
             missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
             print('Load pretrained model from: ' + pretrained)
 

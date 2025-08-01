@@ -130,7 +130,8 @@ def build_dataloaders(cfg, settings):
     # print("data_set",dataset_train.__len__())
     #
     # print("data_set",dataset_train.getitem())
-    print(f"TRAIN sequences = {len(dataset_train.seq_ids)}")
+    num_sequences = sum([d.get_num_sequences() for d in dataset_train.datasets])
+    print(f"TRAIN sequences = {num_sequences}")
     train_sampler = DistributedSampler(dataset_train) if settings.local_rank != -1 else None
     shuffle = False if settings.local_rank != -1 else True
     # print("data", cfg.TRAIN.BATCH_SIZE)
