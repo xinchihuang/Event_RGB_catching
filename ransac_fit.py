@@ -77,7 +77,7 @@ def reasonable_estimate(p, v):
     return True  # (impact_point[0] <= xlims[1] and impact_point[0] >= xlims[0] and impact_point[1] <= ylims[1] and impact_point[1] >= ylims[0])
 
 
-def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.999, num_max_ransac_iter=100, inlier_threshold=0.1):
+def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.99, num_max_ransac_iter=500, inlier_threshold=0.35):
     # parabola has equation p(t) = 1/2 g t^2 e_y + v t + p
     # unknowns are p and v
     num_ransac_iter = num_max_ransac_iter

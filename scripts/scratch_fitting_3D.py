@@ -6,7 +6,7 @@ from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory,draw_multi_3D
 from parabola_fitter import MonoPixelFitter, MonoFitter, MonoFitter3D,MonoPixelFitter3D,MonoRansac
 
 
-def cal_position(point_index,y_bias=0,z_bias=0.8):
+def index_to_position(point_index,y_bias=0,z_bias=0.2):
     if point_index>0:
         row=point_index//10
         col=point_index%10
@@ -22,34 +22,55 @@ def cal_position(point_index,y_bias=0,z_bias=0.8):
         z = (row) * 0.1 + z_bias + 0.05
         return [0, y, z]
 
+def position_to_index(position, y_bias=0, z_bias=0.2):
+    """Convert a 3D position to a grid index."""
+    y = position[1] - y_bias - 0.05
+    z = position[2] - z_bias - 0.05
+    row = int(z // 0.1)
+    col = int(y // 0.1)
+    print("row:", row, "col:", col, "y:", y, "z:", z)
+    if y>=0:
+        return -row * 10 + col
+    else:
+        return row * 10 - col
+
 
 def main():
     """ Main """
 
-    plot_index=50
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixels_3D"
-    camera_config = {
-        'fx': 739.9,
-        'fy': 739.9,
-        'cx': 310,
-        'cy': 710,
-        'dist_'
-        'dist_coeffs': [-0.1060764147484086, -0.001306849716448579, -0.0005920424312549498, -5.0607348313996e-05, 0]
+    plot_index=29
+    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_model_c"
+    # camera_config = {
+    #     'fx': 739.9,
+    #     'fy': 739.9,
+    #     'cx': 310,
+    #     'cy': 710,
+    #     'dist_'
+    #     'dist_coeffs': [-0.1060764147484086, -0.001306849716448579, -0.0005920424312549498, -5.0607348313996e-05, 0]
+    # }
 
+
+    camera_config = {
+        "fx": 987.1678420424932,
+        "fy": 986.0683237433913,
+        "cy": 739.7418995490075,
+        "cx": 513.7733221750243,
+        "dist_coeffs": [
+            -0.11123899870851763,
+            -0.020663002330730863,
+            -0.0002997445722290338,
+            0.0007964973013426446,
+            0.014818755754515196
+        ]
     }
     camera_rpy_to = [0, 45, -90]
     camera_rpy_back = [45, 0, 90]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
 
-
-    # label = [14,-44,-62,54,-74,63,22,-54,44,-61,24,62,-53,72,32,33,-35,43,51,-24]
-    label = [-61,31,-61,0,0,-11,-21,-42,-51,73,
-             -31,-13,-51,52,41,-51,-41,61,-31,62,
-             -41,12,52,-61,-14,-13,72,46,53,-55,
-             21,33,24,21,41,21,-42,-42,61,61,
-             62,43,-15,-24,72,32,-22,-23,74,32
-             ]
+    label_file= "/home/xinchi/Event_RGB_catching/fitting/label_c.csv"
+    labels=np.loadtxt(label_file, delimiter=",")
+    print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
     # fitter = MonoPixelFitter(camera_params=camera_config, rotation_matrix_to=rotation_matrix_to,
     #                          rotation_matrix_back=rotation_matrix_back)
@@ -59,37 +80,32 @@ def main():
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
     exp_results = []
 
-    for i in range(0,plot_index):
-        ball_memory=np.load(f"{save_dir}/{i}.npy")
-        ball_memory=ball_memory[5:45]
-        if len(ball_memory)<40:
+    for i in range(0,100):
+        # Skip invalid data where label is 0
+        if labels[i] == 0:
+            print(f"Skipping trajectory {i}: invalid label (0)")
             continue
-        # print(len(ball_memory))
-        if len(ball_memory)==0:
-            continue
-
+            
+        ball_memory=np.loadtxt(f"{save_dir}/{i}.csv", delimiter=",")
+        print(ball_memory)
+        print(i)
         observations=ball_memory
         observations[:,3]=observations[:,3]-observations[0,3]
-
-        arr_3d = observations.reshape(-1, 10,  observations.shape[1])  # -> shape (4, 5, 4)
-
-        # 2. 对每个块的 5 行做列均值
-        arr_means = arr_3d.mean(axis=1)
-        observations=arr_means
-        # print(observations)
-
+        observations= observations[:20, :]
         fitter.set_data(observations)
         result=fitter.get_params()
 
-        impact_point_real=cal_position(label[i])
+        impact_point_real=index_to_position(labels[i])
         ball = result['points']
 
         impact_point=fitter.predict()
 
-
         dict_to_save={'points' : ball,
              'impact':impact_point,
              'label':impact_point_real,
+             'fit_params': result.get('params', None),
+             'inliers': result.get('inliers', None),
+             'trajectory_id': i,  # Add original trajectory ID
              }
         exp_results.append(dict_to_save)
     draw_multi_3D_trajetory_cls(raw_data=exp_results)

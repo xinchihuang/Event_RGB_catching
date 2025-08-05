@@ -2,6 +2,8 @@ from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
 import csv
+import pandas as pd
+import os
 def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event):
 
     from parabola_fitter import MonoRansac
@@ -43,24 +45,30 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     buffered_impact_point = [0,0,0]
     last_index=0
     saved_impact_point_dir = "impact_point_event_l.csv"
+    
+    # Setup for saving ball_pixel_3D data
+    ball_pixel_save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records"
+    if not os.path.exists(ball_pixel_save_dir):
+        os.makedirs(ball_pixel_save_dir)
+    ball_pixels_data_list = []  # Store ball_pixels data for current record
+    saved=True
     while not stop_event.is_set():
         ball_pixels = np.ndarray(ball_pixel_shape, dtype=ball_pixel_dtype, buffer=ball_pixel_shm.buf)
         ball_pixels = ball_pixels[:ball_observations.value]
-        # print(ball_observations.value)
+        # print("record_index", record_index.value,system_state.value)
         try:
             if system_state.value == 't':
+                saved=False
                 if ball_observations.value == last_index:
                     continue
                 else:
                     last_index = ball_observations.value
+
                 if len(ball_pixels) == 10:
                     # print(ball_pixels)
 
                     ball_memory = ball_pixels
-
                     observations = ball_memory
-                    # print(observations)
-                    observations[:, 3] = observations[:, 3] - observations[0, 3]
                     fitter.set_data(observations)
                     result = fitter.get_params()
                     impact_point=fitter.predict()
@@ -75,16 +83,29 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     impact_point_array[2] = impact_point[2]
                     # print(impact_point)
                     # system_state.value='c'
-                    with open(saved_impact_point_dir, mode='a', newline='') as f:
-                        writer = csv.writer(f)
-                        writer.writerow([
-                            record_index.value,
-                            ball_observations.value,
-                            impact_point[0],
-                            impact_point[1],
-                            impact_point[2],
-                            time.time()
-                        ])
+                    # with open(saved_impact_point_dir, mode='a', newline='') as f:
+                    #     writer = csv.writer(f)
+                    #     writer.writerow([
+                    #         record_index.value,
+                    #         ball_observations.value,
+                    #         impact_point[0],
+                    #         impact_point[1],
+                    #         impact_point[2],
+                    #         time.time()
+                    #     ])
+            if system_state.value == 'r' and not saved:
+                ball_memory = ball_pixels
+                observations = ball_memory
+                # print(observations)/
+
+                print("record_index", record_index.value)
+                
+                # Save observations to file
+                filename = f"/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records/{record_index.value}.csv"
+                np.savetxt(filename, observations, delimiter=',', fmt='%.6f')
+                print(f"Saved observations to {filename}")
+                
+                saved= True
 
         except:
             continue

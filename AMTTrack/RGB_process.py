@@ -151,8 +151,9 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,syste
             # Convert from BGR to HSV color space
 
             rgb_image=flir_data
+
             hsv = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-            lower_hsv = np.array([30, 70, 100])  # H,S,V
+            lower_hsv = np.array([30, 90, 0])  # H,S,V
             upper_hsv = np.array([50, 255, 255])
 
             # 直接在 BGR 上 inRange
@@ -163,6 +164,18 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,syste
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
             contours, hierarchy = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            # lower_hsv = np.array([30, 70, 70])  # H,S,V
+            # upper_hsv = np.array([50, 255, 255])
+            #
+            # # 直接在 BGR 上 inRange
+            # mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
+            #
+            # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+            # mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+            #
+            # contours, hierarchy = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
             # Proceed only if at least one contour was found
 
@@ -354,6 +367,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     count=0
     roi_range=500
     initialized= False
+    system_state.value = 'w'  # 设置初始状态为等待
     while not stop_event.is_set():
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
         flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
@@ -428,7 +442,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
             state = [int(s) for s in bbox]
             x_r, y_r, w_r, h_r = state
-            print(state)
+            # print(state)
 
             ROI[0]=x_r
             ROI[1]=y_r

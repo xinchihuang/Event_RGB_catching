@@ -3,6 +3,7 @@ import os
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
+import pandas as pd
 def ROI_filter(events, ROI_data):
     """
     Return the sub-array of `events` whose (x, y) lie inside a rectangular ROI.
@@ -20,14 +21,14 @@ def ROI_filter(events, ROI_data):
         A **view** (no copy) of the original array containing only the
         events inside the ROI.  Use .copy() if you need an independent copy.
     """
-    roi_range=200
+    roi_range=100
     x_r, y_r, w_r, h_r = ROI_data
     if x_r == 0 and y_r == 0 and w_r == 0 and h_r == 0:
         return events
     x_r = max(x_r - roi_range, 0)
-    y_r = max(y_r - roi_range, 0)
+    y_r = max(y_r - 2*roi_range, 0)
     w_r = w_r + 2 * roi_range
-    h_r = h_r + 2 * roi_range
+    h_r = h_r + 4 * roi_range
     events_cp=events.copy()
     mask = (
             (events_cp['x'] >= x_r) & (events_cp['x'] < x_r + w_r) &
@@ -116,12 +117,19 @@ def read_from_raw(shared_event_data, system_state, num_event,
                 continue
 
             ev = event_buffer[event_count]
+            if ev.shape[0] == 0:
+                # 没有事件，跳过
+                event_count += 1
+                continue
+            # print(ev['t'][0])  # 打印最后一个事件的时间戳
             n = ev.shape[0]
             num_event.value = n
-            # === 必须整块清零 ===
-            shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
+            # # print(n)
+            # # === 必须整块清零 ===
+            # shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
             # === 写本块事件 ===
-            shm[:n] = ev[:100000]
+            shm[:n] = ev[:min(n, 100000)] # 只写入 shm 的前 n 个事件
+            # print(shm[:n])
 
             # === 到下一个周期刻度 ===
             sleep_time = target_time + period - time.perf_counter()
@@ -158,7 +166,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     # event_dir = f"{save_dir}/{num_file}/event/"
     # if not os.path.exists(event_dir):
     #     os.makedirs(event_dir)  # Corrected function name
-    dbscan = DBSCAN(eps=10, min_samples=60)
+    dbscan = DBSCAN(eps=12, min_samples=60)
     count=0
     # time.sleep(3)
     # system_state.value='t'
@@ -185,10 +193,11 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                 x_r, y_r, w_r, h_r = ROI_data
                 # ROI_data = [0, 0, 1080, 1440]
                 # ROI_data = [0, 0, 720, 1440]
+                # ROI_data = [0,0,0,0]
                 event_data = ROI_filter(raw_event_data, ROI_data)
                 # print(max(event_data['y']))
                 t = event_data['t'][-1] / 1000000
-                # # print(t)
+                # print(t)
                 event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
                 event_frame = np.ascontiguousarray(event_frame)
                 event_frame_gen.generate_frame(event_data, event_frame)
@@ -214,9 +223,10 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                     ball_pixel_3D[ball_num][1] = float(y + h / 2)
                     ball_pixel_3D[ball_num][2] = float(h)
                     ball_pixel_3D[ball_num][3] = t
+
                     if ball_num < 100:
                         ball_num += 1
-                    print(ball_num)
+                    # print(ball_num)
                     ball_observations.value = ball_num
 
                 rgb_image = flir_data

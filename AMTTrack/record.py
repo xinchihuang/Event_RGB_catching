@@ -8,6 +8,7 @@ import multiprocessing
 import signal
 import numpy as np
 import time
+import argparse
 from gi.overrides.Gtk import initialized
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
@@ -16,8 +17,8 @@ from event_process import *
 from RGB_process import *
 from fitting_process import *
 def starter(system_state,stop_event):
-    time.sleep(5)
-
+    time.sleep(3)
+    print("Starting system...")
     system_state.value = 't'
 def signal_handler(sig, frame):
     print("Terminating processes...")
@@ -54,16 +55,22 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
 
     while not stop_event.is_set():
+
         if system_state.value == 'e':
             break
-        print(event_broadcasting.value,video_broadcasting.value)
+        # print(event_broadcasting.value,video_broadcasting.value)
+
         if event_broadcasting.value=='f' and video_broadcasting.value=='f':
             system_state.value='r'
         # if event_broadcasting.value=='f' :
         #     system_state.value='r'
         if system_state.value == 'r':
             print("Waiting for reset")
-            time.sleep(1)
+            time.sleep(2)
+            system_state.value = 'w'
+            print("Set to Waiting")
+            time.sleep(2)
+            print("Cleaning memory...")
             # 清空 event memory
             event_array = np.ndarray(event_shape, dtype=np.dtype(event_dtype), buffer=event_shm.buf)
             event_array[:] = np.zeros(event_shape, dtype=np.dtype(event_dtype))
@@ -87,23 +94,20 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
 
             # 重置 ball_observations
             ball_observations.value = 0
-            # 重置 record_index
+
             raw_count.value=0
             # 重置 num_event
             num_event.value = 0
             # 下一个record
-            record_index.value += 1
-            print(record_index.value)
-            # if record_index.value>100:
-            #     system_state.value='e'
+
             start_ts.value = 0.0
-            # 重置 system_state
-            system_state.value = 'w'
-            # time.sleep(10)
-            # system_state.value='t'
             video_broadcasting.value='s'
             event_broadcasting.value='s'
-            print("Reset system state to tracking")
+            print("Restarting system...")
+            time.sleep(2)
+            record_index.value += 1
+            system_state.value = 'e'
+
 def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
@@ -122,15 +126,15 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
     dbscan = DBSCAN(eps=9, min_samples=70)
     count=0
     # time.sleep(1)
-    root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-    index=len([f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f))])
-    if not os.path.exists(f"{root_dir}/{index}"):
-        os.makedirs(f"{root_dir}/{index}")
-        os.makedirs(f"{root_dir}/{index}/combined")
-        os.makedirs(f"{root_dir}/{index}/rgb")
-        os.makedirs(f"{root_dir}/{index}/event")
-    time.sleep(10)
-    print("start tracking")
+    # root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
+    # index=len([f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f))])
+    # if not os.path.exists(f"{root_dir}/{index}"):
+    #     os.makedirs(f"{root_dir}/{index}")
+    #     os.makedirs(f"{root_dir}/{index}/combined")
+    #     os.makedirs(f"{root_dir}/{index}/rgb")
+    #     os.makedirs(f"{root_dir}/{index}/event")
+    # time.sleep(10)
+    # print("start tracking")
     # system_state.value='t'
     buffered_frame=np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
     while not stop_event.is_set():
@@ -171,11 +175,17 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
 
         cv2.imshow('Image with Bounding Box', resized_img)
         cv2.waitKey(1)
-        cv2.imwrite(f"{root_dir}/{0}/combined/" + str(count) + ".jpg", combined)
+        # cv2.imwrite(f"{root_dir}/{0}/combined/" + str(count) + ".jpg", combined)
         # cv2.imwrite(f"{root_dir}/{index}/event/" + str(rgb_index) + ".jpg", event_image)
 
         count += 1
 if __name__ == '__main__':
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Event RGB Catching System')
+    parser.add_argument('--record_index', type=int, default=0,
+                       help='Initial record index (default: 40)')
+    args = parser.parse_args()
+    
     device = torch.device("cuda")
 
     multiprocessing.set_start_method('spawn')
@@ -233,15 +243,17 @@ if __name__ == '__main__':
 
     keyboard_input = Value('u', 'e')
     system_state=Value('u', 'w')
-    event_broadcasting = Value('u', 'f')
-    video_broadcasting = Value('u', 'f')
+    event_broadcasting = Value('u', 's')
+    video_broadcasting = Value('u', 's')
     ball_observations = Value('i',0)
     raw_count = Value('i', 0)
     num_event = Value('i', 0)
-    record_index = Value('i', 0)
+    record_index = Value('i', args.record_index)
     start_ts = Value('d', 0.0)
+    
+    print(f"Starting with record_index: {args.record_index}")
 
-    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_l'
+    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
 
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))
@@ -261,30 +273,41 @@ if __name__ == '__main__':
     starter_process = Process(target=starter, args=(system_state,stop_event))
 
     # Start processes
-    starter_process.start()
+    # starter_process.start()
     event_process.start()
     flir_process.start()
     # checker_process.start()
-    # model_tracking_process.start()
+    model_tracking_process.start()
     event_tracking_process.start()
     # RGB_tracking_process.start()
     landing_prediction_process.start()
     reset_process.start()
     # keyboard_process.start()
     # robot_control_process.start()
-    # Wait for processes to finish
+    # Wait for processes to finish or system_state becomes 'e'
     try:
-        # cuda_process.join()
-        event_process.join()
-        flir_process.join()
-        model_tracking_process.join()
-        event_tracking_process.join()
-        # landing_prediction_process.join()
-        # keyboard_process.join()
-        # robot_control_process.join()
-        stop_event.set()
+        while True:
+            # Check if system should exit
+            if system_state.value == 'e':
+                print("System exit requested, terminating processes...")
+                stop_event.set()
+                break
+            
+            # Check if all active processes are still alive
+            active_processes = [starter_process, event_process, flir_process, event_tracking_process, landing_prediction_process, reset_process]
+            if not any(p.is_alive() for p in active_processes):
+                print("All processes finished naturally")
+                break
+            
+            time.sleep(0.1)  # Check every 100ms
+        
+        # Give processes time to clean shutdown
+        time.sleep(2)
+        
     except KeyboardInterrupt:
+        print("Keyboard interrupt received, shutting down...")
         stop_event.set()
+        time.sleep(2)
         # event_process.terminate()
         # flir_process.terminate()
         # model_tracking_process.terminate()

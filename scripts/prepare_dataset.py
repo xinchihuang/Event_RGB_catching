@@ -352,7 +352,8 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
 
         alpha = 0.7  # 0 = 全透明（看不到前景），1 = 不透明
 
-        combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
+        # combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
+        combined = np.hstack((rgb_image, event_image))
         cv2.imshow('combined', combined)
         cv2.waitKey(1)
         # combined = np.hstack((rgb_image, event_image))
@@ -407,8 +408,8 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
         writer.writerow([bias, skip_start, skip_end])
 
 
-root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-raw_data_dir = "/home/xinchi/Event_RGB_catching_data/saved_data_c"
+root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset"
+raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_d"
 
 
 # for index in range(12, 50):

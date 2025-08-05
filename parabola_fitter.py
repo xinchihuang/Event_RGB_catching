@@ -749,7 +749,7 @@ class MonoEKF3D:
         return impact_point
 
 class MonoRansac:
-    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back,ball_diameter=0.8):
+    def __init__(self,camera_params,rotation_matrix_to,rotation_matrix_back,ball_diameter=0.105):
         self.camera_params = camera_params
         self.rotation_matrix_to = rotation_matrix_to
         self.rotation_matrix_back = rotation_matrix_back
@@ -758,9 +758,9 @@ class MonoRansac:
     def set_data(self,data):
         self.data = data
     def get_params(self):
-        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back, self.ball_diameter)
 
-        init_position, velocity, inliers, points_3d = adaptive_ransac_parabola_3d(world_coords, self.data[:, 3])
+        init_position, velocity, inliers, points_3d = adaptive_ransac_parabola_3d(world_coords, self.data[:, 3],)
         predeicted_params = {
             "points": points_3d,
             'params': {
@@ -770,7 +770,8 @@ class MonoRansac:
                 'vx': velocity[0],
                 'vy': velocity[1],
                 'vz': velocity[2],
-            } ,
+            },
+            'inliers': inliers,
         }
         self.predeicted_params = predeicted_params
         return predeicted_params
