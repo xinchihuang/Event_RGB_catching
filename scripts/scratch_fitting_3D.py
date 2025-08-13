@@ -4,6 +4,7 @@ from utils import rotate_matrix_coordinate
 import os
 from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory,draw_multi_3D_trajetory_cls
 from parabola_fitter import MonoPixelFitter, MonoFitter, MonoFitter3D,MonoPixelFitter3D,MonoRansac
+import matplotlib.pyplot as plt
 
 
 def index_to_position(point_index,y_bias=0,z_bias=0.2):
@@ -35,11 +36,122 @@ def position_to_index(position, y_bias=0, z_bias=0.2):
         return row * 10 - col
 
 
+def plot_2d_impact_comparison(exp_results, success_threshold=0.25):
+    """
+    Plot 2D comparison of real vs predicted impact points with success/failure marking
+    
+    Args:
+        exp_results: List of experiment results with 'impact' and 'label' keys
+        success_threshold: Distance threshold for successful prediction (meters)
+    """
+    real_y = []
+    real_z = []
+    pred_y = []
+    pred_z = []
+    success_flags = []
+    trajectory_ids = []
+    
+    for result in exp_results:
+        real_impact = result['label']
+        pred_impact = result['impact']
+        traj_id = result.get('trajectory_id', 0)
+        
+        # Extract Y and Z coordinates (ignoring X=0)
+        real_y.append(real_impact[1])
+        real_z.append(real_impact[2])
+        pred_y.append(pred_impact[1])
+        pred_z.append(pred_impact[2])
+        trajectory_ids.append(traj_id)
+        
+        # Calculate Euclidean distance for success determination
+        distance = np.sqrt((real_impact[1] - pred_impact[1])**2 + 
+                          (real_impact[2] - pred_impact[2])**2)
+        success_flags.append(distance <= success_threshold)
+    
+    # Convert to numpy arrays
+    real_y = np.array(real_y)
+    real_z = np.array(real_z)
+    pred_y = np.array(pred_y)
+    pred_z = np.array(pred_z)
+    success_flags = np.array(success_flags)
+    
+    # Create the plot
+    plt.figure(figsize=(12, 8))
+    plt.rcParams.update({'font.size': 14})
+    
+    # Plot successful predictions in green
+    successful_mask = success_flags
+    plt.scatter(real_y[successful_mask], real_z[successful_mask], 
+               c='green', marker='o', s=100, alpha=0.7, label='Real (Success)')
+    plt.scatter(pred_y[successful_mask], pred_z[successful_mask], 
+               c='lightgreen', marker='x', s=100, alpha=0.7, label='Predicted (Success)')
+    
+    # Plot failed predictions in red
+    failed_mask = ~success_flags
+    plt.scatter(real_y[failed_mask], real_z[failed_mask], 
+               c='red', marker='o', s=100, alpha=0.7, label='Real (Failed)')
+    plt.scatter(pred_y[failed_mask], pred_z[failed_mask], 
+               c='pink', marker='x', s=100, alpha=0.7, label='Predicted (Failed)')
+    
+    # Draw connection lines between real and predicted points
+    for i in range(len(real_y)):
+        color = 'green' if success_flags[i] else 'red'
+        alpha = 0.3
+        plt.plot([real_y[i], pred_y[i]], [real_z[i], pred_z[i]], 
+                color=color, alpha=alpha, linewidth=1)
+    
+    # Add trajectory ID annotations for failed cases
+    for i in range(len(real_y)):
+        if not success_flags[i]:
+            plt.annotate(f'{trajectory_ids[i]}', 
+                        (real_y[i], real_z[i]), 
+                        xytext=(5, 5), textcoords='offset points',
+                        fontsize=8, alpha=0.7)
+    
+    # Calculate statistics
+    success_rate = np.sum(success_flags) / len(success_flags) * 100
+    mean_error = np.mean([np.sqrt((real_y[i] - pred_y[i])**2 + (real_z[i] - pred_z[i])**2) 
+                         for i in range(len(real_y))])
+    
+    plt.xlabel('Y Coordinate (m)')
+    plt.ylabel('Z Coordinate (m)')
+    plt.title(f'Impact Point Prediction Results\n'
+              f'Success Rate: {success_rate:.1f}% | Mean Error: {mean_error:.3f}m | '
+              f'Threshold: {success_threshold}m')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Set display range limits
+    plt.xlim(-1, 1)
+    plt.ylim(0, 2)
+    
+    # Add statistics text box
+    stats_text = f'Total Trajectories: {len(exp_results)}\n' \
+                f'Successful: {np.sum(success_flags)}\n' \
+                f'Failed: {np.sum(~success_flags)}\n' \
+                f'Success Rate: {success_rate:.1f}%\n' \
+                f'Mean Error: {mean_error:.3f}m'
+    
+    plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
+             verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    
+    plt.tight_layout()
+    plt.show()
+    
+    print(f"\n=== Prediction Results ===")
+    print(f"Success Rate: {success_rate:.1f}%")
+    print(f"Mean Error: {mean_error:.3f}m")
+    print(f"Success Threshold: {success_threshold}m")
+    print(f"Total Trajectories: {len(exp_results)}")
+    print(f"Successful Predictions: {np.sum(success_flags)}")
+    print(f"Failed Predictions: {np.sum(~success_flags)}")
+
+
 def main():
     """ Main """
 
     plot_index=29
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_model_c"
+    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_RGB_c"
     # camera_config = {
     #     'fx': 739.9,
     #     'fy': 739.9,
@@ -80,7 +192,7 @@ def main():
     fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
     exp_results = []
 
-    for i in range(0,100):
+    for i in range(0,len(labels)):
         # Skip invalid data where label is 0
         if labels[i] == 0:
             print(f"Skipping trajectory {i}: invalid label (0)")
@@ -108,7 +220,12 @@ def main():
              'trajectory_id': i,  # Add original trajectory ID
              }
         exp_results.append(dict_to_save)
-    draw_multi_3D_trajetory_cls(raw_data=exp_results)
+    
+    # Comment out 3D visualization (function preserved but not called)
+    # draw_multi_3D_trajetory_cls(raw_data=exp_results)
+    
+    # Add 2D visualization for impact points
+    plot_2d_impact_comparison(exp_results)
 
 if __name__ == "__main__":
     main()

@@ -182,7 +182,7 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=0,
+    parser.add_argument('--record_index', type=int, default=10,
                        help='Initial record index (default: 40)')
     args = parser.parse_args()
     
@@ -253,7 +253,7 @@ if __name__ == '__main__':
     
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
+    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
 
     # Processes
     event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))

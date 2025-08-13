@@ -231,7 +231,7 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
                                                        fps=100,
                                                        palette=ColorPalette.Dark)
-    dbscan = DBSCAN(eps=10, min_samples=80)
+    dbscan = DBSCAN(eps=12, min_samples=60)
     if os.path.exists(f"{root_dir}/{index}"):
         shutil.rmtree(f"{root_dir}/{index}")
     if not os.path.exists(f"{root_dir}/{index}"):
@@ -277,10 +277,9 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
         else:
             cluster_points = np.array([]).reshape(0, 2)  # 如果没有点，创建一个空的数组
 
-
         event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
         hsv = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-        lower_hsv = np.array([30, 90, 0])  # H,S,V
+        lower_hsv = np.array([30, 90, 50])  # H,S,V
         upper_hsv = np.array([50, 255, 255])
 
         # 直接在 BGR 上 inRange
@@ -304,6 +303,7 @@ def align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0):
             y=min(y_r, y_e)
             w=max(x_r + w_r, x_e + w_e) - x
             h=max(y_r + h_r, y_e + h_e) - y
+
             if w>100 or h>100 or y> 1280:
                 x, y, w, h = 0, 0, 0, 0
                 bbox.append([x, y, w, h])
@@ -414,5 +414,5 @@ raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_d"
 
 # for index in range(12, 50):
 # index=1
-for index in range(0,100):
+for index in range(10,100):
     align_buffer(root_dir,raw_data_dir,index,bias=0,skip_start=0,skip_end=0)

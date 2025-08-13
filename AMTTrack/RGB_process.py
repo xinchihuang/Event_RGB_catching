@@ -264,7 +264,7 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     p_x, p_y, p_w, p_h = x, y, w, h
 
                 combined = rgb_image
-                scale = 0.8
+                scale = 0.75
 
                 # 获取新的尺寸
                 width = int(combined.shape[1] * scale)
