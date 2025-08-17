@@ -1,4 +1,7 @@
 import numpy as np
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import BboxKeys, compute_area_from_bboxes
 import cv2
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection

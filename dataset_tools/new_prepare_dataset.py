@@ -1,8 +1,7 @@
-from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import multiprocessing
-from AMTTrack.event_process import *
-from AMTTrack.RGB_process import *
-from AMTTrack.fitting_process import *
+from data_input.read_from_raw import *
+from data_input.read_from_video import *
+from fitting.fitting_process import *
 # def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_event):
 #     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 #     from sklearn.cluster import DBSCAN

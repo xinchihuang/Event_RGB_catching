@@ -1,12 +1,10 @@
-from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
+from multiprocessing import shared_memory
 import numpy as np
 import time
-import csv
-import pandas as pd
 import os
 def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event):
 
-    from parabola_fitter import MonoRansac
+    from fitting.parabola_fitter import MonoRansac
     from utils import rotate_matrix_coordinate
 
     # camera_config = {

@@ -19,8 +19,11 @@ import time
 import numpy as np
 
 # custom
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import load_bboxes, filter_to_max_bboxes, filter_bboxes_to_interval
-from ransac_fit import fit_parabola_to_bboxes, compute_impact_point, sample_parabola
+from fitting.ransac_fit import fit_parabola_to_bboxes, compute_impact_point, sample_parabola
 
 DEBUG_NODE = True
 

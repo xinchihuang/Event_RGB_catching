@@ -3,26 +3,42 @@ import cv2
 import os
 import sys
 import torch
-from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
+from multiprocessing import Process, Array, Queue, Manager, shared_memory, Value
 import multiprocessing
 import signal
 import numpy as np
 import time
 import argparse
 from gi.overrides.Gtk import initialized
+
+# Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
-from event_process import *
-from RGB_process import *
-from fitting_process import *
+
+# Import custom modules
+from data_input.read_from_raw import read_from_raw
+from data_input.read_from_video import read_from_video
+from ROI_generation.AMTTrack_ROI import model
+from ROI_generation.RGB_ROI import pure_RGB
+from tracking_2D.HSV_tracker import RGB_tracking_3D
+from tracking_2D.Event_tracker import event_tracking_3D
+from fitting.fitting_process import landing_prediction, robot_control
+
 def starter(system_state,stop_event):
     time.sleep(3)
     print("Starting system...")
     system_state.value = 't'
+# Global variables for signal handler
+started_processes = []
+stop_event = None
+
 def signal_handler(sig, frame):
-    print("Terminating processes...")
-    stop_event.set()
+    print("\nSignal received, initiating safe shutdown...")
+    global stop_event, started_processes
+    if stop_event:
+        stop_event.set()
+    shutdown_processes(started_processes)
     sys.exit(0)
 def keyboard(shared_value,system_state):
     from pynput import keyboard
@@ -41,8 +57,6 @@ def keyboard(shared_value,system_state):
         listener.join()
 def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,
                              shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event):
-    from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
-
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     flir_memory, flir_dtype, flir_shape = shared_flir_data
@@ -179,18 +193,90 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
         # cv2.imwrite(f"{root_dir}/{index}/event/" + str(rgb_index) + ".jpg", event_image)
 
         count += 1
+
+def shutdown_processes(processes, timeout=5):
+    """
+    安全地关闭进程列表
+    
+    Args:
+        processes: 要关闭的进程列表
+        timeout: 等待进程正常退出的超时时间（秒）
+    """
+    if not processes:
+        print("No processes to shutdown.")
+        return
+    
+    print(f"Shutting down {len(processes)} processes...")
+    
+    # 第一阶段：等待进程正常退出
+    print("Phase 1: Waiting for graceful shutdown...")
+    start_time = time.time()
+    
+    while processes and (time.time() - start_time) < timeout:
+        alive_processes = [p for p in processes if p.is_alive()]
+        if not alive_processes:
+            print("All processes exited gracefully.")
+            return
+        
+        print(f"Waiting for {len(alive_processes)} processes to exit...")
+        time.sleep(0.5)
+    
+    # 第二阶段：强制终止仍在运行的进程
+    alive_processes = [p for p in processes if p.is_alive()]
+    if alive_processes:
+        print(f"Phase 2: Force terminating {len(alive_processes)} remaining processes...")
+        
+        for process in alive_processes:
+            try:
+                print(f"Terminating process {process.pid}...")
+                process.terminate()
+            except Exception as e:
+                print(f"Error terminating process {process.pid}: {e}")
+        
+        # 等待terminate生效
+        time.sleep(1)
+        
+        # 第三阶段：如果还有进程，使用kill
+        still_alive = [p for p in alive_processes if p.is_alive()]
+        if still_alive:
+            print(f"Phase 3: Force killing {len(still_alive)} stubborn processes...")
+            
+            for process in still_alive:
+                try:
+                    print(f"Killing process {process.pid}...")
+                    process.kill()
+                except Exception as e:
+                    print(f"Error killing process {process.pid}: {e}")
+        
+        # 最终检查
+        time.sleep(0.5)
+        final_alive = [p for p in processes if p.is_alive()]
+        if final_alive:
+            print(f"Warning: {len(final_alive)} processes still running after shutdown!")
+        else:
+            print("All processes successfully terminated.")
+    
+    print("Process shutdown complete.")
+
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=10,
                        help='Initial record index (default: 40)')
+    parser.add_argument('--test_mode', type=str, default="Model",
+                        help='Test mode (default: Model). Options: Model, Event, RGB, Show')
     args = parser.parse_args()
     
     device = torch.device("cuda")
 
     multiprocessing.set_start_method('spawn')
 
+    # Initialize stop_event for signal handler
+    stop_event = multiprocessing.Event()
+    started_processes.clear()  # Reset the list
+    
     signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C gracefully
+    signal.signal(signal.SIGTERM, signal_handler)  # Handle termination signal
     # Shared objects
     event_dtype = {
         'names': ['x', 'y', 'p', 't'],
@@ -206,7 +292,7 @@ if __name__ == '__main__':
     flir_shape=(1440,1080,3)
     flir_memory = shared_memory.SharedMemory(create=True, size=np.prod(flir_shape) * np.dtype(flir_dtype).itemsize)
     shared_flir_data=(flir_memory,flir_dtype,flir_shape)
-    stop_event = multiprocessing.Event()
+    # stop_event already initialized above
 
     ROI_dtype=np.uint16
     ROI_shape=(4,)
@@ -255,35 +341,45 @@ if __name__ == '__main__':
 
     record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
 
-    # Processes
-    event_process = Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir))
-    flir_process = Process(target=read_from_video, args=(shared_flir_data,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir))
-    model_tracking_process = Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,system_state, stop_event))
-    event_tracking_process = Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,system_state, stop_event))
-    RGB_tracking_process = Process(target=RGB_tracking_3D,
-                                     args=(shared_event_data, shared_flir_data, shared_ROI_data,
-                                           shared_ball_pixel_3D_data, ball_observations, num_event, system_state,
-                                           stop_event))
-    landing_prediction_process = Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event))
-    keyboard_process = Process(target=keyboard, args=(keyboard_input,system_state))
-    robot_control_process = Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event))
-    checker_process=Process(target=check_align,args=(shared_event_data,shared_flir_data,num_event,system_state,stop_event))
-    reset_process= Process(target=reseter_for_multi_record, args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,
-                             shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event))
-    starter_process = Process(target=starter, args=(system_state,stop_event))
+    # Define all available processes
+    all_processes = {
+        'event_process': Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir)),
+        'flir_process': Process(target=read_from_video, args=(shared_flir_data,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir)),
+        'model_ROI_process': Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,system_state, stop_event)),
+        'RGB_ROI_process': Process(target=pure_RGB,args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,system_state, stop_event)),
+        'event_tracking_process': Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,system_state, stop_event)),
+        'RGB_tracking_process': Process(target=RGB_tracking_3D, args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event, system_state, stop_event)),
+        'landing_prediction_process': Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event)),
+        'keyboard_process': Process(target=keyboard, args=(keyboard_input,system_state)),
+        'robot_control_process': Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event)),
+        'checker_process': Process(target=check_align,args=(shared_event_data,shared_flir_data,num_event,system_state,stop_event)),
+        'reset_process': Process(target=reseter_for_multi_record, args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations, shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event)),
+        'starter_process': Process(target=starter, args=(system_state,stop_event))
+    }
+    
+    # Define process groups for different functionalities
+    # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
+    process_groups = {
+        'Model': ['event_process', 'flir_process', 'model_ROI_process', 'event_tracking_process', 'landing_prediction_process', 'reset_process'],
+        'Event': ['event_process', 'flir_process','event_tracking_process','landing_prediction_process', 'reset_process','starter_process'],
+        'RGB': ['event_process', 'flir_process', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process'],
+        'Show': ['event_process', 'flir_process', 'checker_process','keyboard_process']
+    }
+    # Get processes to start for current mode
+    processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])
+    print(f"Starting mode: {args.test_mode}")
+    print(f"Processes to start: {processes_to_start}")
 
-    # Start processes
-    # starter_process.start()
-    event_process.start()
-    flir_process.start()
-    # checker_process.start()
-    model_tracking_process.start()
-    event_tracking_process.start()
-    # RGB_tracking_process.start()
-    landing_prediction_process.start()
-    reset_process.start()
-    # keyboard_process.start()
-    # robot_control_process.start()
+    # Start selected processes dynamically
+    # started_processes is already initialized as global variable
+    for process_name in processes_to_start:
+        if process_name in all_processes:
+            process = all_processes[process_name]
+            process.start()
+            started_processes.append(process)
+            print(f"Started: {process_name}")
+        else:
+            print(f"Warning: Process '{process_name}' not found!")
     # Wait for processes to finish or system_state becomes 'e'
     try:
         while True:
@@ -294,27 +390,20 @@ if __name__ == '__main__':
                 break
             
             # Check if all active processes are still alive
-            active_processes = [starter_process, event_process, flir_process, event_tracking_process, landing_prediction_process, reset_process]
-            if not any(p.is_alive() for p in active_processes):
+            if not any(p.is_alive() for p in started_processes):
                 print("All processes finished naturally")
                 break
             
             time.sleep(0.1)  # Check every 100ms
         
-        # Give processes time to clean shutdown
-        time.sleep(2)
+        # Safe shutdown of all started processes
+        shutdown_processes(started_processes)
         
     except KeyboardInterrupt:
         print("Keyboard interrupt received, shutting down...")
         stop_event.set()
-        time.sleep(2)
-        # event_process.terminate()
-        # flir_process.terminate()
-        # model_tracking_process.terminate()
-        # event_tracking_process.terminate()
-        # landing_prediction_process.terminate()
-        # keyboard_process.terminate()
-        # robot_control_process.terminate()
+        # Safe shutdown of all started processes
+        shutdown_processes(started_processes)
     finally:
         print("Cleaning up shared memory...")
         for shm in [event_memory, flir_memory, ROI_memory, ball_pixel_memory,

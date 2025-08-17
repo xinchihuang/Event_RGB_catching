@@ -1,9 +1,9 @@
 import numpy as np
-from fitting import fit_3d_trajectory_with_distortion
-from utils import rotate_matrix_coordinate
+import sys
 import os
-from plot.plot_3D import draw_3D_trajetory,draw_multi_3D_trajetory,draw_multi_3D_trajetory_cls
-from parabola_fitter import MonoPixelFitter, MonoFitter, MonoFitter3D,MonoPixelFitter3D,MonoRansac
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from utils import rotate_matrix_coordinate
+from fitting.parabola_fitter import MonoRansac
 import matplotlib.pyplot as plt
 
 
@@ -180,7 +180,7 @@ def main():
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
 
-    label_file= "/home/xinchi/Event_RGB_catching/fitting/label_c.csv"
+    label_file= "/evaluation_tools/label_c.csv"
     labels=np.loadtxt(label_file, delimiter=",")
     print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)

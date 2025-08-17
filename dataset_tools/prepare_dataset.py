@@ -1,19 +1,12 @@
-import math
-
-import cv2
 import csv
 import sys
-import numpy as np
-import time
-import os
 import shutil
-import multiprocessing
 import scipy
 from spconv.pytorch.utils import PointToVoxel
 from sklearn.cluster import DBSCAN
-from AMTTrack.event_process import *
-from AMTTrack.RGB_process import *
-from AMTTrack.fitting_process import *
+from data_input.read_from_raw import *
+from data_input.read_from_video import *
+from fitting.fitting_process import *
 
 # from ekf_predict import ekf_predict
 prj_path = os.path.join(os.path.dirname(__file__), '..')
