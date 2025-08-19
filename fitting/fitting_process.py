@@ -4,7 +4,10 @@ import time
 import os
 def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event):
 
-    from fitting.parabola_fitter import MonoRansac
+    import sys
+    import os
+    sys.path.append(os.path.join(os.path.dirname(__file__)))
+    from parabola_fitter import MonoRansac
     from utils import rotate_matrix_coordinate
 
     # camera_config = {

@@ -20,7 +20,7 @@ def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, 
     return x.astype(int), y.astype(int)
 def read_from_raw(shared_event_data, system_state, num_event,
                   raw_count, record_index, start_ts, stop_event,event_broadcasting,
-                  record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l'):
+                  record_dir=''):
     """
     播放 .raw / event 流：
     1.  先把整段 .raw 全部读取到 event_buffer（按 2 ms 一块）

@@ -66,7 +66,9 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
                                                        fps=0.0,
                                                        palette=ColorPalette.Dark)
     def draw_initial_bbox(image,event_data):
-        x,y,w,h = 470,1145,40,40
+        # x,y,w,h = 470,1145,40,40
+        x, y, w, h = 180, 1030, 40, 40
+
         # rgb_image = image
         # event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
         # event_frame = np.ascontiguousarray(event_frame)
@@ -121,7 +123,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    npy_path = os.path.join(project_root, "77.npy")
+    npy_path = os.path.join(project_root, "121.npy")
     first_event_data=np.load(npy_path)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
@@ -132,8 +134,9 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
-    jpg_path = os.path.join(project_root, "77.jpg")
+    jpg_path = os.path.join(project_root, "121.jpg")
     first_flir_image=cv2.imread(jpg_path)
+
     initial_bbox = draw_initial_bbox(first_flir_image,first_event_data)
     x, y, w, h = initial_bbox
     bbox = [x, y, w, h]

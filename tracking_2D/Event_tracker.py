@@ -21,7 +21,7 @@ def ROI_filter(events, ROI_data):
         A **view** (no copy) of the original array containing only the
         events inside the ROI.  Use .copy() if you need an independent copy.
     """
-    roi_range=100
+    roi_range=300
     x_r, y_r, w_r, h_r = ROI_data
     if x_r == 0 and y_r == 0 and w_r == 0 and h_r == 0:
         return events
@@ -64,7 +64,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     # event_dir = f"{save_dir}/{num_file}/event/"
     # if not os.path.exists(event_dir):
     #     os.makedirs(event_dir)  # Corrected function name
-    dbscan = DBSCAN(eps=12, min_samples=60)
+    dbscan = DBSCAN(eps=9, min_samples=60)
     count=0
     # time.sleep(3)
     # system_state.value='t'

@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import rotate_matrix_coordinate
-from fitting.parabola_fitter import MonoRansac
+from parabola_fitter import MonoRansac
 import matplotlib.pyplot as plt
 
 
@@ -151,7 +151,7 @@ def main():
     """ Main """
 
     plot_index=29
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_RGB_c"
+
     # camera_config = {
     #     'fx': 739.9,
     #     'fy': 739.9,
@@ -179,8 +179,8 @@ def main():
     camera_rpy_back = [45, 0, 90]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
-
-    label_file= "/evaluation_tools/label_c.csv"
+    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_RGB_c"
+    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_c.csv")
     labels=np.loadtxt(label_file, delimiter=",")
     print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
@@ -198,7 +198,7 @@ def main():
             print(f"Skipping trajectory {i}: invalid label (0)")
             continue
             
-        ball_memory=np.loadtxt(f"{save_dir}/{i}.csv", delimiter=",")
+        ball_memory=np.loadtxt(os.path.join(save_dir, f"{i}.csv"), delimiter=",")
         print(ball_memory)
         print(i)
         observations=ball_memory
