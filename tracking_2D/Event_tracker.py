@@ -21,7 +21,7 @@ def ROI_filter(events, ROI_data):
         A **view** (no copy) of the original array containing only the
         events inside the ROI.  Use .copy() if you need an independent copy.
     """
-    roi_range=300
+    roi_range=1000
     x_r, y_r, w_r, h_r = ROI_data
     if x_r == 0 and y_r == 0 and w_r == 0 and h_r == 0:
         return events

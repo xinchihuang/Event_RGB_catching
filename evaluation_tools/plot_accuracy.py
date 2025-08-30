@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import rotate_matrix_coordinate
-from parabola_fitter import MonoRansac
+from fitting.parabola_fitter import MonoRansac
 import matplotlib.pyplot as plt
 
 
@@ -21,6 +21,7 @@ def index_to_position(point_index,y_bias=0,z_bias=0.2):
         # print(col,row)
         y = -(col) * 0.1 + y_bias + 0.05
         z = (row) * 0.1 + z_bias + 0.05
+
         return [0, y, z]
 
 def position_to_index(position, y_bias=0, z_bias=0.2):
@@ -179,8 +180,8 @@ def main():
     camera_rpy_back = [45, 0, 90]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_RGB_c"
-    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_c.csv")
+    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records"
+    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_dc.csv")
     labels=np.loadtxt(label_file, delimiter=",")
     print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
@@ -198,7 +199,18 @@ def main():
             print(f"Skipping trajectory {i}: invalid label (0)")
             continue
             
-        ball_memory=np.loadtxt(os.path.join(save_dir, f"{i}.csv"), delimiter=",")
+        try:
+            ball_memory=np.loadtxt(os.path.join(save_dir, f"{i}.csv"), delimiter=",")
+            if ball_memory.size == 0:
+                print(f"Skipping trajectory {i}: empty CSV file")
+                continue
+            if ball_memory.ndim == 1:
+                print(f"Skipping trajectory {i}: invalid data format (1D array)")
+                continue
+        except Exception as e:
+            print(f"Skipping trajectory {i}: error loading data - {e}")
+            continue
+            
         print(ball_memory)
         print(i)
         observations=ball_memory
