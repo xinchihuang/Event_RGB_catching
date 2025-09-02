@@ -19,52 +19,6 @@ prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
-def read_from_event(shared_event_data, stop_event):
-    from metavision_core.event_io import EventsIterator
-
-    event_iterator = iter(EventsIterator(input_path="",mode="mixed", delta_t=1000, n_events=10000))
-    while not stop_event.is_set():
-        try:
-            # if event_queue.full():
-            #     event_queue.get()  # Remove the oldest item
-            event_data = next(event_iterator)
-            # event_data[:,[0,1]]=event_data[:,[1,0]]
-            event_data['x'],event_data['y']=event_data['y'].copy(),-event_data['x'].copy()
-            event_data['y']+=1279
-            event_memory,event_dtype,event_shape=shared_event_data
-            event_shm = shared_memory.SharedMemory(name=event_memory.name)
-            # Attach to the shared memory and create a NumPy array view
-            shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-            shm[:] = np.zeros(event_shape, dtype=event_dtype)
-            shm[:event_data.shape[0]] = event_data
-        except Exception as e:
-            print(f"Error in read_from_event: {e}")
-            continue
-def read_from_flir(shared_flir_data, stop_event):
-    import PySpin
-    system = PySpin.System.GetInstance()
-    cam_list = system.GetCameras()
-    cam = cam_list[0]
-    cam.Init()
-    cam.BeginAcquisition()
-    while not stop_event.is_set():
-        try:
-            # print('flir')
-            image_result = cam.GetNextImage(10000)
-            if image_result.IsIncomplete():
-                continue
-            image_data = image_result.GetNDArray()
-            cv_image = cv2.cvtColor(image_data, cv2.COLOR_BAYER_RG2RGB)
-            cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_CLOCKWISE)
-
-            flir_memory,flir_dtype,flir_shape=shared_flir_data
-            flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
-            shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
-            shm[:] = cv_image
-            image_result.Release()
-        except Exception as e:
-            print(f"Error in read_from_flir: {e}")
-            continue
 def read_from_raw(shared_event_data, stop_event):
     from metavision_core.event_io import EventsIterator
 

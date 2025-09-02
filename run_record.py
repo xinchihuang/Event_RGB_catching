@@ -121,7 +121,7 @@ Examples:
         """
     )
     
-    parser.add_argument('--start_index', type=int, default=69,
+    parser.add_argument('--start_index', type=int, default=0,
                        help='Initial record index (default: 0)')
     parser.add_argument('--max_runs', type=int, default=110,
                        help='Maximum number of runs (default: unlimited)')

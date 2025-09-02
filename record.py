@@ -178,7 +178,9 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
             h = max(cluster_points[:, 1]) - x
             # cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
             # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-        combined = np.hstack((rgb_image, event_image))
+        # combined = np.hstack((rgb_image, event_image))
+        rgb_image = cv2.convertScaleAbs(rgb_image, alpha=10, beta=30)
+        combined = cv2.addWeighted(event_image, 0.3, rgb_image, 0.2, 0)
         scale = 0.8
         # 获取新的尺寸
         width = int(combined.shape[1] * scale)
@@ -263,7 +265,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=10,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Model",
+    parser.add_argument('--test_mode', type=str, default="Show",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
     args = parser.parse_args()
     
@@ -363,7 +365,7 @@ if __name__ == '__main__':
         'Model': ['event_process', 'flir_process', 'model_ROI_process', 'event_tracking_process', 'landing_prediction_process', 'reset_process'],
         'Event': ['event_process', 'flir_process','event_tracking_process','landing_prediction_process', 'reset_process','starter_process'],
         'RGB': ['event_process', 'flir_process', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process'],
-        'Show': ['event_process', 'flir_process', 'checker_process','keyboard_process']
+        'Show': ['event_process', 'flir_process', 'checker_process','starter_process','reset_process']
     }
     # Get processes to start for current mode
     processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])

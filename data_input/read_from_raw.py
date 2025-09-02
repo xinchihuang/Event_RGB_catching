@@ -20,7 +20,7 @@ def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, 
     return x.astype(int), y.astype(int)
 def read_from_raw(shared_event_data, system_state, num_event,
                   raw_count, record_index, start_ts, stop_event,event_broadcasting,
-                  record_dir=''):
+                  record_dir='', event_frame_offset=-20):
     """
     播放 .raw / event 流：
     1.  先把整段 .raw 全部读取到 event_buffer（按 2 ms 一块）
@@ -73,6 +73,10 @@ def read_from_raw(shared_event_data, system_state, num_event,
             if start_ts.value == 0.0:              # 第一次进入播放态
                 start_ts.value = time.perf_counter()
 
+            # 应用事件帧偏移量
+            adjusted_event_count = event_count + event_frame_offset
+            adjusted_event_count = max(0, min(adjusted_event_count, len(event_buffer) - 1))
+            
             loop_idx = event_count
             target_time = start_ts.value + loop_idx * period
 
@@ -83,7 +87,7 @@ def read_from_raw(shared_event_data, system_state, num_event,
                 print("End of event data.")
                 continue
 
-            ev = event_buffer[event_count]
+            ev = event_buffer[adjusted_event_count]
             if ev.shape[0] == 0:
                 # 没有事件，跳过
                 event_count += 1

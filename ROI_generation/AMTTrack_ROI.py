@@ -65,32 +65,54 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
                                                        fps=0.0,
                                                        palette=ColorPalette.Dark)
-    def draw_initial_bbox(image,event_data):
-        # x,y,w,h = 470,1145,40,40
-        x, y, w, h = 180, 1030, 40, 40
-
-        # rgb_image = image
-        # event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
-        # event_frame = np.ascontiguousarray(event_frame)
-        # event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
-        # event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-        # _, binary = cv2.threshold(event_image_gray, 40, 255, cv2.THRESH_BINARY)
-        # event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-        #
-        # cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-        # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-        # combined = np.hstack((rgb_image, event_image))
-        # scale = 0.8
-        # # 获取新的尺寸
-        # width = int(combined.shape[1] * scale)
-        # height = int(combined.shape[0] * scale)
-        # new_size = (width, height)
-        #
-        # resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
-        #
-        # cv2.imshow('Image with Bounding Box', resized_img)
-        # cv2.waitKey(0)
-        return x, y, w, h
+    def detect_initial_bbox(image, event_data):
+        """
+        自动检测球的初始位置
+        """
+        # 导入球检测器
+        import sys
+        import os
+        current_dir = os.path.dirname(__file__)
+        sys.path.append(current_dir)
+        from ball_detector import BallDetector
+        
+        # 初始化球检测器
+        ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
+        
+        # 生成事件图像用于辅助检测
+        event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+        event_frame = np.ascontiguousarray(event_frame)
+        event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
+        event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        
+        # 尝试自动检测球
+        detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        
+        if detected_bbox is not None:
+            x, y, w, h = detected_bbox
+            print(f"自动检测到球的位置: x={x}, y={y}, w={w}, h={h}")
+            
+            # 可视化检测结果
+            vis_image = image.copy()
+            cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(vis_image, "Auto Detected Ball", (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # 显示检测结果，让用户确认
+            scale = 0.5
+            height, width = vis_image.shape[:2]
+            new_size = (int(width * scale), int(height * scale))
+            resized_img = cv2.resize(vis_image, new_size, interpolation=cv2.INTER_AREA)
+            cv2.imshow('Ball Detection - Press any key to continue', resized_img)
+            cv2.waitKey(2000)  # 显示2秒
+            cv2.destroyAllWindows()
+            
+            return x, y, w, h
+        else:
+            # 如果自动检测失败，使用默认位置
+            print("自动检测失败，使用默认位置")
+            x, y, w, h = 180, 1030, 40, 40
+            return x, y, w, h
 
     device = torch.device("cuda")
     voxel_generator = PointToVoxel(
@@ -123,7 +145,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    npy_path = os.path.join(project_root, "121.npy")
+    npy_path = os.path.join(project_root, "122.npy")
     first_event_data=np.load(npy_path)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
@@ -134,10 +156,10 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
-    jpg_path = os.path.join(project_root, "121.jpg")
+    jpg_path = os.path.join(project_root, "122.jpg")
     first_flir_image=cv2.imread(jpg_path)
 
-    initial_bbox = draw_initial_bbox(first_flir_image,first_event_data)
+    initial_bbox = detect_initial_bbox(first_flir_image,first_event_data)
     x, y, w, h = initial_bbox
     bbox = [x, y, w, h]
     init_info = {'init_bbox': bbox}

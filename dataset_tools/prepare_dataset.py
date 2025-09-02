@@ -151,8 +151,8 @@ def align_buffer(root_dir, raw_data_dir, index,
     )
 
     # --- Time alignment ---
-    denom = max(rgb_count - 1, 1)
-    ratio = max((event_count - bias) / denom, 0.0)
+    denom = max(rgb_count-skip_start-skip_end - 1, 1)
+    ratio = max(event_count / denom, 0.0)
 
     absent_list, bbox = [], []
 
@@ -251,18 +251,20 @@ def align_buffer(root_dir, raw_data_dir, index,
             x, y, w, h = clip_box(x, y, w, h, rgb_w, rgb_h)
 
         # Draw (no GUI; just onto saved images)
-        # if present and w > 0 and h > 0:
-        #     cv2.rectangle(rgb_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        #     cv2.rectangle(event_vis, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        rgb_img_show = rgb_img.copy()
+        event_vis_show = event_vis.copy()
+        if present and w > 0 and h > 0:
+            cv2.rectangle(rgb_img_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.rectangle(event_vis_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
         absent_list.append(1 if present else 0)
         bbox.append([x, y, w, h])
         # alpha = 0.7  # 0 = 全透明（看不到前景），1 = 不透明
         #
-        # # combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
-        # combined = np.hstack((rgb_img, event_vis))
-        # cv2.imshow('combined', combined)
-        # cv2.waitKey(1)
+        # combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
+        combined = np.hstack((rgb_img_show, event_vis_show))
+        cv2.imshow('combined', combined)
+        cv2.waitKey(1)
         # --- Save images ---
         out_idx = frame_idx - start_idx
         cv2.imwrite(f"{out_dir}/rgb/{out_idx}.jpg", rgb_img)
@@ -318,13 +320,13 @@ def align_buffer(root_dir, raw_data_dir, index,
 
 def main():
     root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset"
-    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_d"
+    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_c"
 
     for index in range(0, 100):
         align_buffer(root_dir, raw_data_dir, index,
-                     bias=0, skip_start=0, skip_end=0,
+                     bias=-30, skip_start=0, skip_end=0,
                      debug_show=True,  # keep False for servers/headless
-                     save_voxel=5000, eps=12, min_samples=60,
+                     save_voxel=5000, eps=12, min_samples=80,
                      bbox_range=10, event_thresh=40)
 
 if __name__ == "__main__":
