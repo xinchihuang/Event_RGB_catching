@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import time
 from typing import Tuple, Optional, List
 
 class BallDetector:
@@ -243,9 +244,9 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(description='测试球检测器')
-    parser.add_argument('--image_path', type=str, help='RGB图像路径', default="/home/xinchi/Event_RGB_catching/122.jpg")
-    parser.add_argument('--event_path', type=str, help='事件数据路径(.npy文件)',default="/home/xinchi/Event_RGB_catching/122.npy")
-    parser.add_argument('--min_radius', type=int, default=10, help='最小球半径')
+    parser.add_argument('--image_path', type=str, help='RGB图像路径', default="/home/xinchi/Event_RGB_catching/156.jpg")
+    parser.add_argument('--event_path', type=str, help='事件数据路径(.npy文件)',default="/home/xinchi/Event_RGB_catching/157.npy")
+    parser.add_argument('--min_radius', type=int, default=5, help='最小球半径')
 
 
     parser.add_argument('--max_radius', type=int, default=50, help='最大球半径')
@@ -309,113 +310,109 @@ def main():
             except Exception as e:
                 print(f"生成事件图像失败: {e}")
     
-    # 执行检测
+    # 执行检测并计时
     print("开始球检测...")
     
     # 分别测试各种检测方法
     print("\n1. 霍夫圆检测:")
+    start_time = time.time()
     hough_detections = detector.detect_by_hough_circles(image)
+    hough_time = time.time() - start_time
     print(f"   检测到 {len(hough_detections)} 个球: {hough_detections}")
+    print(f"   用时: {hough_time*1000:.2f}ms")
     
     print("\n2. 轮廓检测:")
+    start_time = time.time()
     contour_detections = detector.detect_by_contours(image)
+    contour_time = time.time() - start_time
     print(f"   检测到 {len(contour_detections)} 个球: {contour_detections}")
+    print(f"   用时: {contour_time*1000:.2f}ms")
     
+    event_time = 0
     if event_image is not None:
         print("\n3. 事件图像检测:")
+        start_time = time.time()
         event_detections = detector.detect_from_events(event_image)
+        event_time = time.time() - start_time
         print(f"   检测到 {len(event_detections)} 个球: {event_detections}")
+        print(f"   用时: {event_time*1000:.2f}ms")
     
     # 综合检测
     print("\n4. 综合检测:")
+    start_time = time.time()
     final_detection = detector.detect_ball(image, event_image)
+    total_time = time.time() - start_time
+    
     if final_detection:
         print(f"   最终检测结果: x={final_detection[0]}, y={final_detection[1]}, w={final_detection[2]}, h={final_detection[3]}")
     else:
         print("   未检测到球")
+    print(f"   综合检测用时: {total_time*1000:.2f}ms")
     
-    # 创建重合显示的图像
-    if event_image is not None:
-        # 将事件图像转换为彩色
-        event_image_color = cv2.cvtColor(event_image, cv2.COLOR_GRAY2BGR)
-        
-        # 创建重合图像：RGB图像作为底色，事件图像叠加
-        overlay = image.copy()
-        
-        # 将事件图像以半透明方式叠加到RGB图像上
-        alpha = 0.6  # RGB图像透明度
-        beta = 0.4   # 事件图像透明度
-        blended = cv2.addWeighted(overlay, alpha, event_image_color, beta, 0)
-        
-        # 在重合图像上标注检测结果
-        if final_detection:
-            x, y, w, h = final_detection
-            cv2.rectangle(blended, (x, y), (x + w, y + h), (0, 255, 0), 3)
-            cv2.putText(blended, f"Ball: ({x},{y})", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-        # 创建对比图像：左边RGB，右边事件图像，下面重合图像
-        rgb_with_detection = image.copy()
-        event_with_detection = event_image_color.copy()
-        
-        if final_detection:
-            x, y, w, h = final_detection
-            # 在RGB图像上标注
-            cv2.rectangle(rgb_with_detection, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(rgb_with_detection, "RGB + Detection", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            
-            # 在事件图像上标注
-            cv2.rectangle(event_with_detection, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(event_with_detection, "Event + Detection", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            
-            # 在重合图像上添加标签
-            cv2.putText(blended, "RGB + Event Overlay", (10, 30), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        
-        # 水平拼接RGB和事件图像
-        top_row = np.hstack((rgb_with_detection, event_with_detection))
-        
-        # 将重合图像放在下方（需要调整大小匹配宽度）
-        blended_resized = cv2.resize(blended, (top_row.shape[1], blended.shape[0]))
-        
-        # 垂直拼接
-        combined_result = np.vstack((top_row, blended_resized))
-        
-        # 缩放最终图像
-        scale = 0.4
-        height, width = combined_result.shape[:2]
-        new_size = (int(width * scale), int(height * scale))
-        final_result = cv2.resize(combined_result, new_size, interpolation=cv2.INTER_AREA)
-        
-        # 保存重合显示结果
-        output_path = "rgb_event_overlay_detection.jpg"
-        cv2.imwrite(output_path, final_result)
-        print(f"\nRGB+Event重合图像已保存到: {output_path}")
-        
-        # 也保存单独的重合图像
-        blended_scaled = cv2.resize(blended, (int(blended.shape[1] * 0.6), int(blended.shape[0] * 0.6)))
-        cv2.imwrite("rgb_event_blended.jpg", blended_scaled)
-        print(f"重合图像已保存到: rgb_event_blended.jpg")
-        
-    elif final_detection:
-        # 如果只有RGB检测结果
-        result_image = image.copy()
+    # 总结时间
+    total_all_time = hough_time + contour_time + event_time + total_time
+    print(f"\n=== 检测时间总结 ===")
+    print(f"霍夫圆检测: {hough_time*1000:.2f}ms")
+    print(f"轮廓检测: {contour_time*1000:.2f}ms")
+    if event_time > 0:
+        print(f"事件检测: {event_time*1000:.2f}ms")
+    print(f"综合检测: {total_time*1000:.2f}ms")
+    print(f"总用时: {total_all_time*1000:.2f}ms")
+    
+    # 实时显示检测结果
+    print("\n显示检测结果窗口...")
+    print("按'q'键退出")
+    
+    # RGB检测结果
+    rgb_result = image.copy()
+    if final_detection:
         x, y, w, h = final_detection
-        cv2.rectangle(result_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.putText(result_image, "Detected Ball", (x, y-10), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        
-        scale = 0.8
-        height, width = result_image.shape[:2]
-        new_size = (int(width * scale), int(height * scale))
-        resized_img = cv2.resize(result_image, new_size, interpolation=cv2.INTER_AREA)
-        
-        output_path = "ball_detection_result.jpg"
-        cv2.imwrite(output_path, resized_img)
-        print(f"\n检测结果已保存到: {output_path}")
+        cv2.rectangle(rgb_result, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(rgb_result, "RGB Detection", (10, 30), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.putText(rgb_result, f"Ball: ({x},{y}) {w}x{h}", (x, y-10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     
+    # Event检测结果（如果有）
+    event_result = None
+    blended = None
+    if event_image is not None:
+        event_image_color = cv2.cvtColor(event_image, cv2.COLOR_GRAY2BGR)
+        event_result = event_image_color.copy()
+        
+        if final_detection:
+            x, y, w, h = final_detection
+            cv2.rectangle(event_result, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(event_result, "Event Detection", (10, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        
+        # 创建重合图像
+        blended = cv2.addWeighted(rgb_result, 0.6, event_result, 0.4, 0)
+        cv2.putText(blended, "RGB + Event Overlay", (10, 60), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
+    
+    # 缩放图像以适应屏幕
+    scale = 0.6
+    
+    while True:
+        # 显示RGB检测结果
+        rgb_scaled = cv2.resize(rgb_result, (int(rgb_result.shape[1] * scale), int(rgb_result.shape[0] * scale)))
+        cv2.imshow('RGB Detection', rgb_scaled)
+        
+        # 如果有Event数据，显示Event和重合结果
+        if event_image is not None and event_result is not None and blended is not None:
+            event_scaled = cv2.resize(event_result, (int(event_result.shape[1] * scale), int(event_result.shape[0] * scale)))
+            blended_scaled = cv2.resize(blended, (int(blended.shape[1] * scale), int(blended.shape[0] * scale)))
+            
+            cv2.imshow('Event Detection', event_scaled)
+            cv2.imshow('RGB + Event Overlay', blended_scaled)
+        
+        # 检测键盘输入
+        key = cv2.waitKey(30) & 0xFF
+        if key == ord('q'):
+            break
+    
+    cv2.destroyAllWindows()
     print("检测完成")
 
 if __name__ == "__main__":

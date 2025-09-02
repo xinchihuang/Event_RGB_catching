@@ -180,7 +180,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
     rgb_video_path = f"{record_dir}/rgb/{record_index}.mp4"
-    raw_file_path = f"{record_dir}/event_raw/{record_index}.raw"
+    raw_file_path = f"{record_dir}/event/{record_index}.raw"
     
     # 检查文件是否存在
     if not os.path.exists(rgb_video_path) or not os.path.exists(raw_file_path):
@@ -189,7 +189,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     
     # 初始化RGB视频读取
     cap = cv2.VideoCapture(rgb_video_path)
-    rgb_fps = 70
+    rgb_fps = cap.get(cv2.CAP_PROP_FPS)
     rgb_frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
     # 初始化事件数据读取
@@ -252,7 +252,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     
     current_frame = 0
     paused = False
-    event_frame_offset = -3  # 事件帧偏移量
+    event_frame_offset = 0  # 事件帧偏移量
     event_speed_ratio = 1.0  # 事件播放速度比例
     
     while True:
@@ -445,10 +445,10 @@ def batch_debug(record_dir, start_index, end_index):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Debug RGB video and raw file timing')
-    parser.add_argument('--record_index', type=int, default=10,
+    parser.add_argument('--record_index', type=int, default=1,
                        help='Record index to debug (default: 10)')
     parser.add_argument('--record_dir', type=str, 
-                       default='/media/xinchi/data/Event_RGB_catching_data/saved_data_dc',
+                       default='/media/xinchi/data/Event_RGB_catching_data/saved_data_d',
                        help='Directory containing recorded data')
     parser.add_argument('--batch', action='store_true',
                        help='Run batch analysis on multiple records')
@@ -456,7 +456,7 @@ if __name__ == '__main__':
                        help='Start index for batch analysis (default: 1)')
     parser.add_argument('--end_index', type=int, default=110,
                        help='End index for batch analysis (default: 20)')
-    parser.add_argument('--play', action='store_true',
+    parser.add_argument('--play', action='store_true', default=True,
                        help='Play overlay visualization')
     parser.add_argument('--frame_skip', type=int, default=1,
                        help='Frame skip for seeking (default: 1)')

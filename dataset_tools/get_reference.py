@@ -254,7 +254,7 @@ if __name__ == '__main__':
 
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
+    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_d'
 
     # Define all available processes
     all_processes = {

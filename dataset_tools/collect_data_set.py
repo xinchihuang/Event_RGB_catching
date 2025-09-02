@@ -66,7 +66,7 @@ def read_from_video(shared_flir_data, stop_event):
         except Exception as e:
             print(f"Error in read_from_flir: {e}")
 
-def record_event(shared_event_data, keyboard_input, stop_event):
+def record_event(shared_event_data, keyboard_input, stop_event, sync_timestamps):
     from metavision_core.event_io import EventsIterator
     from metavision_core.event_io.raw_reader import initiate_device
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
@@ -85,11 +85,14 @@ def record_event(shared_event_data, keyboard_input, stop_event):
     # event_width, event_height = event_iterator.get_size()  # Camera Geometry
 
 
+    # Event频率控制: 500Hz (10倍于RGB的50Hz)
+    event_fps = 500
+    event_interval = 1.0 / event_fps  # 0.002s per event frame
+    
     with MTWindow(title="Metavision Events Viewer", width=event_width, height=event_height,
                   mode=BaseWindow.RenderMode.BGR) as window:
 
-        # Event Frame Generator
-        event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_height, sensor_height=event_width, fps=100,
+        event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=event_height, sensor_height=event_width, fps=event_fps,
                                                            palette=ColorPalette.Dark)
 
         def on_cd_frame_cb(ts, cd_frame):
@@ -97,30 +100,36 @@ def record_event(shared_event_data, keyboard_input, stop_event):
             window.show_async(cd_frame)
 
         event_frame_gen.set_output_callback(on_cd_frame_cb)
-
+        
+        last_event_time = None
+        event_frame_count = 0
+        recording_start_time = None
 
         while not stop_event.is_set():
-            # event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+            current_time = time.time()
+            
+            # 精确的Event频率控制
+            if last_event_time is not None:
+                time_since_last = current_time - last_event_time
+                if time_since_last < event_interval:
+                    sleep_time = event_interval - time_since_last
+                    time.sleep(sleep_time)
+                    current_time = time.time()
 
             key = keyboard_input.value
-            # print(key)
 
             if key == 'r' and recording == False:
                 recording = True
-                print(f"Event recording toggled: {'ON' if recording else 'OFF'}")
+                recording_start_time = current_time
+                # 记录同步时间戳
+                sync_timestamps.append(('event_start', recording_start_time))
+                print(f"Event recording started at: {recording_start_time:.6f}")
+                
                 out_path = os.path.join(save_dir, "event")
-                num_file = len(
-                    [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
-                # print(num_file)
+                num_file = len([f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
                 log_path = f"{out_path}/{num_file}.raw"
 
                 if device.get_i_events_stream():
-                    # out_path = os.path.join(save_dir, "event")
-                    # num_file = len(
-                    #     [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
-                    # # print(num_file)
-                    # log_path = f"{out_path}/{num_file}.raw"
-
                     print(f'Recording to {log_path}')
                     device.get_i_events_stream().log_raw_data(log_path)
                 else:
@@ -128,21 +137,39 @@ def record_event(shared_event_data, keyboard_input, stop_event):
 
             if key == 'f' and recording == True:
                 recording = False
-                print(f"Event recording toggled: {'ON' if recording else 'OFF'}")
+                recording_end_time = current_time
+                # 记录同步时间戳
+                sync_timestamps.append(('event_end', recording_end_time))
+                print(f"Event recording stopped at: {recording_end_time:.6f}")
 
                 if device.get_i_events_stream():
                     device.get_i_events_stream().stop_log_raw_data()
+                    
+                if recording_start_time:
+                    actual_duration = recording_end_time - recording_start_time
+                    actual_fps = event_frame_count / actual_duration if actual_duration > 0 else 0
+                    print(f"Event: {event_frame_count} frames, {actual_duration:.3f}s, actual FPS: {actual_fps:.2f}")
+                    event_frame_count = 0
 
-            event_data = next(event_iterator)
-            EventLoop.poll_and_dispatch()
-            event_frame_gen.process_events(event_data)
+            try:
+                event_data = next(event_iterator)
+                EventLoop.poll_and_dispatch()
+                event_frame_gen.process_events(event_data)
+                
+                if recording:
+                    event_frame_count += 1
+                    
+            except StopIteration:
+                continue
+            
+            last_event_time = current_time
             # # Process event data
             # if event_data is not None:
             #     EventLoop.poll_and_dispatch()
             #     event_frame_gen.process_events(event_data)
 
 
-def record_flir(shared_flir_data,keyboard_input, stop_event):
+def record_flir(shared_flir_data, keyboard_input, stop_event, sync_timestamps):
     import PySpin
     import os
     system = PySpin.System.GetInstance()
@@ -155,70 +182,93 @@ def record_flir(shared_flir_data,keyboard_input, stop_event):
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     first_flir_image = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
-    # output_filename = 'output_video.mp4'
+    
     rgb_width, rgb_height = 1080, 1440
-    rgb_frame_rate = 180
+    rgb_frame_rate = 50  # 50Hz RGB
+    rgb_frame_interval = 1.0 / rgb_frame_rate  # 0.02s per frame
     rgb_frame_size = (rgb_width, rgb_height)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    # Define codec and create VideoWriter object
-    out_video = None  # Initialize as None to handle lazy initialization
-    recording = False  # Flag to manage recording state
+    
+    out_video = None
+    recording = False
     save_dir = "/home/xinchi/Event_RGB_catching_data/saved_data"
     print(f"Press r to start recording, f to stop recording, and q to quit.")
+    print(f"RGB Frame Rate: {rgb_frame_rate}Hz (interval: {rgb_frame_interval:.3f}s)")
+    
     frame_count = 0
-    start_time = time.time()
+    recording_start_time = None
+    last_frame_time = None
+    
     while not stop_event.is_set():
-        image_result = cam.GetNextImage(10000)
+        current_time = time.time()
+        
+        # 精确的帧率控制
+        if last_frame_time is not None:
+            time_since_last = current_time - last_frame_time
+            if time_since_last < rgb_frame_interval:
+                sleep_time = rgb_frame_interval - time_since_last
+                time.sleep(sleep_time)
+                current_time = time.time()
+        
+        image_result = cam.GetNextImage(1000)  # 减少超时时间
         if image_result.IsIncomplete():
             continue
+            
         image_data = image_result.GetNDArray()
         cv_image = cv2.cvtColor(image_data, cv2.COLOR_BAYER_RG2RGB)
         cv_image = cv2.rotate(cv_image, cv2.ROTATE_90_CLOCKWISE)
         flir_data = cv_image
+        
         key = keyboard_input.value
-        if key == 'r' and recording==False:
+        if key == 'r' and recording == False:
             recording = True
-            print(f"Recording toggled: {'ON' if recording else 'OFF'}")
-            start_time = time.time()
+            recording_start_time = current_time
+            # 记录同步时间戳
+            sync_timestamps.append(('rgb_start', recording_start_time))
+            print(f"RGB recording started at: {recording_start_time:.6f}")
+            
             if out_video is None:
-
                 print("Initializing video recording...")
                 out_path = os.path.join(save_dir, "rgb")
-                num_file = len(
-                    [f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
-
+                num_file = len([f for f in os.listdir(out_path) if os.path.isfile(os.path.join(out_path, f))])
                 output_filename = os.path.join(out_path, f"{num_file}.mp4")
                 out_video = cv2.VideoWriter(output_filename, fourcc, rgb_frame_rate, rgb_frame_size)
 
-            else:
-                print("Recording already initialized.")
-
-        if key == 'f' and recording==True:
+        if key == 'f' and recording == True:
             recording = False
-            print(f"Recording toggled: {'ON' if recording else 'OFF'}")
+            recording_end_time = current_time
+            # 记录同步时间戳
+            sync_timestamps.append(('rgb_end', recording_end_time))
+            print(f"RGB recording stopped at: {recording_end_time:.6f}")
+            
             if out_video:
-                print("Stopping video recording...")
                 out_video.release()
                 out_video = None
-                print(f"{frame_count} record fps= {frame_count / (time.time() - start_time)}")
-        # Process FLIR data
-        frame_count += 1
+                actual_duration = recording_end_time - recording_start_time
+                actual_fps = frame_count / actual_duration if actual_duration > 0 else 0
+                print(f"RGB: {frame_count} frames, {actual_duration:.3f}s, actual FPS: {actual_fps:.2f}")
+                frame_count = 0
+        
+        # 只在录制时计算帧
+        if recording:
+            frame_count += 1
+            
+        # 处理和显示图像
         if flir_data is not None:
-            # Resize flir_data if necessary
             if (flir_data.shape[1], flir_data.shape[0]) != rgb_frame_size:
                 flir_data = cv2.resize(flir_data, rgb_frame_size)
-            # Display the camera feed
-            scale=0.6
+            
+            scale = 0.6
             width = int(flir_data.shape[1] * scale)
             height = int(flir_data.shape[0] * scale)
-            new_size = (width, height)
-
-            resized_img = cv2.resize(flir_data, new_size, interpolation=cv2.INTER_AREA)
-
+            resized_img = cv2.resize(flir_data, (width, height), interpolation=cv2.INTER_AREA)
             cv2.imshow('flir', resized_img)
-            # Write frame to video if recording
+            
+            # 严格按帧率写入视频
             if recording and out_video:
                 out_video.write(flir_data)
+        
+        last_frame_time = current_time
         # Handle key events
         if cv2.waitKey(1) & 0xFF == ord('q'):
             stop_event.set()
@@ -322,12 +372,15 @@ if __name__ == '__main__':
     stop_event = multiprocessing.Event()
 
     keyboard_input = Value('u', 's')
-
+    
+    # 添加同步时间戳管理器
+    manager = Manager()
+    sync_timestamps = manager.list()
 
     record=False
     if record==True:
-        record_flir_process = Process(target=record_flir, args=(shared_flir_data,keyboard_input, stop_event))
-        record_event_process = Process(target=record_event, args=(shared_event_data,keyboard_input, stop_event))
+        record_flir_process = Process(target=record_flir, args=(shared_flir_data, keyboard_input, stop_event, sync_timestamps))
+        record_event_process = Process(target=record_event, args=(shared_event_data, keyboard_input, stop_event, sync_timestamps))
         keyborad_process = Process(target=keyboard, args=(keyboard_input,))
 
         record_flir_process.start()
@@ -346,6 +399,26 @@ if __name__ == '__main__':
             record_flir_process.terminate()
             record_event_process.terminate()
             keyborad_process.terminate()
+        
+        # 打印同步时间戳信息
+        if sync_timestamps:
+            print("\n=== 同步时间戳记录 ===")
+            for event_type, timestamp in sync_timestamps:
+                print(f"{event_type}: {timestamp:.6f}")
+            
+            # 计算RGB和Event的时间差
+            rgb_start = next((ts for event, ts in sync_timestamps if event == 'rgb_start'), None)
+            event_start = next((ts for event, ts in sync_timestamps if event == 'event_start'), None)
+            rgb_end = next((ts for event, ts in sync_timestamps if event == 'rgb_end'), None)
+            event_end = next((ts for event, ts in sync_timestamps if event == 'event_end'), None)
+            
+            if rgb_start and event_start:
+                start_diff = abs(rgb_start - event_start)
+                print(f"开始时间差: {start_diff*1000:.3f}ms")
+            
+            if rgb_end and event_end:
+                end_diff = abs(rgb_end - event_end)
+                print(f"结束时间差: {end_diff*1000:.3f}ms")
     else:
         # Processes
         event_process = Process(target=read_from_raw, args=(shared_event_data, stop_event))
