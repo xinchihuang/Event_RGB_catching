@@ -184,7 +184,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     
     # 检查文件是否存在
     if not os.path.exists(rgb_video_path) or not os.path.exists(raw_file_path):
-        print("错误: 文件不存在")
+        print("错误: 文件不存在",rgb_video_path,raw_file_path)
         return
     
     # 初始化RGB视频读取
@@ -292,7 +292,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
         _, event_binary = cv2.threshold(event_gray, 40, 255, cv2.THRESH_BINARY)
         
         # 增加RGB亮度
-        rgb_brightened = cv2.convertScaleAbs(rgb_frame, alpha=10, beta=30)
+        rgb_brightened = cv2.convertScaleAbs(rgb_frame, alpha=5, beta=30)
         
         # 创建叠加图像 - 将二值化的事件数据以绿色叠加
         overlay = rgb_brightened.copy()
@@ -445,10 +445,10 @@ def batch_debug(record_dir, start_index, end_index):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Debug RGB video and raw file timing')
-    parser.add_argument('--record_index', type=int, default=1,
+    parser.add_argument('--record_index', type=int, default=10,
                        help='Record index to debug (default: 10)')
     parser.add_argument('--record_dir', type=str, 
-                       default='/media/xinchi/data/Event_RGB_catching_data/saved_data_d',
+                       default='/home/xinchi/Event_RGB_catching_data/saved_data',
                        help='Directory containing recorded data')
     parser.add_argument('--batch', action='store_true',
                        help='Run batch analysis on multiple records')

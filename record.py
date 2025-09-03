@@ -179,7 +179,7 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
             # cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
             # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
         # combined = np.hstack((rgb_image, event_image))
-        rgb_image = cv2.convertScaleAbs(rgb_image, alpha=10, beta=30)
+        rgb_image = cv2.convertScaleAbs(rgb_image, alpha=0.5, beta=30)
         combined = cv2.addWeighted(event_image, 0.3, rgb_image, 0.2, 0)
         scale = 0.8
         # 获取新的尺寸
@@ -263,7 +263,7 @@ def shutdown_processes(processes, timeout=5):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=10,
+    parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Show",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
@@ -341,7 +341,7 @@ if __name__ == '__main__':
     
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir='/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
+    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data'
 
     # Define all available processes
     all_processes = {

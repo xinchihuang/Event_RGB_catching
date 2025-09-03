@@ -1,8 +1,21 @@
 import numpy as np
 import time
 from multiprocessing import shared_memory
+def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
+    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+    rgb_center_x=rgb_width/2
+    rgb_center_y=rgb_height/2
+    # print(rgb_center_x,rgb_center_y)
+    event_center_x=event_width/2
+    event_center_y=event_height/2
+    event_pixel=3.45
+    rgb_pixel=4.86
 
-def read_from_event(shared_event_data, system_state, stop_event):
+    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+30
+    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+29
+    y= np.clip(y, 0, rgb_height)
+    return x.astype(int), y.astype(int)
+def read_from_event(shared_event_data, system_state,num_event, stop_event):
     from metavision_core.event_io import EventsIterator
 
     # 初始化event迭代器
@@ -33,6 +46,7 @@ def read_from_event(shared_event_data, system_state, stop_event):
             # 坐标转换处理
             event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
             event_data['y'] += 1279
+            event_data['x'], event_data['y'] = align_to_rgb(event_data)
             
             # 更新最新events
             latest_events = event_data.copy()
@@ -82,6 +96,7 @@ def read_from_event(shared_event_data, system_state, stop_event):
                         except (AttributeError, IndexError) as e:
                             print(f"Event data format error: {e}")
                             num_events = 0
+                        num_event.value = num_events
                     
                     # 计算处理时间
                     process_time = time.perf_counter() - process_start
