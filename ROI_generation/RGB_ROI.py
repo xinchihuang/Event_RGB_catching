@@ -1,11 +1,26 @@
 import cv2
-
+import os
+import sys
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
+
+# Import configuration
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
 def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_state, stop_event):
 
-    rgb_width, rgb_height = 1080, 1440
+    # Get image dimensions from config
+    dims = Config.get_image_dimensions()
+    rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+    
+    # Get ROI parameters from config
+    roi_params = Config.get_roi()
+    
+    # Get image processing parameters from config
+    processing = Config.get_image_processing()
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     flir_memory, flir_dtype, flir_shape = shared_flir_data
@@ -30,15 +45,16 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,syste
             rgb_image=flir_data
 
             hsv = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2HSV)
-            lower_hsv = np.array([30, 90, 0])  # H,S,V
-            upper_hsv = np.array([50, 255, 255])
+            lower_hsv = np.array(roi_params['hsv_lower'])  # H,S,V
+            upper_hsv = np.array(roi_params['hsv_upper'])
 
             # 直接在 BGR 上 inRange
             mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
 
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, tuple(roi_params['kernel_size']))
+            iterations = roi_params['morphology_iterations']
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=iterations)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=iterations)
 
             contours, hierarchy = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -57,7 +73,7 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,syste
                 cv2.rectangle(rgb_image, (x_r, y_r), (x_r + w_r, y_r+ h_r), (0, 255, 0), 2)
 
             combined = rgb_image
-            scale = 0.8
+            scale = processing['display_scale']
             # 获取新的尺寸
             width = int(combined.shape[1] * scale)
             height = int(combined.shape[0] * scale)

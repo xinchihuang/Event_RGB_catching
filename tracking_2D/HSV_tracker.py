@@ -1,10 +1,17 @@
 import cv2
 import os
+import sys
 import torch
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
 import math
+
+# Import configuration
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
 def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_events,system_state, stop_event):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
@@ -13,7 +20,12 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
-    rgb_width, rgb_height = 1080, 1440
+    # Get image dimensions from config
+    dims = Config.get_image_dimensions()
+    rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+    
+    # Get tracking parameters from config
+    tracking = Config.get_tracking()
 
     ball_pixel_3D_memory,ball_pixel_3D_dtype,ball_pixel_3D_shape = shared_ball_pixel_3D_data
     ball_pixel_3D_shm = shared_memory.SharedMemory(name=ball_pixel_3D_memory.name)
@@ -55,14 +67,14 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     ball_pixel_3D[ball_num][1] = float(y + h / 2)
                     ball_pixel_3D[ball_num][2] = float(h)
                     ball_pixel_3D[ball_num][3] = t
-                    if ball_num < 100:
+                    if ball_num < tracking['max_ball_buffer']:
                         ball_num += 1
                     print(ball_num)
                     ball_observations.value = ball_num
                     p_x, p_y, p_w, p_h = x, y, w, h
 
                 combined = rgb_image
-                scale = 0.75
+                scale = tracking['hsv_display_scale']
 
                 # 获取新的尺寸
                 width = int(combined.shape[1] * scale)

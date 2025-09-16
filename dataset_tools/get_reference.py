@@ -63,6 +63,12 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
     root_dir='/media/xinchi/data/Event_RGB_catching_data/reference'
+    
+    # Ensure all directories exist
+    os.makedirs(f"{root_dir}/rgb", exist_ok=True)
+    os.makedirs(f"{root_dir}/event", exist_ok=True)
+    os.makedirs(f"{root_dir}/overlay", exist_ok=True)
+    
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     rgb_width, rgb_height = 1080, 1440
@@ -70,8 +76,6 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
                                                        fps=0.0,
                                                        palette=ColorPalette.Dark)
 
-    print(event_frame_gen.get_accumulation_time_us())
-    print(event_frame_gen.get_fps())
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     count = 0
@@ -88,19 +92,44 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
             image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
             event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-            combined = np.hstack((rgb_image, event_image))
+            
+            # Display only overlay - 仅显示叠加图像
+            # 1. Create overlay image with better visualization
+            rgb_brightened = cv2.convertScaleAbs(rgb_image, alpha=0.7, beta=30)
+            overlay = cv2.addWeighted(rgb_brightened, 0.7, event_image, 0.3, 0)
+            
+            # 2. Add informative text overlay
+            cv2.putText(overlay, f"Frame: {count}", (20, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
+            cv2.putText(overlay, f"Events: {len(event_data)}", (20, 100), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 2)
+            cv2.putText(overlay, "Press 't' to save", (20, 150), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+            cv2.putText(overlay, "Press ESC to exit", (20, 200), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+            
+            # 3. Scale for better display
             scale = 0.8
-            # 获取新的尺寸
-            width = int(combined.shape[1] * scale)
-            height = int(combined.shape[0] * scale)
+            width = int(overlay.shape[1] * scale)
+            height = int(overlay.shape[0] * scale)
             new_size = (width, height)
-
-            resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
-            #
-            cv2.imshow('Image with Bounding Box', resized_img)
-            cv2.waitKey(1)
+            
+            display_img = cv2.resize(overlay, new_size, interpolation=cv2.INTER_AREA)
+            
+            # Display only the overlay
+            cv2.imshow('RGB + Event Overlay', display_img)
+            key = cv2.waitKey(1) & 0xFF
+            
+            # Enhanced saving section - 增强保存部分
+            # Save data with confirmation
+            print(f"Saving frame {count}: RGB image + Event data ({len(event_data)} events)")
             cv2.imwrite(f"{root_dir}/rgb/" + str(count) + ".jpg", rgb_image)
             np.save(f"{root_dir}/event/" + str(count) + ".npy", event_data)
+            
+            # Optional: Save the overlay for reference
+            cv2.imwrite(f"{root_dir}/overlay/" + str(count) + "_overlay.jpg", overlay)
+            
+            print(f"Frame {count} saved successfully!")
 
             count += 1
 
@@ -173,7 +202,7 @@ def shutdown_processes(processes, timeout=5):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=0,
+    parser.add_argument('--record_index', type=int, default=1,
                         help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Save",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
@@ -254,7 +283,7 @@ if __name__ == '__main__':
 
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_d'
+    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
 
     # Define all available processes
     all_processes = {

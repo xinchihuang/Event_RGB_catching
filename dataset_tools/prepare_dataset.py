@@ -12,25 +12,20 @@ import scipy.io as sio
 # ---------------------------------------------------------------------
 # Optional: if you already have align_to_rgb elsewhere, you can remove this.
 # This version matches your commented code (with tweakable offsets).
-def align_to_rgb(event_data, rgb_width=1080, rgb_height=1440,
-                 event_width=720, event_height=1280,
-                 event_pixel=3.1, rgb_pixel=4.86,
-                 dx=40, dy=-25):
-    x_e = event_data['x'].astype(np.float32, copy=False)
-    y_e = event_data['y'].astype(np.float32, copy=False)
+def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
+    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
+    rgb_center_x=rgb_width/2
+    rgb_center_y=rgb_height/2
+    # print(rgb_center_x,rgb_center_y)
+    event_center_x=event_width/2
+    event_center_y=event_height/2
+    event_pixel=3.45
+    rgb_pixel=4.86
 
-    rgb_center_x = rgb_width / 2.0
-    rgb_center_y = rgb_height / 2.0
-    event_center_x = event_width / 2.0
-    event_center_y = event_height / 2.0
-
-    x = (x_e - event_center_x) * (rgb_pixel / event_pixel) + rgb_center_x + dx
-    y = (y_e - event_center_y) * (rgb_pixel / event_pixel) + rgb_center_y + dy
-
-    x = np.clip(x, 0, rgb_width - 1).astype(np.int32, copy=False)
-    y = np.clip(y, 0, rgb_height - 1).astype(np.int32, copy=False)
-    return x, y
-# ---------------------------------------------------------------------
+    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+30
+    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+29
+    y= np.clip(y, 0, rgb_height)
+    return x.astype(int), y.astype(int)
 
 def clip_box(x, y, w, h, W, H):
     x = int(max(0, x)); y = int(max(0, y))
@@ -108,6 +103,7 @@ def align_buffer(root_dir, raw_data_dir, index,
 
     # --- Load RGB frames (buffered; for very long videos, stream instead) ---
     vid_path = f"{raw_data_dir}/rgb/{index}.mp4"
+    print(vid_path)
     cap = cv2.VideoCapture(vid_path)
     rgb_buffer = []
     ok, frame = cap.read()
@@ -153,7 +149,7 @@ def align_buffer(root_dir, raw_data_dir, index,
     # --- Time alignment ---
     denom = max(rgb_count-skip_start-skip_end - 1, 1)
     ratio = max(event_count / denom, 0.0)
-
+    print(ratio)
     absent_list, bbox = [], []
 
     start_idx = max(0, int(skip_start))
@@ -250,21 +246,51 @@ def align_buffer(root_dir, raw_data_dir, index,
             h += 2 * bbox_range
             x, y, w, h = clip_box(x, y, w, h, rgb_w, rgb_h)
 
-        # Draw (no GUI; just onto saved images)
+        # Create RGB+Event overlay display similar to prepare_dataset_multiprocess.py
+        rgb_brightened = cv2.convertScaleAbs(rgb_img, alpha=0.7, beta=30)
+        overlay = cv2.addWeighted(rgb_brightened, 0.7, event_vis, 0.3, 0)
+        
+        # Draw bounding box on overlay
+        if present and w > 0 and h > 0:
+            cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 255, 0), 3)
+            # Add bbox info text
+            cv2.putText(overlay, f"Ball: {w}x{h}", (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        
+        # Add informative text overlay
+        cv2.putText(overlay, f"Record: {index} Frame: {frame_idx}", (20, 50), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
+        cv2.putText(overlay, f"Events: {len(ev_local)}", (20, 90), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+        cv2.putText(overlay, f"Ball: {'Present' if present else 'Absent'}", (20, 130), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0) if present else (0, 0, 255), 2)
+        
+        # Add frame indices for debugging
+        cv2.putText(overlay, f"RGB Frame: {frame_idx}", (20, 170), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+        cv2.putText(overlay, f"Event Frame: {ev_idx}", (20, 200), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+        
+        # Scale for better display
+        scale = 0.8
+        display_width = int(overlay.shape[1] * scale)
+        display_height = int(overlay.shape[0] * scale)
+        display_img = cv2.resize(overlay, (display_width, display_height), interpolation=cv2.INTER_AREA)
+        
+        # Display the overlay
+        cv2.imshow(f'Dataset Processing - Record {index}', display_img)
+        cv2.waitKey(1)
+
+        absent_list.append(1 if present else 0)
+        bbox.append([x, y, w, h])
+        
+        # Also create combined view for saving (side-by-side with bounding boxes)
         rgb_img_show = rgb_img.copy()
         event_vis_show = event_vis.copy()
         if present and w > 0 and h > 0:
             cv2.rectangle(rgb_img_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.rectangle(event_vis_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-        absent_list.append(1 if present else 0)
-        bbox.append([x, y, w, h])
-        # alpha = 0.7  # 0 = 全透明（看不到前景），1 = 不透明
-        #
-        # combined = cv2.addWeighted(event_image, alpha, rgb_image, 1 - alpha, 0)
-        combined = np.hstack((rgb_img_show, event_vis_show))
-        cv2.imshow('combined', combined)
-        cv2.waitKey(1)
+        combined_sidebyside = np.hstack((rgb_img_show, event_vis_show))
         # --- Save images ---
         out_idx = frame_idx - start_idx
         cv2.imwrite(f"{out_dir}/rgb/{out_idx}.jpg", rgb_img)
@@ -302,6 +328,9 @@ def align_buffer(root_dir, raw_data_dir, index,
                          "features": feats.detach().cpu().numpy()})
 
     print("align finished")
+    
+    # Close display windows after processing this record
+    cv2.destroyAllWindows()
 
     # --- Write meta and copies ---
     shutil.copy(ev_path, f"{out_dir}/event.raw")
@@ -320,14 +349,14 @@ def align_buffer(root_dir, raw_data_dir, index,
 
 def main():
     root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset"
-    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_c"
+    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_dc"
 
-    for index in range(0, 100):
+    for index in range(0, 1):
         align_buffer(root_dir, raw_data_dir, index,
-                     bias=-30, skip_start=0, skip_end=0,
+                     bias=-10, skip_start=0, skip_end=0,
                      debug_show=True,  # keep False for servers/headless
-                     save_voxel=5000, eps=12, min_samples=80,
-                     bbox_range=10, event_thresh=40)
+                     save_voxel=5000, eps=12, min_samples=110,
+                     bbox_range=20, event_thresh=40)
 
 if __name__ == "__main__":
     main()

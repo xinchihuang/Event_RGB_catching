@@ -25,6 +25,9 @@ from tracking_2D.HSV_tracker import RGB_tracking_3D
 from tracking_2D.Event_tracker import event_tracking_3D
 from fitting.fitting_process import landing_prediction, robot_control
 
+# Import configuration
+from config.config_loader import switch_global_config
+
 def starter(system_state,stop_event):
     time.sleep(3)
     print("Starting system...")
@@ -265,9 +268,28 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Show",
+    parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
+    parser.add_argument('--task', type=str, default="normal",
+                        choices=["normal", "dark", "cluster", "dark_cluster"],
+                                help='Task configuration to use (default: normal)')
     args = parser.parse_args()
+    
+    # Load configuration based on task parameter
+    config_mapping = {
+        "normal": "config/config_l.yaml",
+        "dark": "config/config_d.yaml",
+        "cluster": "config/config_c.yaml",
+        "dark_cluster": "config/config_dc.yaml"
+
+    }
+    
+    # Load configuration based on task parameter
+    try:
+        switch_global_config(config_mapping[args.task])
+        print(f"使用任务配置 {args.task}: {config_mapping[args.task]}")
+    except Exception as e:
+        print(f"配置加载失败: {e}, 使用默认配置")
     
     device = torch.device("cuda")
 
@@ -341,7 +363,11 @@ if __name__ == '__main__':
     
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data'
+    # Get record directory from config
+    from config.config_loader import Config
+    paths = Config.get_paths()
+    record_dir = paths['record_dir']
+    print(f"Record directory: {record_dir}")
 
     # Define all available processes
     all_processes = {

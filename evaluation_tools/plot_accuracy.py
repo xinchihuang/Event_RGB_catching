@@ -135,6 +135,7 @@ def plot_2d_impact_comparison(exp_results, success_threshold=0.25):
     
     plt.text(0.02, 0.98, stats_text, transform=plt.gca().transAxes, 
              verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+    plt.savefig("impact_point_comparison.png", dpi=300)
     
     plt.tight_layout()
     plt.show()
@@ -180,8 +181,8 @@ def main():
     camera_rpy_back = [45, 0, 90]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records"
-    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_dc.csv")
+    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records_l"
+    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_l.csv")
     labels=np.loadtxt(label_file, delimiter=",")
     print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)

@@ -1,28 +1,53 @@
 import numpy as np
 import time
+import os
+import sys
 from multiprocessing import shared_memory
-def align_to_rgb(event_data,rgb_width=1080, rgb_height = 1440, event_width=720, event_height = 1280):
-    x_e,y_e=event_data['x'].copy(),event_data['y'].copy()
-    rgb_center_x=rgb_width/2
-    rgb_center_y=rgb_height/2
-    # print(rgb_center_x,rgb_center_y)
-    event_center_x=event_width/2
-    event_center_y=event_height/2
-    event_pixel=3.45
-    rgb_pixel=4.86
 
-    x = (x_e-event_center_x) * rgb_pixel / event_pixel + rgb_center_x+30
-    y = (y_e-event_center_y) * rgb_pixel / event_pixel + rgb_center_y+29
-    y= np.clip(y, 0, rgb_height)
+# Import configuration
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
+def align_to_rgb(event_data, rgb_width=None, rgb_height=None, event_width=None, event_height=None):
+    # Get dimensions from config if not provided
+    if rgb_width is None or rgb_height is None or event_width is None or event_height is None:
+        dims = Config.get_image_dimensions()
+        rgb_width = dims['rgb_width'] if rgb_width is None else rgb_width
+        rgb_height = dims['rgb_height'] if rgb_height is None else rgb_height
+        event_width = dims['event_width'] if event_width is None else event_width
+        event_height = dims['event_height'] if event_height is None else event_height
+    
+    # Get alignment parameters from config
+    alignment = Config.get_alignment()
+    event_pixel = alignment['event_pixel_size']
+    rgb_pixel = alignment['rgb_pixel_size']
+    offset_x = alignment['offset_x']
+    offset_y = alignment['offset_y']
+    
+    x_e, y_e = event_data['x'].copy(), event_data['y'].copy()
+    rgb_center_x = rgb_width / 2
+    rgb_center_y = rgb_height / 2
+    event_center_x = event_width / 2
+    event_center_y = event_height / 2
+
+    x = (x_e - event_center_x) * rgb_pixel / event_pixel + rgb_center_x + offset_x
+    y = (y_e - event_center_y) * rgb_pixel / event_pixel + rgb_center_y + offset_y
+    y = np.clip(y, 0, rgb_height)
     return x.astype(int), y.astype(int)
 def read_from_event(shared_event_data, system_state,num_event, stop_event):
     from metavision_core.event_io import EventsIterator
 
+    # Get data reading parameters from config
+    data_reading = Config.get_data_reading()
+    
     # 初始化event迭代器
-    event_iterator = iter(EventsIterator(input_path="", mode="mixed", delta_t=1000, n_events=10000))
+    event_iterator = iter(EventsIterator(input_path="", mode="mixed", 
+                                        delta_t=data_reading['delta_t'], 
+                                        n_events=data_reading['n_events']))
     
     # 时间控制参数
-    send_interval = 0.002  # 发送间隔：0.002秒 (500Hz)
+    send_interval = data_reading['send_interval']  # 发送间隔
     last_send_time = 0
     latest_events = None
     events_ready = False
@@ -45,7 +70,8 @@ def read_from_event(shared_event_data, system_state,num_event, stop_event):
             
             # 坐标转换处理
             event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
-            event_data['y'] += 1279
+            alignment = Config.get_alignment()
+            event_data['y'] += alignment['y_coordinate_offset']
             event_data['x'], event_data['y'] = align_to_rgb(event_data)
             
             # 更新最新events

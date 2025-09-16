@@ -1,9 +1,16 @@
 import cv2
 import os
+import sys
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
 import pandas as pd
+
+# Import configuration
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
 def ROI_filter(events, ROI_data):
     """
     Return the sub-array of `events` whose (x, y) lie inside a rectangular ROI.
@@ -21,7 +28,8 @@ def ROI_filter(events, ROI_data):
         A **view** (no copy) of the original array containing only the
         events inside the ROI.  Use .copy() if you need an independent copy.
     """
-    roi_range=300
+    roi_params = Config.get_roi()
+    roi_range = roi_params['roi_range']
     x_r, y_r, w_r, h_r = ROI_data
     if x_r == 0 and y_r == 0 and w_r == 0 and h_r == 0:
         return events
@@ -46,9 +54,15 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
 
-    rgb_width, rgb_height = 1080, 1440
+    # Get image dimensions from config
+    dims = Config.get_image_dimensions()
+    rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+    
+    # Get image processing parameters from config
+    processing = Config.get_image_processing()
+    
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
-                                                       fps=0.0,
+                                                       fps=processing['fps'],
                                                        palette=ColorPalette.Dark)
 
 
@@ -64,7 +78,16 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     # event_dir = f"{save_dir}/{num_file}/event/"
     # if not os.path.exists(event_dir):
     #     os.makedirs(event_dir)  # Corrected function name
-    dbscan = DBSCAN(eps=9, min_samples=60)
+    # bright
+    # Get tracking parameters from config
+    tracking = Config.get_tracking()
+    dbscan = DBSCAN(eps=tracking['dbscan_eps'], min_samples=tracking['dbscan_min_samples'])
+    #bright cluster
+    # dbscan = DBSCAN(eps=12, min_samples=100)
+    # dark
+    # dbscan = DBSCAN(eps=10, min_samples=80)
+    # #dark cluster
+    # dbscan = DBSCAN(eps=8, min_samples=80)
     count=0
     # time.sleep(3)
     # system_state.value='t'
@@ -100,7 +123,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                 event_frame = np.ascontiguousarray(event_frame)
                 event_frame_gen.generate_frame(event_data, event_frame)
                 image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-                _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+                _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
                 points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
                 # if points.shape[0] == 0:
                 #     continue
@@ -122,14 +145,14 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                     ball_pixel_3D[ball_num][2] = float(h)
                     ball_pixel_3D[ball_num][3] = t
 
-                    if ball_num < 100:
+                    if ball_num < tracking['max_ball_buffer']:
                         ball_num += 1
                     # print(ball_num)
                     ball_observations.value = ball_num
 
                 rgb_image = flir_data
                 combined = np.hstack((rgb_image, event_image))
-                scale = 0.8
+                scale = processing['display_scale']
 
                 # 获取新的尺寸
                 width = int(combined.shape[1] * scale)

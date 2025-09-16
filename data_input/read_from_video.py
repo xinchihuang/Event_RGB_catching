@@ -5,9 +5,16 @@ from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
 import math
+
+# Import configuration
+import sys
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
 def read_from_video(shared_flir_data, system_state, raw_count,
                     record_index, start_ts, stop_event,video_broadcasting,
-                    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l'):
+                    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l', playback_speed=1.0, current_rgb_frame=None, is_paused=None):
 
     import os, time, math, cv2
     from multiprocessing import shared_memory
@@ -24,6 +31,7 @@ def read_from_video(shared_flir_data, system_state, raw_count,
         # ---------- 准备阶段：只在 state=='w' 且未初始化时执行 ----------
         if system_state.value == 'w' and not initialized:
             video_path = os.path.join(record_dir, f"rgb/{record_index.value}.mp4")
+            print(video_path)
             cap = cv2.VideoCapture(video_path)
             if not cap.isOpened():
                 print("Error: Could not open video.")
@@ -36,8 +44,11 @@ def read_from_video(shared_flir_data, system_state, raw_count,
                 time.sleep(0.001)
 
             ratio = (raw_count.value - 1) / (total_frames - 1)
-
-            period_raw = 0.002
+            ratio=10
+            print(ratio)
+            # Get data reading parameters from config
+            data_reading = Config.get_data_reading()
+            period_raw = data_reading['send_interval'] / playback_speed  # Apply playback speed to period
             period_video = ratio * period_raw
             print(f"Frame Interval: {period_video:.4f} seconds")
             print(f"Total Frames: {total_frames}, Raw Count: {raw_count.value}, Ratio: {ratio:.4f}")
@@ -48,6 +59,7 @@ def read_from_video(shared_flir_data, system_state, raw_count,
             while ret:
                 rgb_buffer.append(frame)
                 ret, frame = cap.read()
+            print(len(rgb_buffer))
             print("Video ready")
 
             count = 0
@@ -63,20 +75,27 @@ def read_from_video(shared_flir_data, system_state, raw_count,
 
             if count >= len(rgb_buffer):                   # 播完
                 video_broadcasting.value = 'f'
-                initialized = False                        # 只在真正结束时清零 ### FIX-2
+                initialized = False                        # 只在真正结束时清零 ### FIX-
                 print("End of video data.")
                 continue
 
-            cv_image = rgb_buffer[count]
-
+            cv_image = rgb_buffer[count] if count > 0 else rgb_buffer[0]
             # 写共享内存
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image
+            
+            # Update current RGB frame index for debugging
+            if current_rgb_frame is not None:
+                current_rgb_frame.value = count
 
             # 睡到周期边界
             sleep_time = target_time + period_video - time.perf_counter()  ### FIX-3
             if sleep_time > 0:
                 time.sleep(sleep_time)
+            
+            # Check if paused and wait
+            while is_paused and is_paused.value == 1 and not stop_event.is_set():
+                time.sleep(0.1)  # Wait while paused
 
             count += 1
 

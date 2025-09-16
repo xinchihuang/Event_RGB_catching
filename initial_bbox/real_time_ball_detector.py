@@ -1,7 +1,6 @@
-import cv2
 import numpy as np
 from typing import Tuple, Optional
-from ball_detector import BallDetector
+from initial_bbox.ball_detector import BallDetector
 
 class RealTimeBallDetector:
     """

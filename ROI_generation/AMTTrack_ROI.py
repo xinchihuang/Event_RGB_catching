@@ -1,9 +1,16 @@
 import cv2
-
-from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
+import os
+import sys
+from multiprocessing import shared_memory
 import numpy as np
 import time
 import torch
+
+# Import configuration
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+from config.config_loader import Config
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
@@ -61,11 +68,19 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
-    rgb_width, rgb_height = 1080, 1440
+    # Get image dimensions from config
+    dims = Config.get_image_dimensions()
+    rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+    event_width, event_height = dims['event_width'], dims['event_height']
+    
+    # Get image processing parameters from config
+    processing = Config.get_image_processing()
+    
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
-                                                       fps=0.0,
+                                                       fps=processing['fps'],
                                                        palette=ColorPalette.Dark)
     def detect_initial_bbox(image, event_data):
+
         """
         自动检测球的初始位置
         """
@@ -74,44 +89,48 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         import os
         current_dir = os.path.dirname(__file__)
         sys.path.append(current_dir)
-        from ball_detector import BallDetector
-        
+        from initial_bbox.ball_detector import BallDetector
+
         # 初始化球检测器
         ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
-        
+
         # 生成事件图像用于辅助检测
         event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
-        event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
+        event_frame_gen.generate_frame(event_data, event_frame, 
+                                       accumulation_time_us=processing['accumulation_time_us'])
         event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-        
+
         # 尝试自动检测球
-        detected_bbox = ball_detector.detect_ball(image, event_image_gray)
-        
+        # detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        # Get ROI parameters from config
+        roi_params = Config.get_roi()
+        detected_bbox = roi_params['default_bbox']  # [430, 1180, 40, 40]
+        # backup option: roi_params['backup_bbox']  # [180, 1030, 40, 40]
         if detected_bbox is not None:
             x, y, w, h = detected_bbox
             print(f"自动检测到球的位置: x={x}, y={y}, w={w}, h={h}")
-            
+
             # 可视化检测结果
             vis_image = image.copy()
             cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(vis_image, "Auto Detected Ball", (x, y-10), 
+            cv2.putText(vis_image, "Auto Detected Ball", (x, y-10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
+
             # 显示检测结果，让用户确认
-            scale = 0.5
+            scale = processing['display_scale']
             height, width = vis_image.shape[:2]
             new_size = (int(width * scale), int(height * scale))
             resized_img = cv2.resize(vis_image, new_size, interpolation=cv2.INTER_AREA)
             cv2.imshow('Ball Detection - Press any key to continue', resized_img)
             cv2.waitKey(2000)  # 显示2秒
             cv2.destroyAllWindows()
-            
+
             return x, y, w, h
         else:
             # 如果自动检测失败，使用默认位置
             print("自动检测失败，使用默认位置")
-            x, y, w, h = 180, 1030, 40, 40
+            x, y, w, h = roi_params['backup_bbox']
             return x, y, w, h
 
     device = torch.device("cuda")
@@ -119,7 +138,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         # 给定每个voxel的长宽高  [0.05, 0.05, 0.1]
         vsize_xyz=[1000, 10, 10],  # [0.2, 0.25, 0.16]  # [50, 10, 10]  [50, 35, 26] 因此坐标范围（20,20,20）  (20, 34/35, 26)
         # 给定点云的范围 [  0.  -40.   -3.   70.4  40.    1. ]
-        coors_range_xyz=[  0.,  0,   0,   100000,  1280 ,   720 ],
+        coors_range_xyz=[  0.,  0,   0,   100000,  event_width ,   event_height ],
         # 给定每个点云的特征维度，这里是x，y，z，r 其中r是激光雷达反射强度       # 346x260  t,x,y
         num_point_features=4,
         # 最多选取多少个voxel，训练16000，推理40000
@@ -145,7 +164,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    npy_path = os.path.join(project_root, "122.npy")
+    npy_path = os.path.join(project_root, "94.npy")
     first_event_data=np.load(npy_path)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
@@ -156,16 +175,22 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
-    jpg_path = os.path.join(project_root, "122.jpg")
+    jpg_path = os.path.join(project_root, "94.jpg")
     first_flir_image=cv2.imread(jpg_path)
 
     initial_bbox = detect_initial_bbox(first_flir_image,first_event_data)
-    x, y, w, h = initial_bbox
+    # initial_bbox= (495, 1098, 40, 40)
+
+    x, y, w, h= initial_bbox
+    # cv2.rectangle(first_flir_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    # cv2.imshow("a", first_flir_image)
+    # cv2.waitKey(0)
     bbox = [x, y, w, h]
     init_info = {'init_bbox': bbox}
 
     count=0
-    roi_range=500
+    roi_params = Config.get_roi()
+    roi_range = roi_params['roi_range']
     initialized= False
     system_state.value = 'w'  # 设置初始状态为等待
     while not stop_event.is_set():
@@ -250,15 +275,16 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             ROI[3]=h_r
             event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
             event_frame = np.ascontiguousarray(event_frame)
-            event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
+            event_frame_gen.generate_frame(event_data, event_frame, 
+                                       accumulation_time_us=processing['accumulation_time_us'])
             image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
+            _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
             event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
             rgb_image=flir_data
             # cv2.rectangle(event_image, (x_r, y_r), (x_r + h_r, y_r + w_r), (0, 255, 0), 2)
             cv2.rectangle(rgb_image, (x_r, y_r), (x_r + h_r, y_r+ w_r), (0, 255, 0), 2)
             combined = np.hstack((rgb_image, event_image))
-            scale = 0.8
+            scale = processing['display_scale']
             # 获取新的尺寸
             width = int(combined.shape[1] * scale)
             height = int(combined.shape[0] * scale)

@@ -96,9 +96,7 @@ def debug_timing(record_index, record_dir):
     else:
         print("无法读取Raw文件信息")
         return
-    
-    print()
-    
+
     # 比较时长
     print("=== 时间同步分析 ===")
     time_diff = abs(rgb_duration - raw_duration)
@@ -173,6 +171,37 @@ def save_adjusted_events(raw_event_buffer, event_frame_offset, record_index, rec
         
     except Exception as e:
         print(f"保存事件数据时出错: {e}")
+
+def save_aligned_events_npy(aligned_event_buffer, record_index, record_dir, rgb_frame_count, aligned_events_dict=None, rgb_frames_dict=None):
+    """保存对齐后的事件数据和对应RGB帧到.npy文件"""
+    # 创建输出目录
+    output_dir = f"{record_dir}/aligned_events_npy/{record_index}"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    try:
+        if aligned_events_dict is None or rgb_frames_dict is None:
+            print("没有对齐的事件数据或RGB帧可保存")
+            return
+            
+        saved_count = 0
+        for rgb_frame_idx in aligned_events_dict.keys():
+            if rgb_frame_idx in rgb_frames_dict and len(aligned_events_dict[rgb_frame_idx]) > 0:
+                # 保存事件数据
+                events_npy_path = f"{output_dir}/{rgb_frame_idx}.npy"
+                np.save(events_npy_path, aligned_events_dict[rgb_frame_idx])
+                
+                # 保存对应的RGB帧为JPG
+                rgb_jpg_path = f"{output_dir}/{rgb_frame_idx}.jpg"
+                cv2.imwrite(rgb_jpg_path, rgb_frames_dict[rgb_frame_idx])
+                
+                saved_count += 1
+        
+        print(f"已保存{saved_count}对RGB帧和事件帧到: {output_dir}/")
+        print(f"格式: events_XXXXXX.npy 和 rgb_XXXXXX.jpg")
+            
+    except Exception as e:
+        print(f"保存对齐后事件数据时出错: {e}")
 
 def play_overlay_debug(record_index, record_dir, frame_skip=1):
     """播放叠加的RGB和事件帧进行调试"""
@@ -252,8 +281,10 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     
     current_frame = 0
     paused = False
-    event_frame_offset = 0  # 事件帧偏移量
+    event_frame_offset = -2  # 事件帧偏移量
     event_speed_ratio = 1.0  # 事件播放速度比例
+    aligned_events_dict = {}  # 存储与RGB帧对齐的事件数据
+    rgb_frames_dict = {}  # 存储对应的RGB帧数据
     
     while True:
         if not paused:
@@ -286,6 +317,9 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
             events = event_buffer[event_block_index]
             event_frame = np.ascontiguousarray(event_frame)
             event_frame_gen.generate_frame(events, event_frame, accumulation_time_us=2000)
+            # 存储当前RGB帧对齐的事件数据和RGB帧
+            aligned_events_dict[current_frame] = events.copy()
+            rgb_frames_dict[current_frame] = rgb_frame.copy()
         
         # 对事件帧进行二值化处理
         event_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
@@ -379,6 +413,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
             print("重置帧调整参数")
         elif key == ord('e'):  # 保存当前调整后的事件数据
             save_adjusted_events(raw_event_buffer, event_frame_offset, record_index, record_dir)
+            save_aligned_events_npy(aligned_event_buffer, record_index, record_dir, rgb_frame_count, aligned_events_dict, rgb_frames_dict)
             print(f"已保存调整后的事件数据，偏移量: {event_frame_offset}")
         
         if not paused:
@@ -389,6 +424,7 @@ def play_overlay_debug(record_index, record_dir, frame_skip=1):
     
     # 自动保存调整后的事件数据
     save_adjusted_events(raw_event_buffer, event_frame_offset, record_index, record_dir)
+    save_aligned_events_npy(aligned_event_buffer, record_index, record_dir, rgb_frame_count, aligned_events_dict, rgb_frames_dict)
     print(f"程序结束时自动保存调整后的事件数据，偏移量: {event_frame_offset}")
 
 def batch_debug(record_dir, start_index, end_index):
@@ -448,7 +484,7 @@ if __name__ == '__main__':
     parser.add_argument('--record_index', type=int, default=10,
                        help='Record index to debug (default: 10)')
     parser.add_argument('--record_dir', type=str, 
-                       default='/home/xinchi/Event_RGB_catching_data/saved_data',
+                       default='/media/xinchi/data/Event_RGB_catching_data/saved_data_dc',
                        help='Directory containing recorded data')
     parser.add_argument('--batch', action='store_true',
                        help='Run batch analysis on multiple records')

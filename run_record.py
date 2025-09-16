@@ -123,7 +123,7 @@ Examples:
     
     parser.add_argument('--start_index', type=int, default=0,
                        help='Initial record index (default: 0)')
-    parser.add_argument('--max_runs', type=int, default=110,
+    parser.add_argument('--max_runs', type=int, default=112,
                        help='Maximum number of runs (default: unlimited)')
     parser.add_argument('--restart_delay', type=int, default=2,
                        help='Delay in seconds before restart (default: 5)')
