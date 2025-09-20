@@ -279,7 +279,7 @@ if __name__ == '__main__':
     
     # Load configuration based on task parameter
     config_mapping = {
-        "normal": "config/config_l.yaml",
+        "normal": "config/config.yaml",
         "dark": "config/config_d.yaml",
         "cluster": "config/config_c.yaml",
         "dark_cluster": "config/config_dc.yaml"
@@ -415,7 +415,9 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Robot': ['event_process', 'flir_process','landing_prediction_process', 'robot_control_process','keyboard_process'],
+        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process'],
+        'RGB': ['flir_process','RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'keyboard_process','robot_control_process' ],
+        'Model': ['event_process', 'flir_process', 'model_ROI_process', 'event_tracking_process','landing_prediction_process', 'keyboard_process','robot_control_process' ],
     }
     # Get processes to start for current mode
     processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])

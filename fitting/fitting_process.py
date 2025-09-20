@@ -10,7 +10,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
 def robot_control(shared_impact_point_data,system_state,stop_event):
-    from pcan_cybergear import CANMotorController
+    from hardware.pcan_cybergear import CANMotorController
     import can
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
@@ -32,7 +32,7 @@ def robot_control(shared_impact_point_data,system_state,stop_event):
         if system_state.value=='c':
 
             impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-            # print(impact_point_array)
+            print(impact_point_array)
             x, y, z = impact_point_array
             shaft_length = motor['shaft_length']
             joint_height = motor['joint_height']
@@ -123,7 +123,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                 trajectory = Config.get_trajectory()
                 
                 if len(ball_pixels) == trajectory['required_observations']:
-                    # print(ball_pixels)
+                    print(ball_pixels)
 
                     ball_memory = ball_pixels
                     observations = ball_memory
@@ -141,7 +141,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     impact_point_array[0] = impact_point[0]
                     impact_point_array[1] = impact_point[1]
                     impact_point_array[2] = impact_point[2]
-                    # system_state.value='c'
+                    print(impact_point_array)
+                    system_state.value='c'
                     # with open(saved_impact_point_dir, mode='a', newline='') as f:
                     #     writer = csv.writer(f)
                     #     writer.writerow([

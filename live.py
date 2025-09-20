@@ -146,7 +146,7 @@ if __name__ == '__main__':
     
     # Load configuration based on task parameter
     config_mapping = {
-        "normal": "config/config_l.yaml",
+        "normal": "config/config.yaml",
         "dark": "config/config_d.yaml",
         "cluster": "config/config_c.yaml",
         "dark_cluster": "config/config_dc.yaml"

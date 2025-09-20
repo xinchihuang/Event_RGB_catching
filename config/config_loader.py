@@ -13,7 +13,7 @@ from pathlib import Path
 class ConfigLoader:
     """Simple configuration loader for hardcoded parameters"""
     
-    def __init__(self, config_file: str = "config.yaml"):
+    def __init__(self, config_file: str = "config/config.yaml"):
         """
         Initialize configuration loader
         
