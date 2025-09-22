@@ -47,6 +47,44 @@ def signal_handler(sig, frame):
     sys.exit(0)
 def keyboard(shared_value,system_state):
     from pynput import keyboard
+    import threading
+    import time
+    
+    def play_voice_notification(message):
+        """Play voice notification"""
+        try:
+            import pyttsx3
+            engine = pyttsx3.init()
+            engine.setProperty('rate', 150)  # Speech rate
+            engine.setProperty('volume', 0.9)  # Volume level
+            engine.say(message)
+            engine.runAndWait()
+        except ImportError:
+            print(f"Voice notification: {message} (pyttsx3 not available)")
+        except Exception as e:
+            print(f"Voice playback failed: {e}, using text notification: {message}")
+    
+    def state_monitor():
+        """Monitor state changes and trigger voice notifications"""
+        previous_state = system_state.value
+        while True:
+            current_state = system_state.value
+            if previous_state != current_state and current_state == 't':
+                print(f"State change detected: {previous_state} -> {current_state}")
+                # Play voice in new thread to avoid blocking
+                voice_thread = threading.Thread(
+                    target=play_voice_notification, 
+                    args=("System started tracking. Throw the ball now!",),
+                    daemon=True
+                )
+                voice_thread.start()
+            previous_state = current_state
+            time.sleep(0.1)  # Check interval 100ms
+    
+    # Start state monitoring thread
+    monitor_thread = threading.Thread(target=state_monitor, daemon=True)
+    monitor_thread.start()
+    
     def on_press(key):
         try:
             # Update the shared value with the last key pressed
@@ -54,11 +92,12 @@ def keyboard(shared_value,system_state):
             # shared_value.value = key.char if hasattr(key, 'char') else str(key)
             if key.char=='t':
                 system_state.value='t'
+            elif key.char=='w':
+                system_state.value='w'
         except AttributeError:
             system_state.value='e'
 
     with keyboard.Listener(on_press=on_press) as listener:
-
         listener.join()
 def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,
                              shared_impact_point_data,raw_count,num_event,record_index,start_ts,event_broadcasting,video_broadcasting,system_state,stop_event):

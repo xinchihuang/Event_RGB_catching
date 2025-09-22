@@ -102,10 +102,11 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
 
         # 尝试自动检测球
-        # detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        print(detected_bbox)
         # Get ROI parameters from config
         roi_params = Config.get_roi()
-        detected_bbox = roi_params['default_bbox']  # [430, 1180, 40, 40]
+        # detected_bbox = roi_params['default_bbox']  # [430, 1180, 40, 40]
         # backup option: roi_params['backup_bbox']  # [180, 1030, 40, 40]
         if detected_bbox is not None:
             x, y, w, h = detected_bbox
