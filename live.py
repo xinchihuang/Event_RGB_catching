@@ -36,7 +36,7 @@ from fitting.fitting_process import landing_prediction
 from hardware.motor import robot_control
 
 # Import configuration
-from config.config_loader import switch_global_config, Config
+from config.config_loader import Config
 
 def starter(system_state, stop_event):
     """
@@ -152,12 +152,13 @@ if __name__ == '__main__':
         "dark_cluster": "config/config_dc.yaml"
     }
     
-    # Load configuration
-    try:
-        switch_global_config(config_mapping[args.task])
+    # Set environment variables for subprocess config loading
+    if args.task in config_mapping:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+        os.environ['ACTIVE_TASK'] = args.task
         print(f"LIVE SYSTEM: Using task configuration '{args.task}': {config_mapping[args.task]}")
-    except Exception as e:
-        print(f"LIVE SYSTEM: Configuration loading failed: {e}, using default configuration")
+    else:
+        print(f"LIVE SYSTEM: Unknown task type: {args.task}, using default configuration")
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"LIVE SYSTEM: Using device: {device}")

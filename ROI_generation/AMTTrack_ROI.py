@@ -11,6 +11,21 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
+
+# 注释掉自动配置检测，避免干扰不同的运行模式
+# def ensure_correct_config():
+#     """确保加载了正确的配置文件"""
+#     current_bbox = Config.get_roi()['default_bbox']
+#     # 如果是默认配置的bbox，尝试切换到config_l.yaml
+#     if current_bbox == [430, 1180, 40, 40]:
+#         try:
+#             switch_global_config('config/config_l.yaml')
+#             print("Auto-switched to config_l.yaml for development")
+#         except:
+#             pass
+
+# # 自动配置检测 - 注释掉以避免干扰
+# ensure_correct_config()
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
@@ -68,6 +83,21 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
+    # 确保在子进程中加载正确的配置文件
+    # 检查环境变量来确定应该使用哪个配置
+    active_config = os.environ.get('ACTIVE_CONFIG_FILE')
+    active_task = os.environ.get('ACTIVE_TASK')
+    
+    if active_config:
+        print(f"Model process: Using config from environment: {active_config} (task: {active_task})")
+        # Config will be automatically loaded based on environment variables
+    else:
+        print("Model process: No active config in environment, using default config")
+
+    print(f"Model process using templates: {Config.get_paths()['template_npy']}, {Config.get_paths()['template_jpg']}")
+    print(f"Model process using default_bbox: {Config.get_roi()['default_bbox']}")
+    print(f"Model process using record_dir: {Config.get_paths()['record_dir']}")
+
     # Get image dimensions from config
     dims = Config.get_image_dimensions()
     rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
@@ -92,38 +122,48 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         from initial_bbox.ball_detector import BallDetector
 
         # 初始化球检测器
-        ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
-
-        # 生成事件图像用于辅助检测
+        # ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
+        
+        # 生成事件图像用于辅助检测和叠加显示
         event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
         event_frame = np.ascontiguousarray(event_frame)
-        event_frame_gen.generate_frame(event_data, event_frame, 
+        event_frame_gen.generate_frame(event_data, event_frame,
                                        accumulation_time_us=processing['accumulation_time_us'])
         event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+        
+        # 将事件图像转换为二值图像以便更好的可视化
+        _, binary = cv2.threshold(event_image_gray, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
+        event_image_viz = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
         # 尝试自动检测球
-        detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        # detected_bbox = ball_detector.detect_ball(image, event_image_gray)
+        # print(detected_bbox)
+        detected_bbox = Config.get_roi()['default_bbox']
         print(detected_bbox)
-        # Get ROI parameters from config
-        roi_params = Config.get_roi()
-        # detected_bbox = roi_params['default_bbox']  # [430, 1180, 40, 40]
-        # backup option: roi_params['backup_bbox']  # [180, 1030, 40, 40]
         if detected_bbox is not None:
             x, y, w, h = detected_bbox
             print(f"自动检测到球的位置: x={x}, y={y}, w={w}, h={h}")
 
-            # 可视化检测结果
+            # 可视化检测结果 - 在RGB图像上绘制bbox
             vis_image = image.copy()
             cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.putText(vis_image, "Auto Detected Ball", (x, y-10),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
+            
+            # 在事件图像上也绘制bbox
+            cv2.rectangle(event_image_viz, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(event_image_viz, "Event View", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            
+            # 叠加显示RGB图像和事件图像
+            combined = np.hstack((vis_image, event_image_viz))
+            
             # 显示检测结果，让用户确认
             scale = processing['display_scale']
-            height, width = vis_image.shape[:2]
+            height, width = combined.shape[:2]
             new_size = (int(width * scale), int(height * scale))
-            resized_img = cv2.resize(vis_image, new_size, interpolation=cv2.INTER_AREA)
-            cv2.imshow('Ball Detection - Press any key to continue', resized_img)
+            resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
+            cv2.imshow('Ball Detection (RGB + Event) - Press any key to continue', resized_img)
             cv2.waitKey(2000)  # 显示2秒
             cv2.destroyAllWindows()
 
@@ -131,7 +171,12 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         else:
             # 如果自动检测失败，使用默认位置
             print("自动检测失败，使用默认位置")
-            x, y, w, h = roi_params['backup_bbox']
+            roi_config = Config.get_roi()
+            if 'backup_bbox' in roi_config:
+                x, y, w, h = roi_config['backup_bbox']
+            else:
+                # 如果没有backup_bbox，使用default_bbox
+                x, y, w, h = roi_config['default_bbox']
             return x, y, w, h
 
     device = torch.device("cuda")
@@ -165,7 +210,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    npy_path = os.path.join(project_root, "94.npy")
+    npy_path = os.path.join(project_root, Config.get_paths()['template_npy'])
     first_event_data=np.load(npy_path)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
@@ -176,8 +221,14 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
 
     # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
-    jpg_path = os.path.join(project_root, "94.jpg")
+    jpg_path = os.path.join(project_root, Config.get_paths()['template_jpg'])
     first_flir_image=cv2.imread(jpg_path)
+    
+    # Apply brightness enhancement from config
+    processing = Config.get_image_processing()
+    brightness_multiplier = processing['brightness_multiplier']
+    if brightness_multiplier != 1.0:
+        first_flir_image = np.clip(first_flir_image.astype(np.float32) * brightness_multiplier, 0, 255).astype(np.uint8)
 
     initial_bbox = detect_initial_bbox(first_flir_image,first_event_data)
     # initial_bbox= (495, 1098, 40, 40)
@@ -195,8 +246,8 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     initialized= False
     system_state.value = 'w'  # 设置初始状态为等待
     while not stop_event.is_set():
-        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
+        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
         event_data = event_data[:num_event.value]
 
         if system_state.value == 'w' and not initialized:
@@ -211,8 +262,8 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
             out = tracker.initialize(first_flir_image, event_template, init_info, idx=0)
             # run one iter
-            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-            flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
+            flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
 
             start_time = time.time()
             x, y, w, h = initial_bbox
@@ -232,7 +283,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             inference_end = time.time()
             print("Inference time:", inference_end - inference_start)
             # print("OUT",out)
-            bbox = out['target_bbox']
+            bbox = out.get('target_bbox')
             print("Model Ready")
             print("")
             initialized = True
@@ -264,11 +315,25 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             out = tracker.track(flir_data, event_search, info)
             inference_end=time.time()
 
-            bbox=out['target_bbox']
+            bbox=out.get('target_bbox')
+            confidence = out.get('confidence', 0.0)  # Get confidence, default to 0.0 if not available
+
+            # Confidence-based tracking strategy
+            if confidence < 0.15:  # Very low confidence - reset to image center
+                center_x = rgb_width // 2
+                center_y = rgb_height // 2
+                center_size = 40
+                bbox = [center_x - center_size//2, center_y - center_size//2, center_size, center_size]
+                print(f"Frame {count}: Very low confidence {confidence:.3f}, reset to center: {bbox}")
+                # Update info for next iteration
+                info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
+            elif confidence < 0.2:  # Low confidence - keep current bbox but warn
+                print(f"Frame {count}: Low confidence {confidence:.3f}, bbox: {bbox}")
+            elif count % 30 == 0:  # Normal confidence - periodic logging
+                print(f"Frame {count}: Normal confidence {confidence:.3f}, bbox: {bbox}")
 
             state = [int(s) for s in bbox]
             x_r, y_r, w_r, h_r = state
-            # print(state)
 
             ROI[0]=x_r
             ROI[1]=y_r
@@ -281,9 +346,9 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
             event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-            rgb_image=flir_data
-            # cv2.rectangle(event_image, (x_r, y_r), (x_r + h_r, y_r + w_r), (0, 255, 0), 2)
-            cv2.rectangle(rgb_image, (x_r, y_r), (x_r + h_r, y_r+ w_r), (0, 255, 0), 2)
+            rgb_image = flir_data
+            # All drawing code removed - no visual feedback needed
+            
             combined = np.hstack((rgb_image, event_image))
             scale = processing['display_scale']
             # 获取新的尺寸

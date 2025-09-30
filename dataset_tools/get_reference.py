@@ -82,8 +82,8 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
     # time.sleep(1)
     while not stop_event.is_set():
         if system_state.value == 't':
-            flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
-            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+            flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
+            event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
             event_data = event_data[:num_event.value]
             rgb_image = flir_data
             event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
@@ -202,7 +202,7 @@ def shutdown_processes(processes, timeout=5):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=1,
+    parser.add_argument('--record_index', type=int, default=11,
                         help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Save",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
@@ -283,7 +283,7 @@ if __name__ == '__main__':
 
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_c'
+    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
 
     # Define all available processes
     all_processes = {

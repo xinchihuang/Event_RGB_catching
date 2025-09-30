@@ -152,6 +152,11 @@ class AMTTrack(BaseTracker):
         # add hann windows
         pred_score_map = out_dict['score_map']
         response = self.output_window * pred_score_map
+        
+        # Extract confidence score from the maximum response
+        max_score = torch.max(response).item()
+        confidence = float(max_score)  # Convert to Python float
+        
         pred_boxes = self.network.box_head.cal_bbox(response, out_dict['size_map'], out_dict['offset_map'])
         pred_boxes = pred_boxes.view(-1, 4)
         # Baseline: Take the mean of all pred boxes as the final result
@@ -192,9 +197,11 @@ class AMTTrack(BaseTracker):
             all_boxes = self.map_box_back_batch(pred_boxes * self.params.search_size / resize_factor, resize_factor)
             all_boxes_save = all_boxes.view(-1).tolist()  # (4N, )
             return {"target_bbox": self.state,
-                    "all_boxes": all_boxes_save}
+                    "all_boxes": all_boxes_save,
+                    "confidence": confidence}
         else:
-            return {"target_bbox": self.state}
+            return {"target_bbox": self.state,
+                    "confidence": confidence}
 
     def map_box_back(self, pred_box: list, resize_factor: float):
         cx_prev, cy_prev = self.state[0] + 0.5 * self.state[2], self.state[1] + 0.5 * self.state[3]

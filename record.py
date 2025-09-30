@@ -26,7 +26,7 @@ from tracking_2D.Event_tracker import event_tracking_3D
 from fitting.fitting_process import landing_prediction, robot_control
 
 # Import configuration
-from config.config_loader import switch_global_config
+from config.config_loader import Config
 
 def starter(system_state,stop_event):
     time.sleep(3)
@@ -115,11 +115,12 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
         if system_state.value == 'e':
             break
         # print(event_broadcasting.value,video_broadcasting.value)
-
-        if event_broadcasting.value=='f' and video_broadcasting.value=='f':
-            system_state.value='r'
-        # if event_broadcasting.value=='f' :
+        # print(event_broadcasting.value,video_broadcasting.value,system_state.value)
+        # if event_broadcasting.value=='f' and video_broadcasting.value=='f':
         #     system_state.value='r'
+        print(event_broadcasting.value,video_broadcasting.value,system_state.value)
+        if event_broadcasting.value=='f' or video_broadcasting.value=='f':
+            system_state.value='r'
         if system_state.value == 'r':
             print("Waiting for reset")
             time.sleep(2)
@@ -197,8 +198,8 @@ def check_align(shared_event_data,shared_flir_data,num_event,system_state,stop_e
         if system_state.value == 'e':
             break
         # start_time = time.time()
-        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
-        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
+        event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
         if num_event.value==0:
             continue
         event_data= event_data[:num_event.value]
@@ -307,28 +308,28 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Model",
+    parser.add_argument('--test_mode', type=str, default="Event",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
-    parser.add_argument('--task', type=str, default="normal",
-                        choices=["normal", "dark", "cluster", "dark_cluster"],
+    parser.add_argument('--task', type=str, default="dark_clutter",
+                        choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
     
-    # Load configuration based on task parameter
+    # Set environment variables for config selection
     config_mapping = {
         "normal": "config/config_l.yaml",
         "dark": "config/config_d.yaml",
-        "cluster": "config/config_c.yaml",
-        "dark_cluster": "config/config_dc.yaml"
-
+        "clutter": "config/config_c.yaml",
+        "dark_clutter": "config/config_dc.yaml"
     }
     
-    # Load configuration based on task parameter
-    try:
-        switch_global_config(config_mapping[args.task])
+    # Set environment variables for subprocess config loading
+    if args.task in config_mapping:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+        os.environ['ACTIVE_TASK'] = args.task
         print(f"使用任务配置 {args.task}: {config_mapping[args.task]}")
-    except Exception as e:
-        print(f"配置加载失败: {e}, 使用默认配置")
+    else:
+        print(f"未知任务类型: {args.task}, 使用默认配置")
     
     device = torch.device("cuda")
 

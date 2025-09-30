@@ -12,11 +12,12 @@ import os
 import signal
 
 class RecordRunner:
-    def __init__(self, start_index=40, max_runs=None, restart_delay=5):
+    def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180):
         self.start_index = start_index
         self.current_index = start_index
         self.max_runs = max_runs
         self.restart_delay = restart_delay
+        self.timeout = timeout
         self.run_count = 0
         self.should_stop = False
         
@@ -39,9 +40,14 @@ class RecordRunner:
         print("-" * 60)
         
         try:
-            # Run record.py and wait for completion
-            result = subprocess.run(cmd, cwd=os.path.dirname(os.path.abspath(__file__)))
+            # Run record.py with a timeout to prevent hanging
+            result = subprocess.run(cmd, 
+                                  cwd=os.path.dirname(os.path.abspath(__file__)), 
+                                  timeout=self.timeout)
             return result.returncode
+        except subprocess.TimeoutExpired:
+            print(f"Warning: record.py timed out after {self.timeout} seconds, terminating...")
+            return 124  # Standard timeout exit code
         except FileNotFoundError:
             print("Error: record.py not found in current directory")
             return 1
@@ -93,6 +99,17 @@ class RecordRunner:
                 print(f"Completed all {self.max_runs} runs")
                 break
             
+            # Close all OpenCV windows before restart
+            print("Closing all OpenCV windows...")
+            try:
+                import cv2
+                cv2.destroyAllWindows()
+                cv2.waitKey(1)  # Process any pending GUI events
+            except ImportError:
+                print("OpenCV not available, skipping window cleanup")
+            except Exception as e:
+                print(f"Error closing OpenCV windows: {e}")
+            
             # Wait before restart
             print(f"Waiting {self.restart_delay} seconds before restart...")
             for i in range(self.restart_delay, 0, -1):
@@ -123,10 +140,12 @@ Examples:
     
     parser.add_argument('--start_index', type=int, default=0,
                        help='Initial record index (default: 0)')
-    parser.add_argument('--max_runs', type=int, default=112,
+    parser.add_argument('--max_runs', type=int, default=10,
                        help='Maximum number of runs (default: unlimited)')
     parser.add_argument('--restart_delay', type=int, default=2,
                        help='Delay in seconds before restart (default: 5)')
+    parser.add_argument('--timeout', type=int, default=30,
+                       help='Timeout in seconds for each record.py run (default: 180)')
     
     args = parser.parse_args()
     
@@ -147,7 +166,8 @@ Examples:
     runner = RecordRunner(
         start_index=args.start_index,
         max_runs=args.max_runs,
-        restart_delay=args.restart_delay
+        restart_delay=args.restart_delay,
+        timeout=args.timeout
     )
     
     try:

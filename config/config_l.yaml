@@ -28,6 +28,9 @@ image_processing:
   contrast_alpha: 0.5
   contrast_beta: 30
   
+  # RGB brightness enhancement for normal modes (no enhancement)
+  brightness_multiplier: 1.0
+  
   # Display scale
   display_scale: 0.8
 
@@ -45,8 +48,8 @@ buffers:
 # Data paths
 paths:
   record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_l"
-  template_npy: "89.npy"
-  template_jpg: "89.jpg"
+  template_npy: "78.npy"
+  template_jpg: "78.jpg"
 
 # Camera alignment
 alignment:
@@ -97,7 +100,7 @@ roi:
   kernel_size: [5, 5]
   morphology_iterations: 2
   roi_range: 200
-  default_bbox: [430, 1180, 40, 40]
+  default_bbox: [490, 1190, 40, 40]
 
 # Ball tracking
 tracking:

@@ -26,7 +26,7 @@ img = cv2.imread("../94.jpg")
 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 edges = cv2.Canny(blurred, 60, 180)
-4
+
 # 叠加边缘
 overlay = overlay_canny_edges(img, edges, color=(0, 0, 255))
 

@@ -81,6 +81,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
     # bright
     # Get tracking parameters from config
     tracking = Config.get_tracking()
+    print(tracking)
     dbscan = DBSCAN(eps=tracking['dbscan_eps'], min_samples=tracking['dbscan_min_samples'])
     #bright cluster
     # dbscan = DBSCAN(eps=12, min_samples=100)
@@ -103,8 +104,8 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
         if system_state.value == 't':
             start_t=time.time()
             try:
-                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
+                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
                 # print(num_events.value)
                 if num_events.value == 0:
                     continue
@@ -131,6 +132,7 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                 labels = dbscan.labels_
                 event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
                 cluster_points = points[labels != -1]
+
                 if not len(cluster_points)==0:
                     y = min(cluster_points[:, 0])
                     x = min(cluster_points[:, 1])
@@ -139,11 +141,14 @@ def event_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_
                     cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
                     # cv2.rectangle(event_image, (535,715), (545, 725), (0, 255, 0), 2)
                     # cv2.rectangle(event_image, (x_r, y_r), (x_r + h_r, y_r + w_r), (255, 255, 0), 2)
-                    ball_num = ball_observations.value
-                    ball_pixel_3D[ball_num][0] = float(x + h / 2)
-                    ball_pixel_3D[ball_num][1] = float(y + h / 2)
-                    ball_pixel_3D[ball_num][2] = float(h)
-                    ball_pixel_3D[ball_num][3] = t
+                    print("Ball detected at (x, y, w, h):", x, y, w, h)
+                    if w<120 and h<120:
+
+                        ball_num = ball_observations.value
+                        ball_pixel_3D[ball_num][0] = float(x + h / 2)
+                        ball_pixel_3D[ball_num][1] = float(y + h / 2)
+                        ball_pixel_3D[ball_num][2] = float(h)
+                        ball_pixel_3D[ball_num][3] = t
 
                     if ball_num < tracking['max_ball_buffer']:
                         ball_num += 1

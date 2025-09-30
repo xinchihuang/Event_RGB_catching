@@ -80,6 +80,13 @@ def read_from_video(shared_flir_data, system_state, raw_count,
                 continue
 
             cv_image = rgb_buffer[count] if count > 0 else rgb_buffer[0]
+            
+            # Apply brightness enhancement from config
+            processing = Config.get_image_processing()
+            brightness_multiplier = processing['brightness_multiplier']
+            if brightness_multiplier != 1.0:
+                cv_image = np.clip(cv_image.astype(np.float32) * brightness_multiplier, 0, 255).astype(np.uint8)
+            
             # 写共享内存
             shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
             shm[:] = cv_image

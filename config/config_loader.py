@@ -4,6 +4,7 @@ Simple Configuration Loader for Event RGB Catching System
 """
 
 import os
+import sys
 import yaml
 import logging
 from typing import Dict, Any, Optional, List
@@ -13,7 +14,7 @@ from pathlib import Path
 class ConfigLoader:
     """Simple configuration loader for hardcoded parameters"""
     
-    def __init__(self, config_file: str = "config/config.yaml"):
+    def __init__(self, config_file: str = "config/config_l.yaml"):
         """
         Initialize configuration loader
         
@@ -114,28 +115,43 @@ class ConfigLoader:
 _config = None
 
 def get_config() -> ConfigLoader:
-    """Get global configuration instance"""
+    """Get global configuration instance with smart config file selection"""
     global _config
     if _config is None:
-        _config = ConfigLoader()
+        # 优先级：环境变量 > 命令行参数 > 默认值
+        config_file = None
+        
+        # 1. 检查环境变量
+        if 'ACTIVE_CONFIG_FILE' in os.environ:
+            config_file = os.environ['ACTIVE_CONFIG_FILE']
+        
+        # 2. 尝试解析命令行参数（如果在主进程中）
+        elif hasattr(sys, 'argv') and '--task' in sys.argv:
+            try:
+                task_idx = sys.argv.index('--task')
+                if task_idx + 1 < len(sys.argv):
+                    task = sys.argv[task_idx + 1]
+                    config_mapping = {
+                        "normal": "config/config_l.yaml",
+                        "dark": "config/config_d.yaml", 
+                        "clutter": "config/config_c.yaml",
+                        "dark_clutter": "config/config_dc.yaml"
+                    }
+                    config_file = config_mapping.get(task)
+            except:
+                pass
+        
+        # 3. 使用默认配置
+        if config_file is None:
+            config_file = "config/config_l.yaml"
+            
+        _config = ConfigLoader(config_file)
     return _config
 
 def load_config(key_path: str, default: Any = None) -> Any:
     """Quick function to get configuration value"""
     return get_config().get(key_path, default)
 
-def switch_global_config(config_file: str) -> None:
-    """
-    Switch the global configuration to a different file
-    
-    Args:
-        config_file: Configuration file name to switch to
-    """
-    global _config
-    if _config is not None:
-        _config.switch_config(config_file)
-    else:
-        _config = ConfigLoader(config_file)
 
 def get_available_configs() -> List[str]:
     """Get list of available configuration files"""
@@ -182,6 +198,7 @@ class Config:
             'binary_max_value': config.get('image_processing.binary_max_value', 255),
             'contrast_alpha': config.get('image_processing.contrast_alpha', 0.5),
             'contrast_beta': config.get('image_processing.contrast_beta', 30),
+            'brightness_multiplier': config.get('image_processing.brightness_multiplier', 1.0),
             'display_scale': config.get('image_processing.display_scale', 0.8)
         }
     
@@ -203,7 +220,7 @@ class Config:
             'template_npy': config.get('paths.template_npy', '94.npy'),
             'template_jpg': config.get('paths.template_jpg', '94.jpg')
         }
-    
+
     @staticmethod
     def get_alignment():
         """Get camera alignment parameters"""

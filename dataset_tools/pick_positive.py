@@ -1,6 +1,8 @@
 import os
 import shutil
 import random
+import cv2
+import numpy as np
 
 # 配置多个源数据集路径
 source_datasets = [
@@ -11,7 +13,7 @@ source_datasets = [
 ]
 
 # 配置负样本包含概率（0.0-1.0）
-negative_sample_probability = 0.2
+negative_sample_probability = 0.1
 
 output_dir = "/media/xinchi/data/Event_RGB_catching_data/selected_dataset"
 os.makedirs(output_dir, exist_ok=True)
@@ -78,7 +80,18 @@ for source_dir in source_datasets:
                     dst_file = os.path.join(new_data_path, file_type, f"{image_count}.{extension}")
                     
                     if os.path.exists(src_file):
-                        shutil.copy(src_file, dst_file)
+                        if file_type == "rgb" and "dataset_dc" in source_dir:
+                            # 对dataset_dc的RGB图像增加亮度
+                            img = cv2.imread(src_file)
+                            if img is not None:
+
+                                # 增加亮度（调整倍数可根据需要修改）
+                                img_brightened = np.clip(img * 3, 0, 255).astype(np.uint8)
+                                cv2.imwrite(dst_file, img_brightened)
+                            else:
+                                shutil.copy(src_file, dst_file)
+                        else:
+                            shutil.copy(src_file, dst_file)
 
                 image_count += 1
                 positive_samples_found = True

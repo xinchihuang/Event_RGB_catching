@@ -34,7 +34,7 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,syste
     count = 1
 
     while not stop_event.is_set():
-        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+        flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
         if num_event.value == 0:
             continue
         if system_state.value == 't':

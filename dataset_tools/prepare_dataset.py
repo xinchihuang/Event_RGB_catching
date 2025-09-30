@@ -71,6 +71,7 @@ def align_buffer(root_dir, raw_data_dir, index,
                  bbox_range=10, event_thresh=40):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from metavision_core.event_io import EventsIterator
+    import gc
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -84,17 +85,38 @@ def align_buffer(root_dir, raw_data_dir, index,
     ))
 
     event_buffer = []
-    for ev in event_iterator:
-        # deep copy the structured array FIRST
-        ev_local = np.empty(ev.shape, dtype=ev.dtype)
-        np.copyto(ev_local, ev)
+    try:
+        for ev in event_iterator:
+            if ev is None or ev.size == 0:
+                continue
+            
+            # deep copy the structured array FIRST with validation
+            try:
+                ev_local = np.empty(ev.shape, dtype=ev.dtype)
+                np.copyto(ev_local, ev)
+            except Exception as e:
+                print(f"Warning: failed to copy event data: {e}")
+                continue
 
-        # rotate/translate on the copy
-        ev_local['x'], ev_local['y'] = ev_local['y'].copy(), -ev_local['x'].copy()
-        ev_local['y'] += 1279
-        ev_local['x'], ev_local['y'] = align_to_rgb(ev_local)
+            # rotate/translate on the copy
+            try:
+                ev_local['x'], ev_local['y'] = ev_local['y'].copy(), -ev_local['x'].copy()
+                ev_local['y'] += 1279
+                ev_local['x'], ev_local['y'] = align_to_rgb(ev_local)
+            except Exception as e:
+                print(f"Warning: coordinate transformation failed: {e}")
+                continue
 
-        event_buffer.append(ev_local)
+            event_buffer.append(ev_local)
+            
+            # Periodic garbage collection to prevent memory buildup
+            if len(event_buffer) % 100 == 0:
+                gc.collect()
+                
+    except Exception as e:
+        print(f"Error loading event buffer: {e}")
+        if len(event_buffer) == 0:
+            return
 
     event_count = len(event_buffer)
     if event_count == 0:
@@ -105,12 +127,26 @@ def align_buffer(root_dir, raw_data_dir, index,
     vid_path = f"{raw_data_dir}/rgb/{index}.mp4"
     print(vid_path)
     cap = cv2.VideoCapture(vid_path)
+    if not cap.isOpened():
+        print(f"[{index}] Cannot open video file: {vid_path}")
+        return
+        
     rgb_buffer = []
-    ok, frame = cap.read()
-    while ok:
-        rgb_buffer.append(frame)
+    try:
         ok, frame = cap.read()
-    cap.release()
+        while ok:
+            if frame is not None:
+                # Create explicit copy to avoid shared memory issues
+                rgb_buffer.append(frame.copy())
+            ok, frame = cap.read()
+            
+            # Periodic garbage collection
+            if len(rgb_buffer) % 100 == 0:
+                gc.collect()
+    except Exception as e:
+        print(f"Error reading RGB frames: {e}")
+    finally:
+        cap.release()
 
     rgb_count = len(rgb_buffer)
     if rgb_count == 0:
@@ -157,180 +193,329 @@ def align_buffer(root_dir, raw_data_dir, index,
     end_idx = max(end_idx, start_idx)
 
     for frame_idx in range(start_idx, end_idx):
-        if frame_idx % 50 == 0:
-            print(f"[{index}] processing frame {frame_idx}/{end_idx-1}")
+        try:
+            if frame_idx % 50 == 0:
+                print(f"[{index}] processing frame {frame_idx}/{end_idx-1}")
 
-        rgb_img = rgb_buffer[frame_idx]
-        if rgb_img is None:
+            rgb_img = rgb_buffer[frame_idx]
+            if rgb_img is None:
+                absent_list.append(0)
+                bbox.append([0, 0, 0, 0])
+                continue
+
+            # Corresponding event packet (clamped)
+            ev_idx = int(frame_idx * ratio) + bias
+            ev_idx = min(max(ev_idx, 0), event_count - 1)
+            ev_local = event_buffer[ev_idx]
+            
+            # Validate event data
+            if ev_local is None:
+                print(f"Warning: None event data for frame {frame_idx}")
+                absent_list.append(0)
+                bbox.append([0, 0, 0, 0])
+                continue
+
+            # --- Event image ---
+            event_frame = None
+            try:
+                event_frame = np.zeros((rgb_h, rgb_w, 3), dtype=np.uint8)
+                
+                # Check if ev_local has events before processing
+                if ev_local is not None and len(ev_local) > 0:
+                    # Validate event data bounds to prevent buffer overflow
+                    if np.any(ev_local['x'] < 0) or np.any(ev_local['x'] >= rgb_w) or \
+                       np.any(ev_local['y'] < 0) or np.any(ev_local['y'] >= rgb_h):
+                        # Clip coordinates to prevent buffer overflow
+                        ev_local['x'] = np.clip(ev_local['x'], 0, rgb_w - 1)
+                        ev_local['y'] = np.clip(ev_local['y'], 0, rgb_h - 1)
+                    
+                    try:
+                        frame_gen.generate_frame(ev_local, event_frame)
+                    except Exception as e:
+                        print(f"Warning: frame generation failed for frame {frame_idx}, ev_idx {ev_idx}: {e}")
+                        # Create fresh event frame to avoid corruption
+                        event_frame = np.zeros((rgb_h, rgb_w, 3), dtype=np.uint8)
+                        
+            except Exception as e:
+                print(f"Warning: event frame creation failed for frame {frame_idx}: {e}")
+                event_frame = np.zeros((rgb_h, rgb_w, 3), dtype=np.uint8)
+            
+            gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
+            _, binary = cv2.threshold(gray, event_thresh, 255, cv2.THRESH_BINARY)
+
+            points = np.column_stack(np.where(binary > 0))  # (row=y, col=x)
+            
+            # Apply filter for bounding box detection only (exclude events within specified range)
+            if points.shape[0] > 0:
+                # Convert points to x,y format and apply filter
+                points_x, points_y = points[:, 1], points[:, 0]  # col=x, row=y
+                valid_mask = ~((points_x >= 600) & (points_x < 1080) & (points_y >= 900) & (points_y < 1440))
+                points = points[valid_mask]
+            
+            if points.shape[0] >= min_samples:
+                dbscan.fit(points)
+                labels = dbscan.labels_
+                sel = labels != -1
+                cluster_points = points[sel] if np.any(sel) else np.empty((0, 2), dtype=np.int32)
+            else:
+                cluster_points = np.empty((0, 2), dtype=np.int32)
+
+            # Create two versions: filtered for display, unfiltered for saving
+            # Unfiltered version for saving
+            event_vis_save = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+            
+            # Filtered version for display (exclude events within specified range)
+            binary_filtered = binary.copy()
+            if binary_filtered.shape == binary.shape:  # Ensure shapes match
+                try:
+                    y_coords, x_coords = np.where(binary > 0)
+                    # Validate coordinates are within bounds before using them
+                    if len(y_coords) > 0 and len(x_coords) > 0:
+                        valid_indices = (y_coords >= 0) & (y_coords < binary.shape[0]) & \
+                                       (x_coords >= 0) & (x_coords < binary.shape[1])
+                        y_coords = y_coords[valid_indices]
+                        x_coords = x_coords[valid_indices]
+                        
+                        if len(y_coords) > 0:  # Only proceed if we have valid coordinates
+                            filter_mask = (x_coords >= 600) & (x_coords < 1080) & (y_coords >= 900) & (y_coords < 1440)
+                            if np.any(filter_mask):
+                                binary_filtered[y_coords[filter_mask], x_coords[filter_mask]] = 0
+                except Exception as e:
+                    print(f"Warning: filtering failed for frame {frame_idx}: {e}")
+                    
+            event_vis_display = cv2.cvtColor(binary_filtered, cv2.COLOR_GRAY2BGR)
+
+            # --- RGB mask (green) ---
+            hsv = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2HSV)
+            lower_hsv = np.array([30, 90, 50], dtype=np.uint8)
+            upper_hsv = np.array([50, 255, 255], dtype=np.uint8)
+            mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
+            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            # --- Fuse bboxes ---
+            present = 0
+            x = y = w = h = 0
+
+            # Candidate from RGB
+            rgb_box = None
+            if len(contours) > 0:
+                c = max(contours, key=cv2.contourArea)
+                rgb_box = cv2.boundingRect(c)  # (x,y,w,h)
+
+            # Candidate from events
+            ev_box = None
+            if cluster_points.shape[0] > 0:
+                y_min, x_min = int(cluster_points[:, 0].min()), int(cluster_points[:, 1].min())
+                y_max, x_max = int(cluster_points[:, 0].max()), int(cluster_points[:, 1].max())
+                ev_box = (x_min, y_min, x_max - x_min, y_max - y_min)
+
+            # Prefer union if both exist
+            if rgb_box and ev_box:
+                x1 = min(rgb_box[0], ev_box[0])
+                y1 = min(rgb_box[1], ev_box[1])
+                x2 = max(rgb_box[0] + rgb_box[2], ev_box[0] + ev_box[2])
+                y2 = max(rgb_box[1] + rgb_box[3], ev_box[1] + ev_box[3])
+                x, y, w, h = x1, y1, x2 - x1, y2 - y1
+                present = 1
+            elif rgb_box:
+                x, y, w, h = rgb_box
+                present = 1
+            elif ev_box:
+                x, y, w, h = ev_box
+                present = 1
+            else:
+                present = 0
+                x = y = w = h = 0
+
+            # Reject outliers / off-image
+            if present and (w > 100 or h > 100 or y >= rgb_h):
+                present = 0
+                x = y = w = h = 0
+
+            # Expand and clip
+            if present:
+                x -= bbox_range
+                y -= bbox_range
+                w += 2 * bbox_range
+                h += 2 * bbox_range
+                x, y, w, h = clip_box(x, y, w, h, rgb_w, rgb_h)
+
+            # Create RGB+Event overlay display similar to prepare_dataset_multiprocess.py
+            rgb_brightened = cv2.convertScaleAbs(rgb_img, alpha=0.7, beta=30)
+            overlay = cv2.addWeighted(rgb_brightened, 0.7, event_vis_display, 0.3, 0)
+            
+            # Draw bounding box on overlay
+            if present and w > 0 and h > 0:
+                cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 255, 0), 3)
+                # Add bbox info text
+                cv2.putText(overlay, f"Ball: {w}x{h}", (x, y-10), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+            
+            # Add informative text overlay
+            cv2.putText(overlay, f"Record: {index} Frame: {frame_idx}", (20, 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
+            cv2.putText(overlay, f"Events: {len(ev_local)}", (20, 90), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+            cv2.putText(overlay, f"Ball: {'Present' if present else 'Absent'}", (20, 130), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0) if present else (0, 0, 255), 2)
+            
+            # Add frame indices for debugging
+            cv2.putText(overlay, f"RGB Frame: {frame_idx}", (20, 170), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+            cv2.putText(overlay, f"Event Frame: {ev_idx}", (20, 200), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+            
+            # Scale for better display
+            scale = 0.8
+            display_width = int(overlay.shape[1] * scale)
+            display_height = int(overlay.shape[0] * scale)
+            display_img = cv2.resize(overlay, (display_width, display_height), interpolation=cv2.INTER_AREA)
+            
+            # Display the overlay
+            cv2.imshow(f'Dataset Processing - Record {index}', display_img)
+            cv2.waitKey(1)
+
+            absent_list.append(1 if present else 0)
+            bbox.append([x, y, w, h])
+            
+            # Also create combined view for saving (side-by-side with bounding boxes)
+            rgb_img_show = rgb_img.copy()
+            event_vis_show = event_vis_save.copy()
+            if present and w > 0 and h > 0:
+                cv2.rectangle(rgb_img_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.rectangle(event_vis_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            combined_sidebyside = np.hstack((rgb_img_show, event_vis_show))
+            # --- Save images ---
+            out_idx = frame_idx - start_idx
+            cv2.imwrite(f"{out_dir}/rgb/{out_idx}.jpg", rgb_img)
+            cv2.imwrite(f"{out_dir}/event/{out_idx}.jpg", event_vis_save)
+            cv2.imwrite(f"{out_dir}/combined/{out_idx}.jpg", np.hstack((rgb_img, event_vis_save)))
+
+            # --- Voxelization (use copies when converting to tensors) ---
+            if ev_local is not None and ev_local.shape[0] > 0 and 't' in ev_local.dtype.names:
+                t_event = x_event = y_event = p_event = event_points = None
+                try:
+                    # Validate event data size before processing
+                    if ev_local.shape[0] > 1_000_000:  # Prevent memory explosion
+                        print(f"Warning: too many events ({ev_local.shape[0]}) for frame {frame_idx}, sampling...")
+                        indices = np.random.choice(ev_local.shape[0], 1_000_000, replace=False)
+                        ev_local_sampled = ev_local[indices]
+                    else:
+                        ev_local_sampled = ev_local
+                    
+                    arr_t = ev_local_sampled["t"].astype(np.float32, copy=True)
+                    
+                    # Check for valid time data
+                    if arr_t.shape[0] == 0:
+                        print(f"Warning: empty time array for frame {frame_idx}")
+                        continue
+                    
+                    t_event = torch.as_tensor(arr_t, device=device).reshape(-1, 1)
+
+                    x_event = torch.as_tensor(ev_local_sampled["x"].astype(np.int32, copy=True), device=device).reshape(-1, 1)
+                    y_event = torch.as_tensor(ev_local_sampled["y"].astype(np.int32, copy=True), device=device).reshape(-1, 1)
+                    p_arr = ev_local_sampled["p"].astype(np.int8, copy=True)
+                    p_arr[p_arr == 0] = -1
+                    p_event = torch.as_tensor(p_arr, device=device).reshape(-1, 1)
+
+                    # Validate data consistency
+                    if not (t_event.shape[0] == x_event.shape[0] == y_event.shape[0] == p_event.shape[0]):
+                        print(f"Warning: inconsistent event data shapes for frame {frame_idx}")
+                        continue
+
+                    dt = float(arr_t[-1] - arr_t[0]) if arr_t.shape[0] > 1 else 1.0
+                    if dt > 0:
+                        t_scaled = (t_event - t_event[0]) / dt * 1000.0
+                    else:
+                        t_scaled = torch.zeros_like(t_event)
+
+                    event_points = torch.cat((t_scaled, x_event, y_event, p_event), dim=1)  # (N,4) = (t,x,y,p)
+
+                    coor, feats = transform_points_to_voxels(
+                        {'points': event_points},
+                        voxel_generator=voxel_gen,
+                        device=device,
+                        save_voxel=save_voxel
+                    )
+
+                    # Check if voxelization produced valid results
+                    if coor.numel() > 0 and feats.numel() > 0:
+                        sio.savemat(os.path.join(f"{out_dir}/voxel", f"{out_idx}.mat"),
+                                    {"coor": coor.detach().cpu().numpy(),
+                                     "features": feats.detach().cpu().numpy()})
+                    else:
+                        print(f"Warning: empty voxel data for frame {frame_idx}")
+                        # Create empty voxel file to maintain sequence
+                        sio.savemat(os.path.join(f"{out_dir}/voxel", f"{out_idx}.mat"),
+                                    {"coor": np.empty((0, 3)), "features": np.empty((0, 16))})
+                        
+                except Exception as e:
+                    print(f"Warning: voxelization failed for frame {frame_idx}: {e}")
+                    # Create empty voxel file to maintain sequence
+                    try:
+                        sio.savemat(os.path.join(f"{out_dir}/voxel", f"{out_idx}.mat"),
+                                    {"coor": np.empty((0, 3)), "features": np.empty((0, 16))})
+                    except Exception as save_e:
+                        print(f"Warning: could not save empty voxel file for frame {frame_idx}: {save_e}")
+                        
+                finally:
+                    # Explicit cleanup to prevent memory leaks
+                    try:
+                        if 't_event' in locals() and t_event is not None:
+                            del t_event
+                        if 'x_event' in locals() and x_event is not None:
+                            del x_event
+                        if 'y_event' in locals() and y_event is not None:
+                            del y_event
+                        if 'p_event' in locals() and p_event is not None:
+                            del p_event
+                        if 'event_points' in locals() and event_points is not None:
+                            del event_points
+                        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    except:
+                        pass
+        
+            # Periodic cleanup every 50 frames
+            if frame_idx % 50 == 0:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+        except Exception as e:
+            print(f"Error processing frame {frame_idx}: {e}")
+            # Still append to lists to maintain sequence
             absent_list.append(0)
             bbox.append([0, 0, 0, 0])
+            
+            # Force cleanup on error
+            try:
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except:
+                pass
             continue
-
-        # Corresponding event packet (clamped)
-        ev_idx = int(frame_idx * ratio) + bias
-        ev_idx = min(max(ev_idx, 0), event_count - 1)
-        ev_local = event_buffer[ev_idx]
-
-        # --- Event image ---
-        event_frame = np.zeros((rgb_h, rgb_w, 3), dtype=np.uint8)
-        frame_gen.generate_frame(ev_local, event_frame)
-        gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-        _, binary = cv2.threshold(gray, event_thresh, 255, cv2.THRESH_BINARY)
-
-        points = np.column_stack(np.where(binary > 0))  # (row=y, col=x)
-        if points.shape[0] >= min_samples:
-            dbscan.fit(points)
-            labels = dbscan.labels_
-            sel = labels != -1
-            cluster_points = points[sel] if sel.any() else np.empty((0, 2), dtype=np.int32)
-        else:
-            cluster_points = np.empty((0, 2), dtype=np.int32)
-
-        event_vis = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
-
-        # --- RGB mask (green) ---
-        hsv = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2HSV)
-        lower_hsv = np.array([30, 90, 50], dtype=np.uint8)
-        upper_hsv = np.array([50, 255, 255], dtype=np.uint8)
-        mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        # --- Fuse bboxes ---
-        present = 0
-        x = y = w = h = 0
-
-        # Candidate from RGB
-        rgb_box = None
-        if len(contours) > 0:
-            c = max(contours, key=cv2.contourArea)
-            rgb_box = cv2.boundingRect(c)  # (x,y,w,h)
-
-        # Candidate from events
-        ev_box = None
-        if cluster_points.shape[0] > 0:
-            y_min, x_min = int(cluster_points[:, 0].min()), int(cluster_points[:, 1].min())
-            y_max, x_max = int(cluster_points[:, 0].max()), int(cluster_points[:, 1].max())
-            ev_box = (x_min, y_min, x_max - x_min, y_max - y_min)
-
-        # Prefer union if both exist
-        if rgb_box and ev_box:
-            x1 = min(rgb_box[0], ev_box[0])
-            y1 = min(rgb_box[1], ev_box[1])
-            x2 = max(rgb_box[0] + rgb_box[2], ev_box[0] + ev_box[2])
-            y2 = max(rgb_box[1] + rgb_box[3], ev_box[1] + ev_box[3])
-            x, y, w, h = x1, y1, x2 - x1, y2 - y1
-            present = 1
-        elif rgb_box:
-            x, y, w, h = rgb_box
-            present = 1
-        elif ev_box:
-            x, y, w, h = ev_box
-            present = 1
-        else:
-            present = 0
-            x = y = w = h = 0
-
-        # Reject outliers / off-image
-        if present and (w > 100 or h > 100 or y >= rgb_h):
-            present = 0
-            x = y = w = h = 0
-
-        # Expand and clip
-        if present:
-            x -= bbox_range
-            y -= bbox_range
-            w += 2 * bbox_range
-            h += 2 * bbox_range
-            x, y, w, h = clip_box(x, y, w, h, rgb_w, rgb_h)
-
-        # Create RGB+Event overlay display similar to prepare_dataset_multiprocess.py
-        rgb_brightened = cv2.convertScaleAbs(rgb_img, alpha=0.7, beta=30)
-        overlay = cv2.addWeighted(rgb_brightened, 0.7, event_vis, 0.3, 0)
-        
-        # Draw bounding box on overlay
-        if present and w > 0 and h > 0:
-            cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 255, 0), 3)
-            # Add bbox info text
-            cv2.putText(overlay, f"Ball: {w}x{h}", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        
-        # Add informative text overlay
-        cv2.putText(overlay, f"Record: {index} Frame: {frame_idx}", (20, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
-        cv2.putText(overlay, f"Events: {len(ev_local)}", (20, 90), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
-        cv2.putText(overlay, f"Ball: {'Present' if present else 'Absent'}", (20, 130), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0) if present else (0, 0, 255), 2)
-        
-        # Add frame indices for debugging
-        cv2.putText(overlay, f"RGB Frame: {frame_idx}", (20, 170), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-        cv2.putText(overlay, f"Event Frame: {ev_idx}", (20, 200), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
-        
-        # Scale for better display
-        scale = 0.8
-        display_width = int(overlay.shape[1] * scale)
-        display_height = int(overlay.shape[0] * scale)
-        display_img = cv2.resize(overlay, (display_width, display_height), interpolation=cv2.INTER_AREA)
-        
-        # Display the overlay
-        cv2.imshow(f'Dataset Processing - Record {index}', display_img)
-        cv2.waitKey(1)
-
-        absent_list.append(1 if present else 0)
-        bbox.append([x, y, w, h])
-        
-        # Also create combined view for saving (side-by-side with bounding boxes)
-        rgb_img_show = rgb_img.copy()
-        event_vis_show = event_vis.copy()
-        if present and w > 0 and h > 0:
-            cv2.rectangle(rgb_img_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.rectangle(event_vis_show, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        combined_sidebyside = np.hstack((rgb_img_show, event_vis_show))
-        # --- Save images ---
-        out_idx = frame_idx - start_idx
-        cv2.imwrite(f"{out_dir}/rgb/{out_idx}.jpg", rgb_img)
-        cv2.imwrite(f"{out_dir}/event/{out_idx}.jpg", event_vis)
-        cv2.imwrite(f"{out_dir}/combined/{out_idx}.jpg", np.hstack((rgb_img, event_vis)))
-
-        # --- Voxelization (use copies when converting to tensors) ---
-        if ev_local['t'].shape[0] > 0:
-            arr_t = ev_local["t"].astype(np.float32, copy=True)
-            t_event = torch.as_tensor(arr_t, device=device).reshape(-1, 1)
-
-            x_event = torch.as_tensor(ev_local["x"].astype(np.int32, copy=True), device=device).reshape(-1, 1)
-            y_event = torch.as_tensor(ev_local["y"].astype(np.int32, copy=True), device=device).reshape(-1, 1)
-            p_arr = ev_local["p"].astype(np.int8, copy=True)
-            p_arr[p_arr == 0] = -1
-            p_event = torch.as_tensor(p_arr, device=device).reshape(-1, 1)
-
-            dt = float(arr_t[-1] - arr_t[0])
-            if dt > 0:
-                t_scaled = (t_event - t_event[0]) / dt * 1000.0
-            else:
-                t_scaled = torch.zeros_like(t_event)
-
-            event_points = torch.cat((t_scaled, x_event, y_event, p_event), dim=1)  # (N,4) = (t,x,y,p)
-
-            coor, feats = transform_points_to_voxels(
-                {'points': event_points},
-                voxel_generator=voxel_gen,
-                device=device,
-                save_voxel=save_voxel
-            )
-
-            sio.savemat(os.path.join(f"{out_dir}/voxel", f"{out_idx}.mat"),
-                        {"coor": coor.detach().cpu().numpy(),
-                         "features": feats.detach().cpu().numpy()})
 
     print("align finished")
     
     # Close display windows after processing this record
     cv2.destroyAllWindows()
+    
+    # Final cleanup
+    try:
+        del event_buffer
+        del rgb_buffer
+        del frame_gen
+        del dbscan
+        del voxel_gen
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except:
+        pass
 
     # --- Write meta and copies ---
     shutil.copy(ev_path, f"{out_dir}/event.raw")
@@ -349,14 +534,14 @@ def align_buffer(root_dir, raw_data_dir, index,
 
 def main():
     root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset"
-    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_dc"
+    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_d"
 
     for index in range(0, 1):
         align_buffer(root_dir, raw_data_dir, index,
-                     bias=-10, skip_start=0, skip_end=0,
+                     bias=-15, skip_start=0, skip_end=0,
                      debug_show=True,  # keep False for servers/headless
-                     save_voxel=5000, eps=12, min_samples=110,
-                     bbox_range=20, event_thresh=40)
+                     save_voxel=5000, eps=8, min_samples=60,
+                     bbox_range=30, event_thresh=40)
 
 if __name__ == "__main__":
     main()

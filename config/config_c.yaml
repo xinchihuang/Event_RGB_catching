@@ -28,13 +28,16 @@ image_processing:
   contrast_alpha: 0.5
   contrast_beta: 30
   
+  # RGB brightness enhancement for normal modes (no enhancement)
+  brightness_multiplier: 1.0
+  
   # Display scale
   display_scale: 0.8
 
 # Clustering (DBSCAN)
 clustering:
-  eps: 9
-  min_samples: 70
+  eps: 10
+  min_samples: 120
 
 # Memory buffer sizes
 buffers:
@@ -96,11 +99,11 @@ roi:
   hsv_upper: [50, 255, 255]
   kernel_size: [5, 5]
   morphology_iterations: 2
-  roi_range: 200
-  default_bbox: [430, 1180, 40, 40]
+  roi_range: 100
+  default_bbox: [470, 1180, 70, 70]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 10
-  dbscan_min_samples: 110
+  dbscan_eps: 8
+  dbscan_min_samples: 80
   max_ball_buffer: 100

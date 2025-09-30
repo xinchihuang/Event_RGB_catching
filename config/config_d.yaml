@@ -28,6 +28,9 @@ image_processing:
   contrast_alpha: 0.5
   contrast_beta: 30
   
+  # RGB brightness enhancement for dark modes
+  brightness_multiplier: 3.0
+  
   # Display scale
   display_scale: 0.8
 
@@ -96,7 +99,7 @@ roi:
   hsv_upper: [50, 255, 255]
   kernel_size: [5, 5]
   morphology_iterations: 2
-  roi_range: 200
+  roi_range: 100
   default_bbox: [430, 1180, 40, 40]
 
 # Ball tracking

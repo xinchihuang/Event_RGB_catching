@@ -46,9 +46,9 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
         if system_state.value == 't':
             start_t=time.time()
             try:
-                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
 
-                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
                 # print(num_events.value)
                 if num_events.value == 0:
                     continue

@@ -90,10 +90,10 @@ def main():
     """
     parser = argparse.ArgumentParser(description='Simple RGB and Event image overlay display')
     parser.add_argument('--rgb_path', type=str, 
-                       default="/home/xinchi/Event_RGB_catching/89.jpg",
+                       default="/home/xinchi/Event_RGB_catching/78.jpg",
                        help='RGB image path')
     parser.add_argument('--event_path', type=str,
-                       default="/home/xinchi/Event_RGB_catching/89.npy",
+                       default="/home/xinchi/Event_RGB_catching/78.npy",
                        help='Event data path (.npy file)')
     
     args = parser.parse_args()

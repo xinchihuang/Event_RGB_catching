@@ -158,9 +158,14 @@ def pixel_to_world(observations, camera_params, rotation_matrix_back, ball_diame
                                                                              [0] * (5 - len(dist_coeffs)))
     # print(u,v)
     x_norm, y_norm = undistort(u, v, fx, fy, cx, cy, k1, k2, p1, p2, k3)
-    Zc = (fx * ball_diameter) / d_pix
-    Xc = x_norm*Zc
-    Yc = y_norm*Zc
+    
+    # Handle division by zero: set invalid detections to NaN
+    valid_mask = d_pix > 0
+    Zc = np.full_like(d_pix, np.nan)
+    Zc[valid_mask] = (fx * ball_diameter) / d_pix[valid_mask]
+    
+    Xc = x_norm * Zc
+    Yc = y_norm * Zc
     camera_coords = np.stack([Xc, Yc, Zc], axis=1)  # (N, 3)
     world_coords = (rotation_matrix_back @ camera_coords.T).T  # (N,3)
 

@@ -21,7 +21,7 @@ from Event_tracker import event_tracking_3D
 from fitting_process import landing_prediction, robot_control
 
 # Import configuration
-from config_loader import switch_global_config
+from config_loader import Config
 
 def starter(system_state,stop_event):
     time.sleep(3)
@@ -174,12 +174,13 @@ if __name__ == '__main__':
         "normal": "config.yaml",
     }
     
-    # Load configuration based on task parameter
-    try:
-        switch_global_config(config_mapping[args.task])
+    # Set environment variables for subprocess config loading
+    if args.task in config_mapping:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+        os.environ['ACTIVE_TASK'] = args.task
         print(f"Using task configuration '{args.task}': {config_mapping[args.task]}")
-    except Exception as e:
-        print(f"Configuration loading failed: {e}, using default configuration")
+    else:
+        print(f"Unknown task type: {args.task}, using default configuration")
     
     device = torch.device("cuda")
 

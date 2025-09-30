@@ -107,8 +107,8 @@ def event_tracking_3D(shared_event_data, shared_flir_data, shared_ROI_data, shar
             start_t = time.time()
             try:
                 # Read event data from shared memory
-                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
-                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+                raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
+                flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
                 
                 if num_events.value == 0:
                     continue
