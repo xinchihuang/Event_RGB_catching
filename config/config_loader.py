@@ -289,7 +289,7 @@ class Config:
         """Get trajectory fitting parameters"""
         config = get_config()
         return {
-            'required_observations': config.get('trajectory.required_observations', 15),
+            'required_observations': config.get('trajectory.required_observations', 10),
             'inlier_threshold': config.get('trajectory.inlier_threshold', 0.35),
             'gravity': config.get('trajectory.gravity', -9.81),
             'impact_bounds_x': config.get('trajectory.impact_bounds_x', [-1.5, 1.5]),

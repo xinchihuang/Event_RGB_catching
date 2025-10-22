@@ -169,10 +169,7 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
             pass
         except Exception as e:
             print(f"Event iterator cleanup error: {e}")
-        try:
-            event_shm.close()
-        except Exception as e:
-            print(f"SharedMemory close error: {e}")
+        # Do NOT close shared memory in subprocess - main process handles cleanup
 
 # def read_from_event(shared_event_data, system_state,num_event, stop_event):
 #     from metavision_core.event_io import EventsIterator

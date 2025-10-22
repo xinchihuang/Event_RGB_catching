@@ -4,7 +4,7 @@ import numpy as np
 import time
 import os
 
-def read_from_flir(shared_flir_data, system_state, stop_event):
+def read_from_flir(shared_flir_data, flir_data_version, system_state, stop_event):
     import time
     import numpy as np
     import cv2
@@ -103,6 +103,8 @@ def read_from_flir(shared_flir_data, system_state, stop_event):
 
                     # Copy into shared block
                     np.copyto(out_np, bgr_send, casting='unsafe')
+                    # Increment version to signal new data is available
+                    flir_data_version.value += 1
 
                     # Drift-free schedule: advance by whole intervals, skip if we overran
                     now2 = time.perf_counter()
@@ -154,10 +156,7 @@ def read_from_flir(shared_flir_data, system_state, stop_event):
             system.ReleaseInstance()
         except Exception as e:
             print(f"System release error: {e}")
-        try:
-            shm.close()
-        except Exception as e:
-            print(f"Shared memory close error: {e}")
+        # Do NOT close shared memory in subprocess - main process handles cleanup
 
 # def read_from_flir(shared_flir_data, system_state, stop_event):
 #     import PySpin

@@ -28,16 +28,14 @@ image_processing:
   contrast_alpha: 0.5
   contrast_beta: 30
   
-  # RGB brightness enhancement for dark modes
-  brightness_multiplier: 3.0
-  
   # Display scale
-  display_scale: 0.8
+  display_scale: 0.6
 
 # Clustering (DBSCAN)
 clustering:
   eps: 9
   min_samples: 70
+
 # Memory buffer sizes
 buffers:
   max_events: 100000
@@ -47,8 +45,8 @@ buffers:
 # Data paths
 paths:
   record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_dc"
-  template_npy: "105.npy"
-  template_jpg: "105.jpg"
+  template_npy: "94.npy"
+  template_jpg: "94.jpg"
 
 # Camera alignment
 alignment:
@@ -74,7 +72,7 @@ motor:
   kd: 1
   shaft_length: 0.5
   joint_height: 0.7
-  movement_delay: 2.5
+  movement_delay: 2
 
 # Camera intrinsics
 camera_intrinsics:
@@ -99,10 +97,10 @@ roi:
   kernel_size: [5, 5]
   morphology_iterations: 2
   roi_range: 200
-  default_bbox: [440, 1160, 70, 70]
+  default_bbox: [410, 1160, 70, 70]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 8
-  dbscan_min_samples: 60
+  dbscan_eps: 30
+  dbscan_min_samples: 80
   max_ball_buffer: 100

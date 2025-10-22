@@ -112,7 +112,7 @@ def keyboard(shared_value,system_state):
         try:
             import pyttsx3
             engine = pyttsx3.init()
-            engine.setProperty('rate', 150)  # Speech rate
+            engine.setProperty('rate', 200)  # Speech rate
             engine.setProperty('volume', 0.9)  # Volume level
             engine.say(message)
             engine.runAndWait()
@@ -162,10 +162,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 0)')
-    parser.add_argument('--test_mode', type=str, default="Robot",
-                        help='Test mode (default: Model). Options: Model, Event, RGB, Show, Robot')
+    parser.add_argument('--test_mode', type=str, default="Event",
+                        help='Test mode. Options:Event')
     parser.add_argument('--task', type=str, default="normal",
-                        choices=["normal", "dark", "cluster", "dark_cluster"],
+                        choices=["normal"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
     
@@ -270,15 +270,13 @@ if __name__ == '__main__':
                                               args=(shared_ball_pixel_3D_data, ball_observations,
                                                     shared_impact_point_data, record_index, system_state, stop_event)),
         'keyboard_process': Process(target=keyboard, args=(keyboard_input, system_state)),
-        'robot_control_process': Process(target=robot_control,
-                                         args=(shared_impact_point_data, system_state, stop_event)),
         'starter_process': Process(target=starter, args=(system_state, stop_event))
     }
     
     # Define process groups for different functionalities
     # Only event-based processes are available in event_only directory
     process_groups = {
-        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process'],
+        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process'],
     }
     # Get processes to start for current mode
     processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])

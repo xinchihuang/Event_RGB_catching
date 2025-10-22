@@ -32,7 +32,7 @@ image_processing:
   brightness_multiplier: 3.0
   
   # Display scale
-  display_scale: 0.8
+  display_scale: 0.6
 
 # Clustering (DBSCAN)
 clustering:
@@ -75,7 +75,7 @@ motor:
   kd: 1
   shaft_length: 0.5
   joint_height: 0.7
-  movement_delay: 2.5
+  movement_delay: 2
 
 # Camera intrinsics
 camera_intrinsics:
@@ -87,7 +87,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 15
+  required_observations: 10
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]
@@ -100,10 +100,10 @@ roi:
   kernel_size: [5, 5]
   morphology_iterations: 2
   roi_range: 100
-  default_bbox: [430, 1180, 40, 40]
+  default_bbox: [440, 980, 70, 70]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 7
-  dbscan_min_samples: 90
+  dbscan_eps: 30
+  dbscan_min_samples: 80
   max_ball_buffer: 100

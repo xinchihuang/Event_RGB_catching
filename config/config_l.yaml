@@ -47,7 +47,7 @@ buffers:
 
 # Data paths
 paths:
-  record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_l"
+  record_dir: "/home/xinchi/Event_RGB_catching_data/saved_data_l"
   template_npy: "78.npy"
   template_jpg: "78.jpg"
 
@@ -75,7 +75,7 @@ motor:
   kd: 1
   shaft_length: 0.5
   joint_height: 0.7
-  movement_delay: 2.5
+  movement_delay: 2
 
 # Camera intrinsics
 camera_intrinsics:
@@ -87,7 +87,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 15
+  required_observations: 10
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]
@@ -100,10 +100,10 @@ roi:
   kernel_size: [5, 5]
   morphology_iterations: 2
   roi_range: 200
-  default_bbox: [490, 1190, 40, 40]
+  default_bbox: [470, 1170, 70, 70]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 10
-  dbscan_min_samples: 120
+  dbscan_eps: 15
+  dbscan_min_samples: 80
   max_ball_buffer: 100

@@ -786,10 +786,12 @@ class MonoRansac:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
+        print(x0, y0, z0, vx, vy, vz)
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
         impact_point = [0, impact_y, impact_z]
+        print(impact_point)
         return impact_point
 
 

@@ -44,9 +44,7 @@ buffers:
 
 # Data paths
 paths:
-  record_dir: "./data/saved_data_l"
-  template_npy: "89.npy"
-  template_jpg: "89.jpg"
+  record_dir: "./data/saved_data"
 
 # Camera alignment
 alignment:

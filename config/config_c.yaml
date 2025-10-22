@@ -28,16 +28,13 @@ image_processing:
   contrast_alpha: 0.5
   contrast_beta: 30
   
-  # RGB brightness enhancement for normal modes (no enhancement)
-  brightness_multiplier: 1.0
-  
   # Display scale
   display_scale: 0.8
 
 # Clustering (DBSCAN)
 clustering:
-  eps: 10
-  min_samples: 120
+  eps: 9
+  min_samples: 70
 
 # Memory buffer sizes
 buffers:
@@ -75,7 +72,7 @@ motor:
   kd: 1
   shaft_length: 0.5
   joint_height: 0.7
-  movement_delay: 2.5
+  movement_delay: 2
 
 # Camera intrinsics
 camera_intrinsics:
@@ -87,7 +84,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 15
+  required_observations: 10
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]
@@ -99,11 +96,11 @@ roi:
   hsv_upper: [50, 255, 255]
   kernel_size: [5, 5]
   morphology_iterations: 2
-  roi_range: 100
-  default_bbox: [470, 1180, 70, 70]
+  roi_range: 200
+  default_bbox: [475, 1170, 70, 70]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 8
+  dbscan_eps: 15
   dbscan_min_samples: 80
   max_ball_buffer: 100

@@ -62,7 +62,7 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
 
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
-    root_dir='/media/xinchi/data/Event_RGB_catching_data/reference'
+    root_dir='/home/xinchi/Event_RGB_catching_data/reference'
     
     # Ensure all directories exist
     os.makedirs(f"{root_dir}/rgb", exist_ok=True)
@@ -283,7 +283,7 @@ if __name__ == '__main__':
 
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir = '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'
+    record_dir = '/home/xinchi/Event_RGB_catching_data/saved_data_c'
 
     # Define all available processes
     all_processes = {

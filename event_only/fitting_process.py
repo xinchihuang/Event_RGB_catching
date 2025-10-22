@@ -14,64 +14,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
-def robot_control(shared_impact_point_data, system_state, stop_event):
-    """
-    Control robot motor based on predicted ball landing position.
-    
-    Args:
-        shared_impact_point_data: Shared memory containing predicted impact point
-        system_state: Current system state
-        stop_event: Event to signal process termination
-    """
-    try:
-        from pcan_cybergear import CANMotorController
-        import can
-    except ImportError:
-        print("ROBOT CONTROL: Motor control libraries not available")
-        return
-        
-    impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
-    impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
-    motor = Config.get_motor()
-    
-    # Initialize motor controller
-    bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=motor['bitrate'])
-    motor1 = CANMotorController(bus, motor_id=motor['motor_id'], main_can_id=motor['main_can_id'])
-    motor1.set_0_pos()
-    motor1.enable()
-    motor1.send_motor_control_command(torque=0, target_angle=0, target_velocity=0, Kp=motor['kp'], Kd=motor['kd'])
-    print("ROBOT CONTROL: Motor initialized")
-    
-    while system_state.value == 'e':
-        continue
-        
-    while not stop_event.is_set():
-        if system_state.value == 'c':
-            impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-            x, y, z = impact_point_array
-            print(f"ROBOT CONTROL: Moving to catch ball at position X={x:.3f}, Y={y:.3f}, Z={z:.3f}")
-            
-            # Calculate motor angle based on impact position
-            shaft_length = motor['shaft_length']
-            joint_height = motor['joint_height']
-            delta_height = z + joint_height
-            
-            if delta_height > 0:
-                angle = np.pi/2 - np.arctan(delta_height/shaft_length)
-                if angle > 0:
-                    angle = min(angle, np.pi/4)  # Limit maximum angle
-                if y < 0:
-                    angle = -angle
-                    
-                print(f'ROBOT CONTROL: Calculated motor angle: {angle:.3f} radians ({np.degrees(angle):.1f}°)')
-                motor1.send_motor_control_command(torque=0, target_angle=angle, target_velocity=0, Kp=motor['kp'], Kd=motor['kd'])
-                time.sleep(motor['movement_delay'])
-                motor1.disable()
-                bus.shutdown()
-                print("ROBOT CONTROL: Motor movement completed")
-            else:
-                print("ROBOT CONTROL: Invalid delta_height, skipping movement")
-            system_state.value = 'e'
+
 def landing_prediction(shared_ball_pixel_3D_data, ball_observations, shared_impact_point_data, record_index, system_state, stop_event):
     """
     Predict ball landing position using trajectory fitting.

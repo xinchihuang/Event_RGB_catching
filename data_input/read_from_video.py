@@ -24,6 +24,8 @@ def read_from_video(shared_flir_data, system_state, raw_count,
     initialized = False
     flir_memory, flir_dtype, flir_shape = shared_flir_data
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+    # Create array view ONCE outside the loop to avoid memory issues
+    flir_array_view = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
@@ -87,9 +89,8 @@ def read_from_video(shared_flir_data, system_state, raw_count,
             if brightness_multiplier != 1.0:
                 cv_image = np.clip(cv_image.astype(np.float32) * brightness_multiplier, 0, 255).astype(np.uint8)
             
-            # 写共享内存
-            shm = np.ndarray(cv_image.shape, dtype=flir_dtype, buffer=flir_shm.buf)
-            shm[:] = cv_image
+            # 写共享内存 - use pre-created view
+            flir_array_view[:] = cv_image
             
             # Update current RGB frame index for debugging
             if current_rgb_frame is not None:

@@ -12,6 +12,7 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
 
+
 # 注释掉自动配置检测，避免干扰不同的运行模式
 # def ensure_correct_config():
 #     """确保加载了正确的配置文件"""
@@ -31,11 +32,11 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     将点云转换为voxel,调用spconv的VoxelGeneratorV2
     """
     save_voxel = 5000
-    x =event_data['x']  # Shape: (N,)
+    x = event_data['x']  # Shape: (N,)
     # print(x)
-    y =event_data['y']  # Shape: (N,)
-    p =event_data['p']  # Shape: (N,)
-    t =event_data['t']  # Shape: (N,)
+    y = event_data['y']  # Shape: (N,)
+    p = event_data['p']  # Shape: (N,)
+    t = event_data['t']  # Shape: (N,)
     # print(t)
 
     time_length = t[-1] - t[0]
@@ -45,7 +46,7 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     t = ((t - t[0]) / time_length) * 1000
 
     current_events = np.stack((t, x, y, p), axis=-1)
-    current_events = torch.tensor(current_events,device=device).float()
+    current_events = torch.tensor(current_events, device=device).float()
     # print(current_events)
     voxel_output = voxel_generator(current_events)
 
@@ -72,7 +73,9 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     coor[:, [0, 1, 2]] = coor[:, [2, 1, 0]]
 
     return coor, features
-def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_state, stop_event):
+
+
+def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event_data_version, flir_data_version, system_state, stop_event):
     import sys
     import os
     # Add AMTTrack directory to path (it's in the parent directory)
@@ -87,7 +90,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     # 检查环境变量来确定应该使用哪个配置
     active_config = os.environ.get('ACTIVE_CONFIG_FILE')
     active_task = os.environ.get('ACTIVE_TASK')
-    
+
     if active_config:
         print(f"Model process: Using config from environment: {active_config} (task: {active_task})")
         # Config will be automatically loaded based on environment variables
@@ -102,13 +105,14 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     dims = Config.get_image_dimensions()
     rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
     event_width, event_height = dims['event_width'], dims['event_height']
-    
+
     # Get image processing parameters from config
     processing = Config.get_image_processing()
-    
+
     event_frame_gen = PeriodicFrameGenerationAlgorithm(sensor_width=rgb_width, sensor_height=rgb_height,
                                                        fps=processing['fps'],
                                                        palette=ColorPalette.Dark)
+
     def detect_initial_bbox(image, event_data):
 
         """
@@ -123,16 +127,17 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
         # 初始化球检测器
         # ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
-        
+
         # 生成事件图像用于辅助检测和叠加显示
-        event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
-        event_frame = np.ascontiguousarray(event_frame)
-        event_frame_gen.generate_frame(event_data, event_frame,
+        # Note: This is called once during initialization, so creating a local buffer is acceptable
+        event_frame_local = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+        event_frame_gen.generate_frame(event_data, event_frame_local,
                                        accumulation_time_us=processing['accumulation_time_us'])
-        event_image_gray = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-        
+        event_image_gray = cv2.cvtColor(event_frame_local, cv2.COLOR_BGR2GRAY)
+
         # 将事件图像转换为二值图像以便更好的可视化
-        _, binary = cv2.threshold(event_image_gray, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
+        _, binary = cv2.threshold(event_image_gray, processing['binary_threshold'], processing['binary_max_value'],
+                                  cv2.THRESH_BINARY)
         event_image_viz = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
         # 尝试自动检测球
@@ -147,17 +152,17 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             # 可视化检测结果 - 在RGB图像上绘制bbox
             vis_image = image.copy()
             cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.putText(vis_image, "Auto Detected Ball", (x, y-10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
+            cv2.putText(vis_image, "Auto Detected Ball", (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
             # 在事件图像上也绘制bbox
             cv2.rectangle(event_image_viz, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.putText(event_image_viz, "Event View", (10, 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
             # 叠加显示RGB图像和事件图像
             combined = np.hstack((vis_image, event_image_viz))
-            
+
             # 显示检测结果，让用户确认
             scale = processing['display_scale']
             height, width = combined.shape[:2]
@@ -184,7 +189,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         # 给定每个voxel的长宽高  [0.05, 0.05, 0.1]
         vsize_xyz=[1000, 10, 10],  # [0.2, 0.25, 0.16]  # [50, 10, 10]  [50, 35, 26] 因此坐标范围（20,20,20）  (20, 34/35, 26)
         # 给定点云的范围 [  0.  -40.   -3.   70.4  40.    1. ]
-        coors_range_xyz=[  0.,  0,   0,   100000,  event_width ,   event_height ],
+        coors_range_xyz=[0., 0, 0, 100000, event_width, event_height],
         # 给定每个点云的特征维度，这里是x，y，z，r 其中r是激光雷达反射强度       # 346x260  t,x,y
         num_point_features=4,
         # 最多选取多少个voxel，训练16000，推理40000
@@ -195,7 +200,6 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     )
 
     start_time = time.time()
-
 
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
@@ -211,7 +215,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     npy_path = os.path.join(project_root, Config.get_paths()['template_npy'])
-    first_event_data=np.load(npy_path)
+    first_event_data = np.load(npy_path)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
                                                 device=device)
@@ -219,33 +223,47 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
 
     # event_template = torch.zeros([1024, 19])
 
-
     # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
     jpg_path = os.path.join(project_root, Config.get_paths()['template_jpg'])
-    first_flir_image=cv2.imread(jpg_path)
-    
+    first_flir_image = cv2.imread(jpg_path)
+
     # Apply brightness enhancement from config
     processing = Config.get_image_processing()
     brightness_multiplier = processing['brightness_multiplier']
     if brightness_multiplier != 1.0:
         first_flir_image = np.clip(first_flir_image.astype(np.float32) * brightness_multiplier, 0, 255).astype(np.uint8)
 
-    initial_bbox = detect_initial_bbox(first_flir_image,first_event_data)
+    initial_bbox = detect_initial_bbox(first_flir_image, first_event_data)
     # initial_bbox= (495, 1098, 40, 40)
 
-    x, y, w, h= initial_bbox
+    x, y, w, h = initial_bbox
     # cv2.rectangle(first_flir_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
     # cv2.imshow("a", first_flir_image)
     # cv2.waitKey(0)
     bbox = [x, y, w, h]
     init_info = {'init_bbox': bbox}
 
-    count=0
+    count = 0
     roi_params = Config.get_roi()
     roi_range = roi_params['roi_range']
-    initialized= False
+    initialized = False
     system_state.value = 'w'  # 设置初始状态为等待
+
+    # Pre-allocate event_frame buffer to avoid repeated allocation in loop
+    event_frame_buffer = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
+
+    # Track last processed data versions to skip stale data
+    last_event_version = -1
+    last_flir_version = -1
+
     while not stop_event.is_set():
+        # Check if we have new data, skip if stale
+        current_event_version = event_data_version.value
+        if current_event_version == last_event_version:
+            time.sleep(0.001)  # Brief sleep to avoid busy-waiting
+            continue
+        last_event_version = current_event_version
+
         event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
         flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
         event_data = event_data[:num_event.value]
@@ -287,7 +305,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             print("Model Ready")
             print("")
             initialized = True
-            count=0
+            count = 0
             system_state.value = 't'
 
         if num_event.value == 0:
@@ -295,27 +313,27 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
         if system_state.value == 't':
             # print(count)
             start_time = time.time()
-            info = {'previous_output':{'target_bbox':bbox},'gt_bbox':bbox}
+            info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
             # info['previous_output'] = None
-            voxel_start=time.time()
+            voxel_start = time.time()
             try:
 
                 coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
                                                             device=device)
             except:
                 continue
-            voxel_end=time.time()
+            voxel_end = time.time()
             # print("Voxel time:",voxel_end-voxel_start)
             # print(coor.shape, features.shape)
-            event_search =  torch.cat((coor, features), dim=1)
-            if event_search==None:
+            event_search = torch.cat((coor, features), dim=1)
+            if event_search == None:
                 continue
-            tracker.state=bbox
-            inference_start=time.time()
+            tracker.state = bbox
+            inference_start = time.time()
             out = tracker.track(flir_data, event_search, info)
-            inference_end=time.time()
+            inference_end = time.time()
 
-            bbox=out.get('target_bbox')
+            bbox = out.get('target_bbox')
             confidence = out.get('confidence', 0.0)  # Get confidence, default to 0.0 if not available
 
             # Confidence-based tracking strategy
@@ -323,7 +341,7 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
                 center_x = rgb_width // 2
                 center_y = rgb_height // 2
                 center_size = 40
-                bbox = [center_x - center_size//2, center_y - center_size//2, center_size, center_size]
+                bbox = [center_x - center_size // 2, center_y - center_size // 2, center_size, center_size]
                 print(f"Frame {count}: Very low confidence {confidence:.3f}, reset to center: {bbox}")
                 # Update info for next iteration
                 info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
@@ -335,20 +353,22 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             state = [int(s) for s in bbox]
             x_r, y_r, w_r, h_r = state
 
-            ROI[0]=x_r
-            ROI[1]=y_r
-            ROI[2]=w_r
-            ROI[3]=h_r
-            event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
-            event_frame = np.ascontiguousarray(event_frame)
-            event_frame_gen.generate_frame(event_data, event_frame, 
-                                       accumulation_time_us=processing['accumulation_time_us'])
+            ROI[0] = x_r
+            ROI[1] = y_r
+            ROI[2] = w_r
+            ROI[3] = h_r
+            # Reuse pre-allocated buffer instead of creating new array
+            event_frame = event_frame_buffer
+            event_frame[:] = 0  # Clear buffer
+            event_frame_gen.generate_frame(event_data, event_frame,
+                                           accumulation_time_us=processing['accumulation_time_us'])
             image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
+            _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'],
+                                      cv2.THRESH_BINARY)
             event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
             rgb_image = flir_data
             # All drawing code removed - no visual feedback needed
-            
+
             combined = np.hstack((rgb_image, event_image))
             scale = processing['display_scale']
             # 获取新的尺寸
@@ -362,5 +382,5 @@ def model(shared_event_data, shared_flir_data,shared_ROI_data,num_event,system_s
             # cv2.waitKey(1)
             # cv2.imwrite(f"{root_dir}/{0}/combined/" + str(count) + ".jpg", combined)
             end_t = time.time()
-            count+=1
-            initialized=False
+            count += 1
+            initialized = False
