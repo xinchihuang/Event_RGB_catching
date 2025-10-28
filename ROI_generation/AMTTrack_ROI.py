@@ -256,6 +256,11 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     last_event_version = -1
     last_flir_version = -1
 
+    # Timing statistics
+    from datetime import datetime
+    process_start_time = time.time()
+    frame_times = []
+
     while not stop_event.is_set():
         # Check if we have new data, skip if stale
         current_event_version = event_data_version.value
@@ -311,28 +316,39 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
         if num_event.value == 0:
             continue
         if system_state.value == 't':
-            # print(count)
-            start_time = time.time()
+            # === Timing Section Start ===
+            frame_start_absolute = datetime.now()
+            frame_start_relative = time.time()
+            frame_start_since_process = frame_start_relative - process_start_time
+
             info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
-            # info['previous_output'] = None
+
+            # Voxel transformation
             voxel_start = time.time()
             try:
-
                 coor, features = transform_points_to_voxels(event_data=event_data, voxel_generator=voxel_generator,
                                                             device=device)
             except:
                 continue
             voxel_end = time.time()
-            # print("Voxel time:",voxel_end-voxel_start)
-            # print(coor.shape, features.shape)
+            voxel_time = voxel_end - voxel_start
+
+            # Prepare event search tensor
+            tensor_prep_start = time.time()
             event_search = torch.cat((coor, features), dim=1)
             if event_search == None:
                 continue
             tracker.state = bbox
+            tensor_prep_time = time.time() - tensor_prep_start
+
+            # Neural network inference
             inference_start = time.time()
             out = tracker.track(flir_data, event_search, info)
             inference_end = time.time()
+            inference_time = inference_end - inference_start
 
+            # Post-processing and ROI update
+            postprocess_start = time.time()
             bbox = out.get('target_bbox')
             confidence = out.get('confidence', 0.0)  # Get confidence, default to 0.0 if not available
 
@@ -347,8 +363,6 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
                 info = {'previous_output': {'target_bbox': bbox}, 'gt_bbox': bbox}
             elif confidence < 0.2:  # Low confidence - keep current bbox but warn
                 print(f"Frame {count}: Low confidence {confidence:.3f}, bbox: {bbox}")
-            elif count % 30 == 0:  # Normal confidence - periodic logging
-                print(f"Frame {count}: Normal confidence {confidence:.3f}, bbox: {bbox}")
 
             state = [int(s) for s in bbox]
             x_r, y_r, w_r, h_r = state
@@ -357,6 +371,9 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
             ROI[1] = y_r
             ROI[2] = w_r
             ROI[3] = h_r
+            postprocess_time = time.time() - postprocess_start
+            # Visualization
+            visualization_start = time.time()
             # Reuse pre-allocated buffer instead of creating new array
             event_frame = event_frame_buffer
             event_frame[:] = 0  # Clear buffer
@@ -381,6 +398,35 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
             # cv2.imshow('Image with Bounding Box', resized_img)
             # cv2.waitKey(1)
             # cv2.imwrite(f"{root_dir}/{0}/combined/" + str(count) + ".jpg", combined)
-            end_t = time.time()
+            visualization_time = time.time() - visualization_start
+
+            # === Timing Section End ===
+            frame_end_relative = time.time()
+            frame_total_time = frame_end_relative - frame_start_relative
+            frame_times.append(frame_total_time)
+
+            # Print detailed timing every 10 frames (AMTTrack is slower, less frequent logging)
+            if count % 10 == 0:
+                avg_frame_time = np.mean(frame_times[-10:]) if len(frame_times) >= 10 else np.mean(frame_times)
+                print(f"\n{'='*80}")
+                print(f"AMTTRACK MODEL TIMING REPORT - Frame #{count}")
+                print(f"{'='*80}")
+                print(f"Absolute Time:        {frame_start_absolute.strftime('%H:%M:%S.%f')[:-3]}")
+                print(f"Time Since Start:     {frame_start_since_process:.3f}s")
+                print(f"Confidence:           {confidence:.3f}")
+                print(f"BBox Output:          [{x_r}, {y_r}, {w_r}, {h_r}]")
+                print(f"{'-'*80}")
+                print(f"Phase Breakdown:")
+                print(f"  Voxel Transform:    {voxel_time*1000:6.2f}ms ({voxel_time/frame_total_time*100:5.1f}%)")
+                print(f"  Tensor Prep:        {tensor_prep_time*1000:6.2f}ms ({tensor_prep_time/frame_total_time*100:5.1f}%)")
+                print(f"  NN Inference:       {inference_time*1000:6.2f}ms ({inference_time/frame_total_time*100:5.1f}%) *** BOTTLENECK ***")
+                print(f"  Post-processing:    {postprocess_time*1000:6.2f}ms ({postprocess_time/frame_total_time*100:5.1f}%)")
+                print(f"  Visualization:      {visualization_time*1000:6.2f}ms ({visualization_time/frame_total_time*100:5.1f}%)")
+                print(f"{'-'*80}")
+                print(f"Total Frame Time:     {frame_total_time*1000:6.2f}ms")
+                print(f"Avg Frame Time (10):  {avg_frame_time*1000:6.2f}ms")
+                print(f"Estimated FPS:        {1.0/avg_frame_time:6.2f}")
+                print(f"{'='*80}\n")
+
             count += 1
             initialized = False

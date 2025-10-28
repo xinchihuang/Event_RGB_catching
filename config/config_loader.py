@@ -212,7 +212,7 @@ class Config:
         }
     
     @staticmethod
-    def get_paths():
+    def  get_paths():
         """Get file paths"""
         config = get_config()
         return {

@@ -22,7 +22,7 @@ from data_input.read_from_video import read_from_video
 from ROI_generation.AMTTrack_ROI import model
 from ROI_generation.RGB_ROI import pure_RGB
 from tracking_2D.HSV_tracker import RGB_tracking_3D
-from tracking_2D.Event_tracker import event_tracking_3D
+from tracking_2D.Event_tracker import event_tracking_3D_direct as event_tracking_3D
 from fitting.fitting_process import landing_prediction
 from hardware.motor import robot_control
 from gui_process import gui_display_process
@@ -360,9 +360,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Event",
+    parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
-    parser.add_argument('--task', type=str, default="normal",
+    parser.add_argument('--task', type=str, default="clutter",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
@@ -494,7 +494,7 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Model': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'model_ROI_process', 'event_tracking_process', 'landing_prediction_process', 'reset_process', 'gui_process'],
+        'Model': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'model_ROI_process', 'event_tracking_process', 'reset_process', 'gui_process'],
         'Event': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'event_tracking_process','landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
         'RGB': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
         'Show': ['event_process', 'flir_process', 'event_version_updater', 'checker_process','starter_process','reset_process', 'gui_process']

@@ -97,46 +97,63 @@ def event_tracking_3D(shared_event_data, shared_flir_data, shared_ROI_data, shar
     while system_state.value == 'w':
         continue
     print("EVENT TRACKING: Starting event-based ball tracking")
-    
+
+    # Timing statistics
+    from datetime import datetime
+    process_start_time = time.time()
+    frame_times = []
+
     # Main tracking loop
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
 
         if system_state.value == 't':
-            start_t = time.time()
+            # === Timing Section Start ===
+            frame_start_absolute = datetime.now()
+            frame_start_relative = time.time()
+            frame_start_since_process = frame_start_relative - process_start_time
+
             try:
                 # Read event data from shared memory
+                data_read_start = time.time()
                 raw_event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
                 flir_data = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf).copy()
-                
+                data_read_time = time.time() - data_read_start
+
                 if num_events.value == 0:
                     continue
-                    
+
                 # Apply ROI filtering
+                roi_filter_start = time.time()
                 raw_event_data = raw_event_data[:num_events.value]
                 ROI_data = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
                 x_r, y_r, w_r, h_r = ROI_data
                 event_data = ROI_filter(raw_event_data, ROI_data)
-                
+                roi_filter_time = time.time() - roi_filter_start
+
                 # Extract timestamp
                 t = event_data['t'][-1] / 1000000
-                
+
                 # Generate event frame for visualization
+                frame_gen_start = time.time()
                 event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
                 event_frame = np.ascontiguousarray(event_frame)
                 event_frame_gen.generate_frame(event_data, event_frame)
-                
+                frame_gen_time = time.time() - frame_gen_start
+
                 # Convert to grayscale and apply threshold
+                preprocess_start = time.time()
                 image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
                 _, binary = cv2.threshold(image, processing['binary_threshold'], processing['binary_max_value'], cv2.THRESH_BINARY)
-                
-                # Find event points for clustering
                 points = np.column_stack(np.where(binary > 0))
-                
+                preprocess_time = time.time() - preprocess_start
+
                 # Apply DBSCAN clustering to detect ball
+                dbscan_start = time.time()
                 dbscan.fit(points)
                 labels = dbscan.labels_
+                dbscan_time = time.time() - dbscan_start
                 event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
                 cluster_points = points[labels != -1]
                 
@@ -170,6 +187,7 @@ def event_tracking_3D(shared_event_data, shared_flir_data, shared_ROI_data, shar
                     ball_observations.value = ball_num
 
                 # Display combined view
+                display_start = time.time()
                 rgb_image = flir_data
                 combined = np.hstack((rgb_image, event_image))
                 scale = processing['display_scale']
@@ -182,9 +200,40 @@ def event_tracking_3D(shared_event_data, shared_flir_data, shared_ROI_data, shar
                 resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
                 cv2.imshow('Event Ball Tracking', resized_img)
                 cv2.waitKey(1)
+                display_time = time.time() - display_start
+
+                # === Timing Section End ===
+                frame_end_relative = time.time()
+                frame_total_time = frame_end_relative - frame_start_relative
+                frame_times.append(frame_total_time)
+
+                # Print detailed timing every 30 frames
+                if count % 30 == 0:
+                    avg_frame_time = np.mean(frame_times[-30:]) if len(frame_times) >= 30 else np.mean(frame_times)
+                    print(f"\n{'='*80}")
+                    print(f"EVENT TRACKING TIMING REPORT - Frame #{count}")
+                    print(f"{'='*80}")
+                    print(f"Absolute Time:        {frame_start_absolute.strftime('%H:%M:%S.%f')[:-3]}")
+                    print(f"Time Since Start:     {frame_start_since_process:.3f}s")
+                    print(f"ROI Used:             [{x_r}, {y_r}, {w_r}, {h_r}]")
+                    print(f"{'-'*80}")
+                    print(f"Phase Breakdown:")
+                    print(f"  Data Read:          {data_read_time*1000:6.2f}ms ({data_read_time/frame_total_time*100:5.1f}%)")
+                    print(f"  ROI Filter:         {roi_filter_time*1000:6.2f}ms ({roi_filter_time/frame_total_time*100:5.1f}%)")
+                    print(f"  Frame Generation:   {frame_gen_time*1000:6.2f}ms ({frame_gen_time/frame_total_time*100:5.1f}%)")
+                    print(f"  Preprocessing:      {preprocess_time*1000:6.2f}ms ({preprocess_time/frame_total_time*100:5.1f}%)")
+                    print(f"  DBSCAN Clustering:  {dbscan_time*1000:6.2f}ms ({dbscan_time/frame_total_time*100:5.1f}%)")
+                    print(f"  Display:            {display_time*1000:6.2f}ms ({display_time/frame_total_time*100:5.1f}%)")
+                    print(f"{'-'*80}")
+                    print(f"Total Frame Time:     {frame_total_time*1000:6.2f}ms")
+                    print(f"Avg Frame Time (30):  {avg_frame_time*1000:6.2f}ms")
+                    print(f"Estimated FPS:        {1.0/avg_frame_time:6.2f}")
+                    print(f"{'='*80}\n")
 
                 count += 1
-                
+
             except Exception as e:
                 print(f"EVENT TRACKING: Error in tracking loop: {e}")
+                import traceback
+                traceback.print_exc()
                 continue

@@ -24,7 +24,7 @@ from data_input.read_from_flir import read_from_flir
 from ROI_generation.AMTTrack_ROI import model
 from ROI_generation.RGB_ROI import pure_RGB
 from tracking_2D.HSV_tracker import RGB_tracking_3D
-from tracking_2D.Event_tracker import event_tracking_3D
+from tracking_2D.Event_tracker import event_tracking_3D_direct
 from fitting.fitting_process import landing_prediction
 from hardware.motor import robot_control
 from gui_process import gui_display_process
@@ -257,7 +257,7 @@ if __name__ == '__main__':
         'RGB_ROI_process': Process(target=pure_RGB,
                                    args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,
                                          event_data_version, flir_data_version, system_state, stop_event)),
-        'event_tracking_process': Process(target=event_tracking_3D,
+        'event_tracking_process': Process(target=event_tracking_3D_direct,
                                           args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                                 shared_ball_pixel_3D_data, ball_observations, num_event,
                                                 event_data_version, flir_data_version, system_state, stop_event)),
