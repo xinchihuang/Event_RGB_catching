@@ -31,42 +31,19 @@ from gui_process import gui_display_process
 from config.config_loader import Config
 
 def starter(system_state,stop_event):
+    system_state.value='w'
     time.sleep(3)
     print("Starting system...")
     system_state.value = 't'
-
-def event_data_version_updater(num_event, event_data_version, stop_event):
-    """
-    Monitor num_event changes and increment event_data_version
-    """
-    last_num_event = num_event.value
+    print("system started")
+    
+    # Keep system_state = 't' alive like model_ROI_process does
     while not stop_event.is_set():
-        current_num_event = num_event.value
-        if current_num_event != last_num_event and current_num_event > 0:
-            event_data_version.value += 1
-            last_num_event = current_num_event
-        time.sleep(0.0001)  # Check every 0.1ms
+        if system_state.value == 'e':
+            break
+        system_state.value = 't'  # Continuously maintain tracking state
+        time.sleep(0.01)  # Small delay to avoid excessive CPU usage
 
-def flir_data_version_updater(raw_count, flir_data_version, system_state, stop_event):
-    """
-    Monitor flir data changes and increment flir_data_version
-    Triggered by system state changes and raw_count
-    """
-    last_raw_count = raw_count.value
-    last_state = system_state.value
-
-    while not stop_event.is_set():
-        current_raw_count = raw_count.value
-        current_state = system_state.value
-
-        # Increment version when entering tracking state or when raw_count changes during tracking
-        if current_state == 't':
-            if last_state != 't' or current_raw_count != last_raw_count:
-                flir_data_version.value += 1
-                last_raw_count = current_raw_count
-
-        last_state = current_state
-        time.sleep(0.001)  # Check every 1ms
 # Global variables for signal handler
 started_processes = []
 stop_event = None
@@ -362,7 +339,7 @@ if __name__ == '__main__':
                        help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
-    parser.add_argument('--task', type=str, default="clutter",
+    parser.add_argument('--task', type=str, default="normal",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
@@ -471,10 +448,8 @@ if __name__ == '__main__':
 
     # Define all available processes
     all_processes = {
-        'event_process': Process(target=read_from_raw, args=(shared_event_data,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir)),
-        'flir_process': Process(target=read_from_video, args=(shared_flir_data,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir)),
-        'event_version_updater': Process(target=event_data_version_updater, args=(num_event, event_data_version, stop_event)),
-        'flir_version_updater': Process(target=flir_data_version_updater, args=(raw_count, flir_data_version, system_state, stop_event)),
+        'event_process': Process(target=read_from_raw, args=(shared_event_data,event_data_version,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir)),
+        'flir_process': Process(target=read_from_video, args=(shared_flir_data,flir_data_version,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir)),
         'model_ROI_process': Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'RGB_ROI_process': Process(target=pure_RGB,args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'event_tracking_process': Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,event_data_version,flir_data_version,system_state, stop_event)),
@@ -494,10 +469,10 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Model': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'model_ROI_process', 'event_tracking_process', 'reset_process', 'gui_process'],
-        'Event': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'event_tracking_process','landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
-        'RGB': ['event_process', 'flir_process', 'event_version_updater', 'flir_version_updater', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
-        'Show': ['event_process', 'flir_process', 'event_version_updater', 'checker_process','starter_process','reset_process', 'gui_process']
+        'Model': ['event_process', 'flir_process', 'model_ROI_process', 'event_tracking_process','landing_prediction_process', 'reset_process', 'gui_process'],
+        'Event': ['event_process', 'flir_process', 'event_tracking_process','landing_prediction_process','starter_process', 'reset_process', 'gui_process'],
+        'RGB': ['event_process', 'flir_process', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
+        'Show': ['event_process', 'flir_process', 'checker_process','starter_process','reset_process', 'gui_process']
     }
     # Get processes to start for current mode
     processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])

@@ -12,7 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
-def read_from_video(shared_flir_data, system_state, raw_count,
+def read_from_video(shared_flir_data, flir_data_version, system_state, raw_count,
                     record_index, start_ts, stop_event,video_broadcasting,
                     record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l', playback_speed=1.0, current_rgb_frame=None, is_paused=None):
 
@@ -46,8 +46,8 @@ def read_from_video(shared_flir_data, system_state, raw_count,
                 time.sleep(0.001)
 
             ratio = (raw_count.value - 1) / (total_frames - 1)
-            ratio=10
-            print(ratio)
+            ratio = 10
+            print(f"Fixed ratio: {ratio}")
             # Get data reading parameters from config
             data_reading = Config.get_data_reading()
             period_raw = data_reading['send_interval'] / playback_speed  # Apply playback speed to period
@@ -91,6 +91,8 @@ def read_from_video(shared_flir_data, system_state, raw_count,
             
             # 写共享内存 - use pre-created view
             flir_array_view[:] = cv_image
+            # Increment version to signal new data is available
+            flir_data_version.value += 1
             
             # Update current RGB frame index for debugging
             if current_rgb_frame is not None:

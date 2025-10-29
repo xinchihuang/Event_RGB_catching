@@ -75,6 +75,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
             if current_obs < 0 or current_obs > ball_pixel_shape[0]:
                 continue
             ball_pixels = ball_pixels_full[:current_obs].copy()  # Make a copy to avoid race conditions
+            # print(ball_pixels)
             # print("record_index", record_index.value,system_state.value)
             try:
                 if system_state.value == 't':
@@ -88,8 +89,6 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     trajectory = Config.get_trajectory()
 
                     if len(ball_pixels) >= trajectory['required_observations']:
-                        print(ball_pixels)
-
                         ball_memory = ball_pixels
                         observations = ball_memory
                         fitter.set_data(observations)
@@ -109,7 +108,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                         impact_point_array[2] = impact_point[2]
                         print(impact_point_array)
                         print("=== STATE CHANGE: 't' -> 'c' (Landing prediction complete, ready for catch) ===")
-                        system_state.value='c'
+                        system_state.value='r'
                         # with open(saved_impact_point_dir, mode='a', newline='') as f:
                         #     writer = csv.writer(f)
                         #     writer.writerow([

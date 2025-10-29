@@ -49,7 +49,7 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
     try:
         while system_state.value == 'w':
             continue
-        print("start event tracking")
+        print("start RGB tracking")
         p_x, p_y, p_w, p_h = 0,0,0,0
         while not stop_event.is_set():
             if system_state.value == 'e':
@@ -73,14 +73,16 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     # Use pre-created views instead of creating new ones in loop
                     raw_event_data = event_array_view[:current_num_events].copy()
                     flir_data = flir_array_view.copy()
+                    # print(flir_data)
                     event_data = raw_event_data
                     t = event_data['t'][-1] / 1000000
                     ROI_data = ROI_array_view.copy()  # Copy to avoid race conditions
                     x,y,w,h= ROI_data
+                    print(ROI_data)
                     rgb_image = flir_data
                     if (not p_x==x or not p_y==y or not p_w==w or not p_h==h) and (h>20 or w>20):
 
-                        cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+                        # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
                         # cv2.rectangle(event_image, (535,715), (545, 725), (0, 255, 0), 2)
                         # cv2.rectangle(event_image, (x_r, y_r), (x_r + h_r, y_r + w_r), (255, 255, 0), 2)
                         ball_num = ball_observations.value

@@ -37,7 +37,7 @@ def align_to_rgb(event_data, rgb_width=None, rgb_height=None, event_width=None, 
     y = (y_e - event_center_y) * rgb_pixel / event_pixel + rgb_center_y + offset_y
     y = np.clip(y, 0, rgb_height)
     return x.astype(int), y.astype(int)
-def read_from_raw(shared_event_data, system_state, num_event,
+def read_from_raw(shared_event_data, event_data_version, system_state, num_event,
                   raw_count, record_index, start_ts, stop_event,event_broadcasting,
                   record_dir='', event_frame_offset=0, playback_speed=1.0, current_event_frame=None, is_paused=None):
     """
@@ -121,6 +121,10 @@ def read_from_raw(shared_event_data, system_state, num_event,
             # shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
             # === 写本块事件 ===
             shm[:n] = ev[:min(n, 100000)] # 只写入 shm 的前 n 个事件
+            # Increment version to signal new data is available
+            event_data_version.value += 1
+            if event_count % 100 == 0:  # Print every 100 frames
+                print(f"Event frame {event_count}, version: {event_data_version.value}, events: {n}")
             # print(shm[:n])
             
             # Update current event frame index for debugging
