@@ -47,7 +47,7 @@ buffers:
 
 # Data paths
 paths:
-  record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_l"
+  record_dir: "/home/xinchi/Event_RGB_catching_data/saved_data_l"
   template_npy: "78.npy"
   template_jpg: "78.jpg"
 

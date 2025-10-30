@@ -172,9 +172,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Model",
+    parser.add_argument('--test_mode', type=str, default="Event",
                         help='Test mode (default: Model). Options: Model, Event, RGB')
-    parser.add_argument('--task', type=str, default="clutter",
+    parser.add_argument('--task', type=str, default="Normal",
                         choices=["normal", "dark", "clutter", "dark_cluster"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()

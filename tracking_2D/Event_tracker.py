@@ -359,20 +359,16 @@ def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,
                 t = event_data['t'][-1] / 1000000
                 roi_filter_time = time.time() - roi_filter_start
 
-                # Direct clustering on event coordinates with time information
-                # Extract (y, x, t) coordinates from events for better temporal clustering
+                # Direct clustering on event coordinates without time information
+                # Extract unique (y, x) coordinates, merging all events at same position
                 coordinate_extract_start = time.time()
-                # Normalize time to same scale as spatial coordinates (0-100 range)
                 if len(event_data) > 0:
-                    t_min, t_max = event_data['t'].min(), event_data['t'].max()
-                    if t_max > t_min:
-                        t_normalized = ((event_data['t'] - t_min) / (t_max - t_min)) * 100  # Scale to 0-100
-                    else:
-                        t_normalized = np.zeros_like(event_data['t'])
-                    # Include time dimension with spatial coordinates
-                    points = np.column_stack((event_data['y'], event_data['x'], t_normalized))
+                    # Extract (y, x) pairs and find unique positions
+                    # This merges all events at the same spatial location regardless of t and p
+                    xy_coords = np.column_stack((event_data['y'], event_data['x']))
+                    points = np.unique(xy_coords, axis=0)
                 else:
-                    points = np.empty((0, 3))
+                    points = np.empty((0, 2))
 
                 if points.shape[0] == 0:
                     continue
