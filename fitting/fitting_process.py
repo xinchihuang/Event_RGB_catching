@@ -108,7 +108,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                         impact_point_array[2] = impact_point[2]
                         print(impact_point_array)
                         print("=== STATE CHANGE: 't' -> 'c' (Landing prediction complete, ready for catch) ===")
-                        system_state.value='r'
+                        system_state.value='c'
                         # with open(saved_impact_point_dir, mode='a', newline='') as f:
                         #     writer = csv.writer(f)
                         #     writer.writerow([
