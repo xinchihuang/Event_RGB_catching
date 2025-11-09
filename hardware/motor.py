@@ -9,7 +9,7 @@ def robot_control(shared_impact_point_data,system_state,stop_event):
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
     bus = can.interface.Bus(interface="pcan", channel="PCAN_USBBUS1", bitrate=1000000)
-    motor1 = CANMotorController(bus, motor_id=101, main_can_id=254)
+    motor1 = CANMotorController(bus, motor_id=102, main_can_id=254)
     motor1.set_0_pos()
     motor1.enable()
     motor1.send_motor_control_command(torque=0, target_angle=0, target_velocity=0, Kp=100, Kd=1)

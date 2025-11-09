@@ -394,7 +394,7 @@ def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,
                     w = max(cluster_points[:, 0]) - y
                     h = max(cluster_points[:, 1]) - x
 
-                    if w<120 and h<120:
+                    if w<120 and h<120 and y<1200:
                         ball_detected = True
                         ball_center_x = x + h / 2
                         ball_center_y = y + w / 2

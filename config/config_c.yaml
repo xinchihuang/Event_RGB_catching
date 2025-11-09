@@ -84,7 +84,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 10
+  required_observations: 25
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]
@@ -102,5 +102,5 @@ roi:
 # Ball tracking
 tracking:
   dbscan_eps: 15
-  dbscan_min_samples: 110
+  dbscan_min_samples: 90
   max_ball_buffer: 100

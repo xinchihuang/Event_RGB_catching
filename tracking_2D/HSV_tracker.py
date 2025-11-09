@@ -80,7 +80,7 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     x,y,w,h= ROI_data
                     print(ROI_data)
                     rgb_image = flir_data
-                    if (not p_x==x or not p_y==y or not p_w==w or not p_h==h) and (h>20 or w>20):
+                    if (not p_x==x or not p_y==y or not p_w==w or not p_h==h) and (h>20 or w>20) and y<1200:
 
                         # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
                         # cv2.rectangle(event_image, (535,715), (545, 725), (0, 255, 0), 2)
