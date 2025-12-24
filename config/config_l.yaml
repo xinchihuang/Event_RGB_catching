@@ -87,7 +87,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 30
+  required_observations: 20
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]

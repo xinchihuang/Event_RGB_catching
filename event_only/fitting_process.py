@@ -30,8 +30,8 @@ def landing_prediction(shared_ball_pixel_3D_data, ball_observations, shared_impa
     import sys
     import os
     sys.path.append(os.path.join(os.path.dirname(__file__)))
-    from parabola_fitter import MonoRansac
-    from utils import rotate_matrix_coordinate
+    from .parabola_fitter import MonoRansac
+    from .utils import rotate_matrix_coordinate
 
     # Load camera intrinsics from configuration
     from config.config_loader import get_config

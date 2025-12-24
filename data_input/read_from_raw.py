@@ -120,7 +120,7 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
             # # === 必须整块清零 ===
             # shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
             # === 写本块事件 ===
-            shm[:n] = ev[:min(n, 100000)] # 只写入 shm 的前 n 个事件
+            shm[:min(n, 100000)] = ev[:min(n, 100000)] # 只写入 shm 的前 n 个事件
             # Increment version to signal new data is available
             event_data_version.value += 1
             if event_count % 100 == 0:  # Print every 100 frames

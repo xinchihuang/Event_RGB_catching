@@ -174,7 +174,7 @@ if __name__ == '__main__':
                        help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Event",
                         help='Test mode (default: Model). Options: Model, Event, RGB')
-    parser.add_argument('--task', type=str, default="dark",
+    parser.add_argument('--task', type=str, default="dark_clutter",
                         choices=["normal", "dark", "clutter", "dark_cluster"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()

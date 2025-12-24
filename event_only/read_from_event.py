@@ -35,7 +35,7 @@ def align_to_rgb(event_data, rgb_width=None, rgb_height=None, event_width=None, 
     y = (y_e - event_center_y) * rgb_pixel / event_pixel + rgb_center_y + offset_y
     y = np.clip(y, 0, rgb_height)
     return x.astype(int), y.astype(int)
-def read_from_event(shared_event_data, system_state, num_event, stop_event):
+def read_from_event(shared_event_data, system_state, num_event, event_data_version, stop_event):
     import time
     import numpy as np
     from multiprocessing import shared_memory
@@ -43,10 +43,17 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
 
     # ---- Configs
     data_reading = Config.get_data_reading()
-    delta_t     = data_reading['delta_t']
-    n_events    = data_reading['n_events']
+    delta_t       = data_reading['delta_t']
+    n_events      = data_reading['n_events']
     send_interval = float(data_reading['send_interval'])
-    hz = (1.0 / send_interval) if send_interval > 0 else 0.0
+    # ASAP mode (send_interval<=0): publish immediately every loop
+    asap_mode = not (send_interval > 0.0)
+    hz = (1.0 / send_interval) if not asap_mode else 0.0
+
+    # Pre-fetch alignment/size config to avoid repeated access in loop
+    dims = Config.get_image_dimensions()
+    alignment = Config.get_alignment()
+    y_offset = float(alignment['y_coordinate_offset'])
 
     # ---- Iterator (live if input_path="")
     event_iterator = iter(EventsIterator(
@@ -56,120 +63,150 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
         n_events=n_events
     ))
 
-    # ---- Shared memory view (created once)
+    # ---- Shared memory view
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     shm_np = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
 
-    print(f"Event Camera: send_interval={send_interval*1000:.1f} ms (~{hz:.1f} Hz)")
-
     latest_events = None
-    have_latest = False
+    have_latest   = False
+    stream_ended  = False
+    last_log      = 0.0
 
-    # logging throttle
-    last_log = 0.0
-
-    # scheduler: drift-free deadlines
     t0 = time.perf_counter()
-    next_deadline = t0 + send_interval
+    next_deadline = (t0 + send_interval) if not asap_mode else None
 
-    def get_latest_events():
-        """Pull one batch, align coords, store as latest."""
-        nonlocal latest_events, have_latest
-        try:
-            ev = next(event_iterator)  # structured np array (x,y,p,t)
-        except StopIteration:
-            print("Event stream ended.")
-            return False
-        except Exception as e:
-            print(f"Event acquisition error: {e}")
-            return True  # keep trying
+    # -------- Method A: Time-budgeted drain until catching up to real-time or budget exhausted --------
+    def drain_events_time_budget():
+        """
+        Repeatedly call next(iterator) within a limited time budget to consume to the 'latest batch'.
+        Only return the latest batch (for publishing) to clear backlog and avoid latency accumulation.
+        """
+        nonlocal latest_events, have_latest, stream_ended
 
-        try:
-            # xy transform (copy to avoid aliasing)
-            x = ev['x'].copy()
-            y = ev['y'].copy()
+        # Time budget: ASAP mode gets small budget (100ms), fixed-rate mode uses 75% of period
+        if asap_mode:
+            budget_ms = 100.0
+        else:
+            budget_ms = max(0.5, 0.75 * send_interval * 1000.0)
 
-            # user transform
-            x_new, y_new = y, -x
-            alignment = Config.get_alignment()
-            y_new = y_new + alignment['y_coordinate_offset']
+        start = time.perf_counter()
+        got_any = False
 
-            # align to RGB (assumed to return (x_aligned, y_aligned))
-            x_aligned, y_aligned = align_to_rgb({'x': x_new, 'y': y_new})
-            # write back into a copy of ev to keep dtype/fields
-            ev2 = ev.copy()
-            ev2['x'] = x_aligned
-            ev2['y'] = y_aligned
+        while True:
+            # Stop when time is up (leave time for publishing/writing shared memory)
+            now = time.perf_counter()
+            if (now - start) * 1000.0 >= budget_ms:
+                break
 
-            latest_events = ev2
-            have_latest = True
-        except Exception as e:
-            print(f"Event processing error: {e}")
-            have_latest = False
-        return True
+            try:
+                ev = next(event_iterator)   # Get a batch of events
+            except StopIteration:
+                stream_ended = True
+                break
+            except Exception as e:
+                # Acquisition error: exit this round, wait for next loop to retry
+                print(f"Event acquisition error: {e}")
+                break
+
+            # Coordinate transformation (process in float domain, finally clip in align_to_rgb)
+            try:
+                x = ev['x'].astype(np.float32, copy=False)
+                y = ev['y'].astype(np.float32, copy=False)
+
+                # User-defined rotation/translation
+                x_new = y
+                y_new = -x + y_offset
+
+                xa, ya = align_to_rgb({'x': x_new, 'y': y_new},
+                                      rgb_width=dims['rgb_width'],
+                                      rgb_height=dims['rgb_height'],
+                                      event_width=dims['event_width'],
+                                      event_height=dims['event_height'])
+
+                ev2 = ev.copy()
+                ev2['x'] = xa
+                ev2['y'] = ya
+
+                latest_events = ev2   # Only keep 'last batch' = latest
+                have_latest   = True
+                got_any       = True
+            except Exception as e:
+                print(f"Event processing error: {e}")
+                have_latest = False
+                # Don't exit immediately on error, continue trying to drain next batch
+                continue
+
+        return got_any
 
     try:
-        while not stop_event.is_set():
+        while not stop_event.is_set() and not stream_ended:
             now = time.perf_counter()
 
-            # Always drain one chunk if available (keeps freshest batch)
-            if not get_latest_events():
-                break  # StopIteration from file source
+            # ---------- Key: First drain internal buffer to 'latest' ----------
+            got_any = drain_events_time_budget()
+            if stream_ended:
+                break
 
-            # Only publish at/after deadline
-            if now >= next_deadline:
-                # If paused, do not advance deadline; try again immediately when resumed
-                if getattr(system_state, "value", None) == 't' and have_latest and latest_events is not None:
+            # Read running state (Value('c') may be bytes)
+            is_running = getattr(system_state, "value", None)
+            if isinstance(is_running, (bytes, bytearray)):
+                is_running = is_running.decode('ascii', errors='ignore') if is_running else ''
+            elif not isinstance(is_running, str):
+                is_running = str(is_running) if is_running is not None else ''
+
+            # Publish decision (ASAP mode: publish every round; fixed-rate: only when time is reached)
+            should_publish = asap_mode or (now >= next_deadline)
+
+            if should_publish:
+                if is_running == 't' and have_latest and (latest_events is not None):
                     process_start = time.perf_counter()
                     try:
-                        # Copy as many events as fit
-                        # Accept both 1D (N,) and 2D (N,fields) buffers
-                        n_avail = getattr(latest_events, "shape", (0,))[0] if hasattr(latest_events, "shape") else 0
-                        n_cap = int(event_shape[0])
-                        n_copy = min(n_avail, n_cap)
+                        n_avail = latest_events.shape[0] if hasattr(latest_events, "shape") else 0
+                        n_cap   = int(event_shape[0])
+                        n_copy  = min(n_avail, n_cap)
 
                         if n_copy > 0:
-                            # zero only the portion we write to avoid stale tail when n_copy < n_cap
-                            # if your consumer relies on num_event, tail won't be read anyway
                             shm_np[:n_copy] = latest_events[:n_copy]
                             num_event.value = n_copy
+                            # Increment version to signal new data is available
+                            event_data_version.value += 1
                         else:
-                            num_event.value = 0  # explicit empty
+                            num_event.value = 0
 
                         proc_ms = (time.perf_counter() - process_start) * 1000.0
 
-                        # schedule next deadline(s) without drift
-                        missed = max(1, int((now - next_deadline) // send_interval) + 1)
-                        next_deadline += missed * send_interval
+                        # Fixed-rate mode advances next deadline without drift
+                        if not asap_mode:
+                            missed = max(1, int((now - next_deadline) // send_interval) + 1)
+                            next_deadline += missed * send_interval
 
-                        # throttled logging
+                        # Throttled logging
                         if now - last_log >= 10.0:
                             print(f"Event: {hz:.0f} Hz target | sent {n_copy} evts | proc {proc_ms:.2f} ms")
                             last_log = now
 
-                        # overrun info
-                        if proc_ms > send_interval * 1000.0:
+                        if (not asap_mode) and proc_ms > send_interval * 1000.0:
                             print(f"Warning: processing {proc_ms:.2f} ms > interval {send_interval*1000:.2f} ms")
                     except Exception as e:
                         print(f"Event shared-memory write error: {e}")
-                        # keep running; try again next slot
                 else:
-                    # paused: don’t move deadline forward to avoid accumulating delay on resume
-                    # but do set it to now + interval so resume sends promptly
-                    next_deadline = now + send_interval
+                    # Paused: quickly schedule next publish time (fixed-rate)
+                    if not asap_mode:
+                        next_deadline = now + send_interval
 
-            # tiny sleep to yield CPU
-            time.sleep(0.0001)
+            # Light sleep to avoid busy-wait
+            if asap_mode:
+                time.sleep(0.0002)  # ASAP mode gives a very small yield
+            else:
+                # Sleep to a fraction of next publish point, avoid long busy-wait
+                slack = (next_deadline - time.perf_counter()) if next_deadline else 0.0
+                if slack > 0:
+                    time.sleep(min(slack * 0.25, 0.005))
 
     finally:
         print("Event Camera: Cleaning up...")
-        try:
-            # If EventsIterator exposes close/.__del__, let GC handle; otherwise ignore
-            pass
-        except Exception as e:
-            print(f"Event iterator cleanup error: {e}")
-        # Do NOT close shared memory in subprocess - main process handles cleanup
+        # Shared memory is cleaned up by main process, don't close here
 
 # def read_from_event(shared_event_data, system_state,num_event, stop_event):
 #     from metavision_core.event_io import EventsIterator
@@ -177,18 +214,18 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
 #     # Get data reading parameters from config
 #     data_reading = Config.get_data_reading()
 #
-#     # 初始化event迭代器
+#     # Initialize event iterator
 #     event_iterator = iter(EventsIterator(input_path="", mode="mixed",
 #                                         delta_t=data_reading['delta_t'],
 #                                         n_events=data_reading['n_events']))
 #
-#     # 时间控制参数
-#     send_interval = data_reading['send_interval']  # 发送间隔
+#     # Time control parameters
+#     send_interval = data_reading['send_interval']  # Send interval
 #     last_send_time = 0
 #     latest_events = None
 #     events_ready = False
 #
-#     # 获取共享内存信息
+#     # Get shared memory information
 #     event_memory, event_dtype, event_shape = shared_event_data
 #     event_shm = shared_memory.SharedMemory(name=event_memory.name)
 #
@@ -196,21 +233,21 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
 #
 #     def get_latest_events():
 #         """
-#         获取并处理最新的event数据
+#         Acquire and process latest event data
 #         """
 #         nonlocal latest_events, events_ready
 #
 #         try:
-#             # 获取下一批event数据
+#             # Get next batch of event data
 #             event_data = next(event_iterator)
 #
-#             # 坐标转换处理
+#             # Coordinate transformation processing
 #             event_data['x'], event_data['y'] = event_data['y'].copy(), -event_data['x'].copy()
 #             alignment = Config.get_alignment()
 #             event_data['y'] += alignment['y_coordinate_offset']
 #             event_data['x'], event_data['y'] = align_to_rgb(event_data)
 #
-#             # 更新最新events
+#             # Update latest events
 #             latest_events = event_data.copy()
 #             events_ready = True
 #
@@ -226,29 +263,29 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
 #     while not stop_event.is_set():
 #         current_time = time.perf_counter()
 #
-#         # 持续获取最新event数据，保持缓冲区最新
+#         # Continuously acquire latest event data, keep buffer up to date
 #         try:
 #             if not get_latest_events():
-#                 # 如果没有更多数据，退出循环
+#                 # If no more data, exit loop
 #                 break
 #         except Exception as e:
 #             print(f"Event processing error: {e}")
 #             continue
 #
-#         # 检查是否到了发送时间
+#         # Check if it's time to send
 #         if current_time - last_send_time >= send_interval:
 #             if system_state.value == 't' and events_ready and latest_events is not None and hasattr(latest_events, 'shape'):
-#                 # 记录处理开始时间
+#                 # Record processing start time
 #                 process_start = time.perf_counter()
 #
 #                 try:
-#                     # 发送最新event数据到共享内存
+#                     # Send latest event data to shared memory
 #                     shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
 #
-#                     # 清空共享内存
+#                     # Clear shared memory
 #                     shm[:] = np.zeros(event_shape, dtype=event_dtype)
 #
-#                     # 复制最新event数据
+#                     # Copy latest event data
 #                     num_events = 0
 #                     if latest_events is not None:
 #                         try:
@@ -260,37 +297,37 @@ def read_from_event(shared_event_data, system_state, num_event, stop_event):
 #                             num_events = 0
 #                         num_event.value = num_events
 #
-#                     # 计算处理时间
+#                     # Calculate processing time
 #                     process_time = time.perf_counter() - process_start
 #
-#                     # 更新发送时间
+#                     # Update send time
 #                     last_send_time = current_time
 #
-#                     # 如果处理时间超过间隔，跳过下一个周期
+#                     # If processing time exceeds interval, skip next cycle
 #                     if process_time > send_interval:
 #                         print(f"Warning: Event processing time {process_time*1000:.2f}ms > interval {send_interval*1000}ms, skipping next cycle")
-#                         last_send_time += send_interval  # 跳过一个周期
+#                         last_send_time += send_interval  # Skip a cycle
 #
-#                     # 打印统计信息（可选，用于调试）
-#                     if int(current_time) % 10 == 0:  # 每10秒打印一次
+#                     # Print statistics (optional, for debugging)
+#                     if int(current_time) % 10 == 0:  # Print every 10 seconds
 #                         print(f"Event: Send rate: {1/send_interval:.0f}Hz, Events: {num_events}, Process time: {process_time*1000:.2f}ms")
 #
 #                 except Exception as e:
 #                     print(f"Event shared memory write error: {e}")
 #             else:
-#                 # 即使不发送数据，也要更新时间以保持同步
+#                 # Even if not sending data, update time to maintain sync
 #                 last_send_time = current_time
 #         else:
 #             shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
 #             shm[:] = np.zeros(event_shape, dtype=event_dtype)
-#         # 短暂休眠以避免过度占用CPU
-#         time.sleep(0.0001)  # 0.1ms休眠
+#         # Brief sleep to avoid excessive CPU usage
+#         time.sleep(0.0001)  # 0.1ms sleep
 #
 #
-#     # 清理资源
+#     # Clean up resources
 #     print("Event Camera: Cleaning up...")
 #     try:
-#         # 这里可以添加event相机的清理代码
+#         # Event camera cleanup code can be added here
 #         pass
 #     except Exception as e:
 #         print(f"Event cleanup error: {e}")

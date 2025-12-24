@@ -130,9 +130,8 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
 
     cam.BeginAcquisition()
 
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = None
-    frames_written   = 0
+    frame_buffer = []
+    recording    = False
     clip_start_time  = None
     next_frame_time  = time.perf_counter()
 
@@ -147,24 +146,37 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
             shm_np[:] = frame
 
             # Handle recording start
-            if evt_start.is_set() and writer is None:
-                out_path = RGB_DIR / f"{idx_val.value}.mp4"
-                writer   = cv2.VideoWriter(str(out_path), fourcc, TARGET_FPS,RGB_SIZE)
-                frames_written  = 0
+            if evt_start.is_set() and not recording:
+                frame_buffer = []
+                recording = True
                 clip_start_time = time.perf_counter()
-                print(f"[FLIR] ▶ {out_path}")
+                print(f"[FLIR] ▶ Recording started (index {idx_val.value})...")
 
-            # Write frame when recording
-            if writer and not evt_stop.is_set():
-                writer.write(frame)
-                frames_written += 1
+            # Buffer frame when recording
+            if recording and not evt_stop.is_set():
+                frame_buffer.append(frame.copy())
 
-            # Stop recording
-            if evt_stop.is_set() and writer:
-                writer.release(); writer = None
-                duration = time.perf_counter() - clip_start_time if clip_start_time else frames_written / TARGET_FPS
-                avg_fps  = frames_written / duration if duration > 0 else 0
-                print(f"[FLIR] ■ Clip saved – {frames_written} frames, {duration:.2f}s (≈{avg_fps:.2f} fps)")
+            # Stop recording and save buffer to file
+            if evt_stop.is_set() and recording:
+                recording = False
+                duration = time.perf_counter() - clip_start_time if clip_start_time else len(frame_buffer) / TARGET_FPS
+
+                # Write buffer to file
+                out_path = RGB_DIR / f"{idx_val.value}.mp4"
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                writer = cv2.VideoWriter(str(out_path), fourcc, TARGET_FPS, RGB_SIZE)
+
+                save_start = time.perf_counter()
+                for buffered_frame in frame_buffer:
+                    writer.write(buffered_frame)
+                writer.release()
+
+                save_duration = time.perf_counter() - save_start
+                avg_fps = len(frame_buffer) / duration if duration > 0 else 0
+                print(f"[FLIR] ■ Recording stopped - Duration: {duration:.3f}s")
+                print(f"[FLIR]   Saved {out_path} – {len(frame_buffer)} frames "
+                      f"(≈{avg_fps:.2f} fps), write took {save_duration:.2f}s")
+                frame_buffer = []
 
             # Maintain pacing
             next_frame_time += FRAME_PERIOD
@@ -176,8 +188,6 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
 
             image_result.Release()
     finally:
-        if writer:
-            writer.release()
         cam.EndAcquisition(); cam.DeInit(); cam_list.Clear(); system.ReleaseInstance(); shm.close()
 
 
@@ -194,7 +204,7 @@ def record_event(shared_event_meta, evt_start: Event, evt_stop: Event, idx_val: 
     shm_np = np.ndarray(ev_shape, dtype=np.dtype(ev_dtype_desc), buffer=shm.buf)
 
     dev = initiate_device(""); iterator = iter(EventsIterator.from_device(device=dev))
-    recording = False; start_ts = None
+    recording = False; start_ts = None; frame_count = 0
 
     try:
         while not stop_evt.is_set():
@@ -210,10 +220,22 @@ def record_event(shared_event_meta, evt_start: Event, evt_stop: Event, idx_val: 
             if evt_start.is_set() and not recording:
                 out_path = EVENT_DIR / f"{idx_val.value}.raw"
                 dev.get_i_events_stream().log_raw_data(str(out_path))
-                recording = True; start_ts = time.time(); print(f"[EVENT] ▶ {out_path}")
+                recording = True
+                start_ts = time.time()
+                frame_count = 0
+                print(f"[EVENT] ▶ Recording started")
+                print(f"[EVENT]   Output: {out_path}")
+
+            # Count frames during recording
+            if recording and not evt_stop.is_set():
+                frame_count += 1
+
             if evt_stop.is_set() and recording:
-                dev.get_i_events_stream().stop_log_raw_data(); recording = False
-                print(f"[EVENT] ■ {time.time() - start_ts:.2f}s")
+                dev.get_i_events_stream().stop_log_raw_data()
+                recording = False
+                duration = time.time() - start_ts
+                print(f"[EVENT] ■ Recording stopped - Duration: {duration:.3f}s")
+                print(f"[EVENT]   Event frames: {frame_count}")
     finally:
         if recording: dev.get_i_events_stream().stop_log_raw_data()
         shm.close()
@@ -240,9 +262,34 @@ def show_streams(shared_event_meta, shared_flir_meta, stop_evt: Event):
 
     while not stop_evt.is_set():
         gen.generate_frame(ev_np, cd_frame, accumulation_time_us=1000)
-        rgb_small = cv2.resize(flir_np, (int(RGB_SIZE[0] * 0.6), int(RGB_SIZE[1] * 0.6)))
-        evt_small = cv2.resize(cd_frame, (int(RGB_SIZE[0] * 0.6), int(RGB_SIZE[1] * 0.6)))
-        cv2.imshow("FLIR", rgb_small); cv2.imshow("Event", evt_small)
+
+        # Resize both frames to the same size for overlay
+        target_size = (int(RGB_SIZE[0] * 0.6), int(RGB_SIZE[1] * 0.6))
+        rgb_resized = cv2.resize(flir_np, target_size)
+
+        # Resize event frame to match RGB (720x1280 -> 1080x1440 then resize)
+        # Event frame needs to be resized to match RGB dimensions
+        evt_resized_to_rgb = cv2.resize(cd_frame, (RGB_SIZE[0], RGB_SIZE[1]))
+        evt_resized = cv2.resize(evt_resized_to_rgb, target_size)
+
+        # Create mask: detect non-black pixels in event frame
+        # Convert to grayscale and threshold to find where events exist
+        evt_gray = cv2.cvtColor(evt_resized, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(evt_gray, 1, 255, cv2.THRESH_BINARY)
+
+        # Invert mask for areas without events
+        mask_inv = cv2.bitwise_not(mask)
+
+        # Convert mask to 3 channels
+        mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
+        mask_inv_3ch = cv2.cvtColor(mask_inv, cv2.COLOR_GRAY2BGR) / 255.0
+
+        # Blend: RGB in non-event areas, RGB + dimmed events in event areas
+        evt_dimmed = (evt_resized * 0.5).astype(np.uint8)  # Reduce event brightness to 50%
+        overlay = (rgb_resized * mask_inv_3ch +
+                   (rgb_resized * 0.7 + evt_dimmed * 0.3) * mask_3ch).astype(np.uint8)
+
+        cv2.imshow("RGB + Event Overlay", overlay)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             stop_evt.set(); break
 

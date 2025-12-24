@@ -82,7 +82,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 15
+  required_observations: 20
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]
@@ -94,11 +94,11 @@ roi:
   hsv_upper: [50, 255, 255]
   kernel_size: [5, 5]
   morphology_iterations: 2
-  roi_range: 200
+  roi_range: 150
   default_bbox: [430, 1180, 40, 40]
 
 # Ball tracking
 tracking:
-  dbscan_eps: 10
-  dbscan_min_samples: 120
+  dbscan_eps: 15
+  dbscan_min_samples: 90
   max_ball_buffer: 100

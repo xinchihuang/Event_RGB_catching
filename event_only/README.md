@@ -1,249 +1,373 @@
-# Event-Only Ball Tracking System
+# Event-Based Ball Catching System
 
-This directory contains a standalone event-based ball tracking and catching system designed for high-speed ball tracking using event cameras.
+An event-based real-time ball tracking and catching system using event cameras and RGB cameras. The system performs real-time trajectory prediction and robot control for catching flying balls.
 
 ## Overview
 
-The event-only system provides real-time ball tracking capabilities using only event camera data, without dependence on RGB cameras or external modules. It includes trajectory prediction and robot control for automated ball catching.
+This system combines event-based vision with traditional RGB imaging to achieve high-speed, low-latency ball tracking and trajectory prediction. The system uses DBSCAN clustering for ball detection from event camera data and implements parabolic motion models for trajectory fitting and landing prediction.
 
 ## System Architecture
 
-### Core Components
+The system uses a multi-process architecture with shared memory for efficient inter-process communication:
 
-1. **Event Data Input** (`read_from_event.py`)
-   - Reads event stream from event camera
-   - Handles event data buffering and synchronization
-   - Manages system state transitions
-
-2. **Event Tracking** (`Event_tracker.py`)
-   - 3D ball tracking using event data
-   - Real-time position estimation
-   - Noise filtering and trajectory smoothing
-
-3. **Trajectory Prediction** (`fitting_process.py`)
-   - Parabolic trajectory fitting
-   - Landing point prediction
-   - Robot control coordination
-
-4. **Configuration Management** (`config_loader.py`)
-   - System configuration loading
-   - Parameter management
-   - Path configuration
-
-5. **Utilities** (`utils.py`, `parabola_fitter.py`)
-   - Mathematical utilities
-   - Trajectory fitting algorithms
-   - Helper functions
-
-## Quick Start
-
-### Prerequisites
-- Event camera hardware
-- Robot control system (optional)
-- Python dependencies: numpy, torch, multiprocessing, pynput, pyttsx3
-
-### Running the System
-
-```bash
-cd event_only
-python live_real_time.py --test_mode Event
+```
+┌─────────────────────┐
+│   Main Process      │
+│   (live_real.py)    │
+└──────────┬──────────┘
+           │
+           ├───> Event Reading Process
+           │     (read_from_event.py)
+           │
+           ├───> Event Tracking Process
+           │     (Event_tracker.py)
+           │
+           ├───> Trajectory Prediction
+           │     (fitting_process.py)
+           │
+           ├───> GUI Display Process
+           │     (gui_process.py)
+           │
+           └───> Keyboard Input Process
+                 (keyboard control)
 ```
 
-### Command Line Options
+## Key Features
 
+- **Event-Based Ball Detection**: Uses DBSCAN clustering on event camera data for fast ball detection
+- **Direct Event Clustering**: Clusters events directly without converting to frames first
+- **Trajectory Prediction**: Implements RANSAC-based parabolic trajectory fitting
+- **Real-Time Display**: Provides real-time visualization of event and RGB data
+- **Multi-Process Architecture**: Efficient parallel processing with shared memory
+- **Configurable Parameters**: YAML-based configuration system for easy parameter tuning
+
+## File Descriptions
+
+### Main Entry Point
+- **`live_real.py`**: Main program entry point. Orchestrates all processes and manages system lifecycle.
+
+### Core Modules
+
+#### Event Processing
+- **`read_from_event.py`**: Reads event data from the event camera and publishes to shared memory
+  - Supports both ASAP and fixed-rate modes
+  - Implements time-budgeted event draining to minimize latency
+  - Handles coordinate transformation and alignment with RGB camera
+
+#### Ball Tracking
+- **`Event_tracker.py`**: Event-based ball tracking module
+  - `event_tracking_3D()`: Frame-based tracking using event frame generation
+  - `event_tracking_3D_direct()`: Direct event clustering (faster, lower latency)
+  - `ROI_filter()`: Region of Interest filtering for focused tracking
+
+#### Trajectory Fitting
+- **`fitting_process.py`**: Ball trajectory prediction and landing position calculation
+  - `landing_prediction()`: Main prediction function
+  - Uses MonoRansac fitter for robust trajectory estimation
+  - Validates predictions against configurable bounds
+
+- **`ransac_fit.py`**: RANSAC-based parabolic trajectory fitting
+  - `adaptive_ransac_parabola_3d()`: Adaptive RANSAC fitting
+  - `least_squares_solution_parabola()`: Least squares refinement
+  - Handles gravity compensation in trajectory model
+
+#### Visualization
+- **`gui_process.py`**: Real-time GUI display process
+  - Displays event and RGB frames side-by-side
+  - Shows ball detection bounding boxes
+  - Visualizes ROI regions
+  - Version-based data synchronization to avoid stale frames
+
+#### Configuration
+- **`config_loader.py`**: Configuration management system
+  - YAML-based configuration loading
+  - Provides static accessor methods for different parameter groups
+  - Supports multiple configuration files
+
+### Configuration Files
+- **`config.yaml`**: Main configuration file (see Configuration section below)
+
+### Utility Files
+- **`utils.py`**: Utility functions (currently empty placeholder)
+- **`parabola_fitter.py`**: Parabola fitting utilities (currently empty placeholder)
+
+## Installation
+
+### Requirements
 ```bash
-python live_real_time.py [OPTIONS]
+# Python dependencies
+pip install numpy opencv-python pyyaml scikit-learn pynput pyttsx3 torch
 
-Options:
-  --record_index INT    Initial record index (default: 0)
-  --test_mode STR      Test mode: Event (default: Robot)
-  --task STR           Task configuration: normal (default: normal)
+# Event camera SDK (Prophesee/Metavision)
+# Follow installation instructions from:
+# https://docs.prophesee.ai/stable/installation/index.html
 ```
 
-## System States
-
-The system operates with 5 main states:
-
-- **'w' (waiting)**: System ready, waiting for ball
-- **'t' (tracking)**: Actively tracking ball trajectory  
-- **'c' (catching)**: Robot executing catch motion
-- **'r' (reset)**: Resetting for next iteration
-- **'e' (exit)**: Shutting down system
-
-## Keyboard Controls
-
-| Key | Action | Description |
-|-----|--------|-------------|
-| `t` | Start Tracking | Begin ball tracking with voice notification |
-| `w` | Set Waiting | Manual waiting state control |
-| Other | Exit | Shutdown system gracefully |
-
-## Voice Notifications
-
-The system provides audio feedback when transitioning to tracking state:
-- **Message**: "System started tracking"
-- **Requirements**: pyttsx3 library (optional)
-- **Fallback**: Text notifications if voice unavailable
-
-## Process Architecture
-
-### Event Process Group
-
-The system runs multiple concurrent processes:
-
-1. **event_process**: Event data acquisition
-2. **event_tracking_process**: Real-time ball tracking
-3. **landing_prediction_process**: Trajectory prediction
-4. **robot_control_process**: Robot motion control
-5. **keyboard_process**: User input handling
-
-### Shared Memory
-
-Inter-process communication via shared memory:
-
-- `shared_event_data`: Event camera data buffer
-- `shared_flir_data`: Compatibility buffer for RGB integration
-- `shared_ROI_data`: Region of Interest parameters
-- `shared_ball_pixel_3D_data`: 3D ball position tracking
-- `shared_impact_point_data`: Predicted landing coordinates
+### Hardware Requirements
+- Event Camera (compatible with Metavision SDK)
+- RGB Camera (optional, for hybrid tracking)
+- CUDA-capable GPU (recommended for real-time performance)
 
 ## Configuration
 
-### Config File (`config.yaml`)
+The system is configured via `config.yaml`. Key configuration sections:
+
+### Image Dimensions
 ```yaml
-# Event camera settings
-event_camera:
-  resolution: [1080, 1440]
-  
-# Tracking parameters
+image:
+  rgb_width: 1080
+  rgb_height: 1440
+  event_width: 720
+  event_height: 1280
+```
+
+### Camera Alignment
+```yaml
+alignment:
+  event_pixel_size: 3.45
+  rgb_pixel_size: 4.86
+  offset_x: 30
+  offset_y: 29
+  y_coordinate_offset: 1279
+```
+
+### Event Data Reading
+```yaml
+data_reading:
+  delta_t: 2000              # Event packet time window (microseconds)
+  n_events: 10000            # Events per packet
+  send_interval: 0.002       # Publishing interval (seconds)
+```
+
+### Ball Tracking (DBSCAN)
+```yaml
 tracking:
-  roi_size: 100
-  tracking_threshold: 0.5
-  
-# Robot control
-robot:
-  catching_height: 0.3
-  reaction_time: 0.1
+  dbscan_eps: 12             # DBSCAN epsilon (pixel distance)
+  dbscan_min_samples: 110    # Minimum samples for cluster
+  max_ball_buffer: 100       # Maximum ball observations to store
 ```
 
-## API Reference
-
-### Main Entry Point
-
-```python
-# Start event-only tracking system
-python live_real_time.py --test_mode Event
+### Trajectory Prediction
+```yaml
+trajectory:
+  required_observations: 15   # Observations needed for fitting
+  inlier_threshold: 0.35      # RANSAC inlier threshold (meters)
+  gravity: -9.81              # Gravity constant (m/s^2)
+  impact_bounds_x: [-1.5, 1.5]  # Valid landing zone X bounds
+  impact_bounds_y: [0, 2]       # Valid landing zone Y bounds
 ```
 
-### Key Functions
+## Usage
 
-```python
-# Event data reading
-read_from_event(shared_event_data, system_state, num_event, stop_event)
+### Basic Usage
 
-# 3D ball tracking  
-event_tracking_3D(shared_event_data, shared_flir_data, shared_ROI_data,
-                  shared_ball_pixel_3D_data, ball_observations, num_event, 
-                  system_state, stop_event)
+```bash
+# Run with default configuration
+python live_real.py
 
-# Trajectory prediction
-landing_prediction(shared_ball_pixel_3D_data, ball_observations,
-                   shared_impact_point_data, record_index, system_state, stop_event)
+# Run with specific task configuration
+python live_real.py --task normal
 
-# Robot control
-robot_control(shared_impact_point_data, system_state, stop_event)
+# Run with specific test mode
+python live_real.py --test_mode Event
+
+# Disable GUI display (headless mode)
+ENABLE_GUI=0 python live_real.py
 ```
 
-## Safety Features
+### Command Line Arguments
 
-### Graceful Shutdown
-- Signal handling (Ctrl+C, SIGTERM)
-- Process cleanup with timeout
-- Shared memory cleanup
-- Multi-phase shutdown process
+```bash
+python live_real.py [OPTIONS]
 
-### Error Handling
-- Process failure detection
-- Automatic restart capabilities
-- Configuration fallbacks
-- Voice notification fallbacks
+Options:
+  --test_mode STR    Test mode selection (default: Event)
+                     Options: Event
+  --task STR         Task configuration to use (default: normal)
+                     Options: normal
+```
 
-## Performance
+### Keyboard Controls
 
-### Real-time Capabilities
-- Event-driven processing
-- Low-latency tracking
-- Multiprocess architecture
-- Optimized shared memory usage
+During runtime, the following keyboard controls are available:
+- **`t`**: Start tracking mode (triggers voice notification "System started tracking. Throw the ball now!")
+- **`w`**: Enter wait mode (pause tracking)
+- **`e`**: Exit the system
 
-### System Requirements
-- CPU: Multi-core recommended
-- Memory: 4GB+ RAM
-- GPU: CUDA-compatible (optional)
-- Storage: Minimal requirements
+### System States
+
+The system operates in three states:
+- **`'w'` (Wait)**: System is waiting, no tracking active
+- **`'t'` (Tracking)**: Active tracking and prediction
+- **`'e'` (Exit)**: System shutdown
+
+## Process Communication
+
+### Shared Memory Buffers
+
+The system uses shared memory for efficient data sharing:
+
+1. **Event Data**: Raw event stream data
+   - Structure: (x, y, t, p) - coordinates, timestamp, polarity
+
+2. **FLIR/RGB Data**: RGB camera image data (if used)
+   - Structure: RGB image array
+
+3. **Ball Pixel 3D Data**: Ball observation data
+   - Structure: (x, y, size, timestamp)
+
+4. **ROI Data**: Region of Interest parameters
+   - Structure: (x, y, width, height)
+
+5. **Impact Point Data**: Predicted landing position
+   - Structure: (x, y, z)
+
+### Data Versioning
+
+Event and FLIR data use version counters to prevent processing stale data:
+- `event_data_version`: Incremented each time new event data is published
+- `flir_data_version`: Incremented each time new FLIR data is available
+
+## Algorithm Details
+
+### Event Clustering (Direct Mode)
+
+1. Read events from shared memory
+2. Filter events by Region of Interest (ROI)
+3. Extract unique (x, y) coordinates from events
+4. Apply DBSCAN clustering on spatial coordinates
+5. Extract largest cluster as ball
+6. Store ball center and size with timestamp
+
+### Trajectory Prediction
+
+1. Collect ball observations (x, y, size, t)
+2. Convert 2D pixel coordinates to 3D world coordinates using ball size
+3. Apply RANSAC-based parabolic fitting with gravity compensation
+4. Predict landing position using fitted trajectory
+5. Validate prediction against configured bounds
+6. Publish impact point to shared memory
+
+### Time-Budgeted Event Draining
+
+To minimize latency, the event reading process implements time-budgeted draining:
+1. Set time budget based on mode (ASAP: 100ms, Fixed-rate: 75% of period)
+2. Continuously read event batches within budget
+3. Keep only the latest batch (discard intermediate data)
+4. Publish latest batch to avoid backlog accumulation
+
+## Performance Considerations
+
+### Optimization Tips
+
+1. **DBSCAN Parameters**: Tune `eps` and `min_samples` for your ball size and camera resolution
+2. **Event Send Interval**: Lower values reduce latency but increase CPU load
+3. **ROI Usage**: Define tight ROI to reduce processing overhead
+4. **Direct Clustering**: Use `event_tracking_3D_direct` for lower latency vs `event_tracking_3D`
+
+### Expected Performance
+
+- Event reading rate: 500 Hz (configurable)
+- Tracking latency: < 10ms (direct mode)
+- Frame generation latency: ~20ms (frame-based mode)
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **No event data**: Check event camera connection
-2. **Voice notifications fail**: Install pyttsx3 or ignore warnings
-3. **Process startup errors**: Verify Python multiprocessing support
-4. **Memory errors**: Check available RAM and shared memory limits
+1. **No events detected**
+   - Check event camera connection
+   - Verify camera permissions
+   - Check `delta_t` and `n_events` parameters
 
-### Debug Mode
+2. **Poor tracking accuracy**
+   - Adjust DBSCAN parameters (`eps`, `min_samples`)
+   - Calibrate camera alignment parameters
+   - Ensure adequate lighting conditions
 
-Enable debug output:
-```bash
-python live_real_time.py --test_mode Event --verbose
-```
+3. **High latency**
+   - Use direct clustering mode
+   - Reduce `send_interval`
+   - Check CPU/GPU utilization
 
-### Log Files
+4. **Process hangs on exit**
+   - The system implements graceful shutdown with timeout
+   - If processes don't exit, they will be force-terminated after 5 seconds
 
-System logs are output to console. For persistent logging:
-```bash
-python live_real_time.py --test_mode Event 2>&1 | tee system.log
-```
+5. **Voice notifications fail**
+   - Install pyttsx3: `pip install pyttsx3`
+   - System will fallback to text notifications if unavailable
 
 ## Development
 
-### Adding New Features
+### Adding New Processes
 
-1. Implement new process function
-2. Add to `all_processes` dictionary
-3. Update process groups as needed
-4. Add shared memory if required
-5. Update configuration files
+To add a new process to the system:
 
-### Testing
+1. Define the process function
+2. Add to `all_processes` dict in `live_real.py`
+3. Add process name to appropriate `process_groups`
+4. Handle shared memory and stop_event properly
 
-```bash
-# Basic functionality test
-python live_real_time.py --test_mode Event --record_index 0
-
-# Keyboard control test
-# Press 't' to start tracking
-# Press 'w' to set waiting state
+Example:
+```python
+def my_new_process(shared_data, system_state, stop_event):
+    while not stop_event.is_set():
+        if system_state.value == 't':
+            # Process logic here
+            pass
 ```
+
+### Configuration Guidelines
+
+- Keep all tunable parameters in `config.yaml`
+- Use `Config` class static methods for parameter access
+- Document parameter units and valid ranges
+
+### Process Safety
+
+The system implements a three-phase shutdown process:
+1. **Phase 1**: Wait for graceful exit (timeout: 5 seconds)
+2. **Phase 2**: Force terminate remaining processes
+3. **Phase 3**: Force kill stubborn processes
 
 ## Integration
 
 ### Parent System Integration
 
-This event-only system can be used standalone or integrated with the parent Event_RGB_catching system for hybrid event+RGB tracking capabilities.
+This event-only system is part of the larger Event_RGB_catching project and can be used standalone or integrated with RGB tracking for hybrid event+RGB tracking capabilities.
 
 ### Robot Integration
 
-Compatible with robot control systems that accept 3D coordinate inputs for automated ball catching.
+The system outputs predicted impact points that can be used by robot control systems for automated ball catching.
+
+## References
+
+### Event Camera Resources
+- [Prophesee Documentation](https://docs.prophesee.ai/)
+- [Event-Based Vision Resources](https://github.com/uzh-rpg/event-based_vision_resources)
+
+### Algorithms
+- DBSCAN Clustering: [scikit-learn](https://scikit-learn.org/stable/modules/clustering.html#dbscan)
+- RANSAC Fitting: Fischler & Bolles (1981)
 
 ## License
 
 Part of the Event_RGB_catching project. See parent directory for licensing information.
 
-## Support
+## Contact
 
 For issues and questions:
 1. Check troubleshooting section
 2. Review system logs
 3. Verify hardware connections
 4. Contact system maintainers
+
+## Acknowledgments
+
+This project uses:
+- Prophesee Metavision SDK for event camera interface
+- OpenCV for image processing
+- scikit-learn for clustering algorithms
+- PyTorch for tensor operations
+- pyttsx3 for voice notifications
