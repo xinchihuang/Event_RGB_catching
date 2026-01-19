@@ -6,16 +6,17 @@ import numpy as np
 
 # 配置多个源数据集路径
 source_datasets = [
-    "/media/xinchi/data/Event_RGB_catching_data/dataset_c",
-    # "/media/xinchi/data/Event_RGB_catching_data/dataset_d",
-    "/media/xinchi/data/Event_RGB_catching_data/dataset_dc",
+    "/media/xinchi/data/saved_data/dataset_c",
+    "/media/xinchi/data/saved_data/dataset_d",
+    "/media/xinchi/data/saved_data/dataset_dc",
+    "/media/xinchi/data/saved_data/dataset_l",
     # 在这里添加更多源数据集路径
 ]
 
 # 配置负样本包含概率（0.0-1.0）
 negative_sample_probability = 0.1
 
-output_dir = "/media/xinchi/data/Event_RGB_catching_data/selected_dataset"
+output_dir = "/media/xinchi/data/saved_data/selected_dataset"
 os.makedirs(output_dir, exist_ok=True)
 
 # 先处理数据，统计实际生成的样本数量

@@ -17,8 +17,11 @@ if prj_path not in sys.path:
     sys.path.append(prj_path)
 
 # Import custom modules
-from data_input.read_from_raw import read_from_raw
-from data_input.read_from_video import read_from_video
+# from data_input.read_from_raw import read_from_raw
+from data_input.read_from_aligned_buffers import read_from_aligned_buffers
+
+# from data_input.read_from_files_simple import read_from_raw_files as read_from_raw
+# from data_input.read_from_files_simple import read_from_video_files as read_from_video
 from ROI_generation.AMTTrack_ROI import model
 from ROI_generation.RGB_ROI import pure_RGB
 from tracking_2D.HSV_tracker import RGB_tracking_3D
@@ -37,12 +40,11 @@ def starter(system_state,stop_event):
     system_state.value = 't'
     print("system started")
     
-    # Keep system_state = 't' alive like model_ROI_process does
+    # Do not force 't' continuously; allow reset/shutdown states to persist.
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
-        system_state.value = 't'  # Continuously maintain tracking state
-        time.sleep(0.01)  # Small delay to avoid excessive CPU usage
+        time.sleep(0.1)  # Small delay to avoid excessive CPU usage
 
 # Global variables for signal handler
 started_processes = []
@@ -337,28 +339,62 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Event",
+    parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
-    parser.add_argument('--task', type=str, default="normal",
+    parser.add_argument('--task', type=str, default="dark",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
+    parser.add_argument('--save_csv', action='store_true', default=False,
+                        help='Enable CSV saving for ball detections (default: disabled)')
     args = parser.parse_args()
     
     # Set environment variables for config selection
     config_mapping = {
+        "model": {
+            "normal": "config/config_l_model.yaml",
+            "dark": "config/config_d_model.yaml",
+            "clutter": "config/config_c_model.yaml",
+            "dark_clutter": "config/config_dc_model.yaml"
+        },
+        "rgb": {
+            "normal": "config/config_l_rgb.yaml",
+            "dark": "config/config_d_rgb.yaml",
+            "clutter": "config/config_c_rgb.yaml",
+            "dark_clutter": "config/config_dc_rgb.yaml"
+        },
+        "event": {
+            "normal": "config/config_l_event.yaml",
+            "dark": "config/config_d_event.yaml",
+            "clutter": "config/config_c_event.yaml",
+            "dark_clutter": "config/config_dc_event.yaml"
+        }
+    }
+    legacy_mapping = {
         "normal": "config/config_l.yaml",
         "dark": "config/config_d.yaml",
         "clutter": "config/config_c.yaml",
         "dark_clutter": "config/config_dc.yaml"
     }
-    
+    mode_key = (args.test_mode or "").strip().lower()
+    task_key = (args.task or "").lower()
+    config_file = None
+    if mode_key in config_mapping:
+        config_file = config_mapping[mode_key].get(task_key)
+    if config_file is None:
+        config_file = legacy_mapping.get(task_key)
+
     # Set environment variables for subprocess config loading
-    if args.task in config_mapping:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+    if config_file:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_file
         os.environ['ACTIVE_TASK'] = args.task
-        print(f"使用任务配置 {args.task}: {config_mapping[args.task]}")
+        print(f"使用任务配置 {args.task}: {config_file}")
     else:
         print(f"未知任务类型: {args.task}, 使用默认配置")
+    
+    # Set environment variables for GUI process to access test_mode and task
+    os.environ['TEST_MODE'] = args.test_mode
+    print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
+    print(f"CSV保存: {'启用' if args.save_csv else '禁用'}")
     
     device = torch.device("cuda")
 
@@ -448,13 +484,17 @@ if __name__ == '__main__':
 
     # Define all available processes
     all_processes = {
-        'event_process': Process(target=read_from_raw, args=(shared_event_data,event_data_version,system_state,num_event,raw_count,record_index,start_ts,stop_event,event_broadcasting,record_dir)),
-        'flir_process': Process(target=read_from_video, args=(shared_flir_data,flir_data_version,system_state,raw_count,record_index,start_ts, stop_event,video_broadcasting,record_dir)),
+        'aligned_process': Process(
+            target=read_from_aligned_buffers,
+            args=(shared_event_data, shared_flir_data, event_data_version, flir_data_version,
+                  system_state, num_event, raw_count, record_index, start_ts, stop_event,
+                  event_broadcasting, video_broadcasting, record_dir),
+        ),
         'model_ROI_process': Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'RGB_ROI_process': Process(target=pure_RGB,args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'event_tracking_process': Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'RGB_tracking_process': Process(target=RGB_tracking_3D, args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event,event_data_version,flir_data_version,system_state, stop_event)),
-        'landing_prediction_process': Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event)),
+        'landing_prediction_process': Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event,args.test_mode,args.task)),
         'keyboard_process': Process(target=keyboard, args=(keyboard_input,system_state)),
         'robot_control_process': Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event)),
         'checker_process': Process(target=check_align,args=(shared_event_data,shared_flir_data,num_event,event_data_version,system_state,stop_event)),
@@ -463,16 +503,17 @@ if __name__ == '__main__':
         'gui_process': Process(target=gui_display_process,
                               args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                     shared_ball_pixel_3D_data, ball_observations, num_event,
-                                    event_data_version, flir_data_version, system_state, stop_event)),
+                                    event_data_version, flir_data_version, system_state, stop_event,
+                                    False, args.save_csv)),
     }
     
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Model': ['event_process', 'flir_process', 'model_ROI_process', 'event_tracking_process','landing_prediction_process', 'reset_process', 'gui_process'],
-        'Event': ['event_process', 'flir_process', 'event_tracking_process','landing_prediction_process','starter_process', 'reset_process', 'gui_process'],
-        'RGB': ['event_process', 'flir_process', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process','starter_process', 'gui_process'],
-        'Show': ['event_process', 'flir_process', 'checker_process','starter_process','reset_process', 'gui_process']
+        'Model': ['aligned_process', 'model_ROI_process', 'event_tracking_process', 'landing_prediction_process', 'reset_process', 'gui_process'],
+        'Event': ['aligned_process', 'event_tracking_process', 'landing_prediction_process', 'starter_process', 'reset_process', 'gui_process'],
+        'RGB': ['aligned_process', 'RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'reset_process', 'starter_process', 'gui_process'],
+        'Show': ['aligned_process', 'checker_process', 'starter_process', 'reset_process', 'gui_process']
     }
     # Get processes to start for current mode
     processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])
@@ -528,4 +569,3 @@ if __name__ == '__main__':
             except FileNotFoundError:
                 # Already unlinked
                 pass
-

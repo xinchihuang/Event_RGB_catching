@@ -56,14 +56,29 @@ def load_config_for_task(task_name):
     Args:
         task_name: Task name (normal, dark, clutter, dark_clutter)
     """
-    config_mapping = {
+    test_mode_key = os.environ.get("TEST_MODE", "").strip().lower()
+    mode_suffix = {"model": "model", "rgb": "rgb", "event": "event"}.get(test_mode_key)
+    task_key = (task_name or "").lower()
+    task_base = {
+        "normal": "config_l",
+        "dark": "config_d",
+        "clutter": "config_c",
+        "dark_clutter": "config_dc"
+    }
+    legacy_mapping = {
         "normal": "config/config_l.yaml",
         "dark": "config/config_d.yaml",
         "clutter": "config/config_c.yaml",
         "dark_clutter": "config/config_dc.yaml"
     }
 
-    config_file = config_mapping.get(task_name)
+    config_file = None
+    if mode_suffix:
+        base = task_base.get(task_key)
+        if base:
+            config_file = f"config/{base}_{mode_suffix}.yaml"
+    if config_file is None:
+        config_file = legacy_mapping.get(task_key)
     if config_file is None:
         print(f"Warning: Unknown task '{task_name}', using default config")
         return
@@ -356,6 +371,71 @@ class RawFileReader:
         return self.get_events((chunk_start, chunk_end))
 
 
+class NPYFileReader:
+    """
+    NPY file reader compatible with RawFileReader interface for playback mode
+    """
+    
+    def __init__(self, event_data):
+        """
+        Initialize with event data from .npy file
+        
+        Args:
+            event_data: Event array loaded from .npy file
+        """
+        self.all_events = event_data
+        print(f"✓ NPY Reader initialized with {len(event_data)} events")
+        if len(event_data) > 0:
+            print(f"  Time range: {event_data['t'][0]} to {event_data['t'][-1]} us")
+    
+    def get_events(self, time_slice=None):
+        """
+        Get events (all or time slice)
+        
+        Args:
+            time_slice: (start_us, end_us) or None for all events
+        
+        Returns:
+            Event array
+        """
+        if time_slice is None:
+            return self.all_events
+        
+        start_us, end_us = time_slice
+        mask = (self.all_events['t'] >= start_us) & (self.all_events['t'] <= end_us)
+        return self.all_events[mask]
+    
+    def get_chunk(self, chunk_index, chunk_size_us=2000):
+        """
+        Get events in a specific time chunk
+        
+        Args:
+            chunk_index: Chunk index
+            chunk_size_us: Chunk size in microseconds
+        
+        Returns:
+            Event array for that chunk
+        """
+        if len(self.all_events) == 0:
+            return self.all_events
+        
+        start_time = self.all_events['t'][0]
+        end_time = self.all_events['t'][-1]
+        
+        # Handle case where time is decreasing
+        if end_time < start_time:
+            chunk_start = start_time - chunk_index * chunk_size_us
+            chunk_end = chunk_start - chunk_size_us
+            # Ensure chunk_end >= chunk_start for proper range
+            if chunk_end < chunk_start:
+                chunk_start, chunk_end = chunk_end, chunk_start
+        else:
+            chunk_start = start_time + chunk_index * chunk_size_us
+            chunk_end = chunk_start + chunk_size_us
+        
+        return self.get_events((chunk_start, chunk_end))
+
+
 class DBSCANParameterTuner:
     """Interactive DBSCAN parameter tuning tool"""
 
@@ -621,18 +701,19 @@ class DBSCANParameterTuner:
         print("Creating visualization...")
         result_image = self.visualize_clusters_direct(event_frame, points, labels)
 
-        # Add info text
-        info_text = [
-            f"DIRECT MODE: eps={eps}, min_samples={min_samples}",
-            f"Clusters: {n_clusters}, Noise: {n_noise}",
-            f"Signal: {signal_points}/{total_points} ({signal_ratio:.1f}%)"
-        ]
+        # Add info text only if showing visualization
+        if show_visualization:
+            info_text = [
+                f"DIRECT MODE: eps={eps}, min_samples={min_samples}",
+                f"Clusters: {n_clusters}, Noise: {n_noise}",
+                f"Signal: {signal_points}/{total_points} ({signal_ratio:.1f}%)"
+            ]
 
-        y_offset = 30
-        for text in info_text:
-            cv2.putText(result_image, text, (10, y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            y_offset += 30
+            y_offset = 30
+            for text in info_text:
+                cv2.putText(result_image, text, (10, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                y_offset += 30
 
         # Display
         if show_visualization:
@@ -796,18 +877,19 @@ class DBSCANParameterTuner:
         print("Creating visualization...")
         result_image = self.visualize_clusters(event_frame_colored, points, labels)
 
-        # Add info text on image
-        info_text = [
-            f"eps={eps}, min_samples={min_samples}",
-            f"Clusters: {n_clusters}, Noise: {n_noise}",
-            f"Signal: {signal_points}/{total_points} ({signal_ratio:.1f}%)"
-        ]
+        # Add info text on image only if showing visualization
+        if show_visualization:
+            info_text = [
+                f"eps={eps}, min_samples={min_samples}",
+                f"Clusters: {n_clusters}, Noise: {n_noise}",
+                f"Signal: {signal_points}/{total_points} ({signal_ratio:.1f}%)"
+            ]
 
-        y_offset = 30
-        for text in info_text:
-            cv2.putText(result_image, text, (10, y_offset),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            y_offset += 30
+            y_offset = 30
+            for text in info_text:
+                cv2.putText(result_image, text, (10, y_offset),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                y_offset += 30
 
         # Display
         if show_visualization:
@@ -1101,6 +1183,202 @@ class DBSCANParameterTuner:
 
         print(f"\nAll results saved to: {output_dir}")
 
+    def _update_playback_display(self, events, eps, min_samples, current_frame,
+                                total_frames, chunk_size_us, playing):
+        """
+        Update the playback display with current frame clustering results
+        
+        Args:
+            events: Event data for current frame
+            eps: Current DBSCAN epsilon
+            min_samples: Current DBSCAN min_samples
+            current_frame: Current frame number
+            total_frames: Total number of frames
+            chunk_size_us: Time window per frame
+            playing: Whether auto-play is active
+        """
+        # Run clustering on current events (without showing separate window)
+        results = self.run_clustering(
+            events, eps, min_samples,
+            show_visualization=False,  # Don't show the separate window
+            use_direct=True  # Use direct clustering
+        )
+        
+        # Add frame info overlay
+        frame_info = [
+            f"Frame: {current_frame + 1}/{total_frames} ({current_frame * chunk_size_us}us)",
+            f"Events: {len(events)} | eps={eps} | min_samples={min_samples}",
+            f"Clusters: {results['n_clusters']} | Signal: {results['signal_ratio']:.1f}%"
+        ]
+        if playing:
+            frame_info[0] += " [PLAYING]"
+        
+        # Overlay frame info on image
+        overlay_img = results['result_image'].copy()
+        y_pos = 30
+        for info_line in frame_info:
+            cv2.putText(overlay_img, info_line, (10, y_pos),
+                      cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+            y_pos += 30
+        
+        # Apply rotation and scaling for display
+        display_img = overlay_img.copy()
+        if self.rotation == 90:
+            display_img = cv2.rotate(display_img, cv2.ROTATE_90_CLOCKWISE)
+        elif self.rotation == 180:
+            display_img = cv2.rotate(display_img, cv2.ROTATE_180)
+        elif self.rotation == 270:
+            display_img = cv2.rotate(display_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        
+        # Calculate display size after rotation
+        if self.rotation in [90, 270]:
+            display_width = int(self.height * self.display_scale)
+            display_height = int(self.width * self.display_scale)
+        else:
+            display_width = int(self.width * self.display_scale)
+            display_height = int(self.height * self.display_scale)
+        
+        display_img = cv2.resize(display_img, (display_width, display_height))
+        cv2.imshow('Frame Playback - DBSCAN Results', display_img)
+
+    def frame_playback_mode(self, reader, initial_eps=12, initial_min_samples=70, 
+                           chunk_size_us=2000, auto_fps=10):
+        """
+        Frame-by-frame playback mode for .raw files
+        
+        Args:
+            reader: RawFileReader instance
+            initial_eps: Initial DBSCAN epsilon
+            initial_min_samples: Initial DBSCAN min_samples  
+            chunk_size_us: Time window per frame (microseconds)
+            auto_fps: FPS for auto-play mode
+        """
+        if len(reader.all_events) == 0:
+            print("No events in file!")
+            return
+            
+        # Calculate total frames
+        time_span = abs(reader.all_events['t'][-1] - reader.all_events['t'][0])
+        total_frames = int(time_span // chunk_size_us) + 1
+        
+        current_frame = 0
+        eps = float(initial_eps)
+        min_samples = int(initial_min_samples)
+        playing = False
+        frame_interval = 1.0 / auto_fps
+        last_frame_time = 0
+        
+        print(f"\n{'='*60}")
+        print("Frame-by-Frame Playback Mode")
+        print(f"{'='*60}")
+        print(f"Total frames: {total_frames}")
+        print(f"Frame duration: {chunk_size_us}us")
+        print(f"Auto-play FPS: {auto_fps}")
+        print("\nKeyboard Controls:")
+        print("  SPACE      - Play/Pause auto-playback")
+        print("  →(Right)   - Next frame")
+        print("  ←(Left)    - Previous frame") 
+        print("  ↑(Up)      - Fast forward (+10 frames)")
+        print("  ↓(Down)    - Fast backward (-10 frames)")
+        print("  HOME       - Go to first frame")
+        print("  END        - Go to last frame")
+        print("  w/s        - Increase/decrease eps by 1")
+        print("  e/d        - Increase/decrease eps by 0.5")
+        print("  a/z        - Increase/decrease min_samples by 10")
+        print("  r          - Reset parameters")
+        print("  p          - Print current parameters")
+        print("  ESC        - Exit")
+        print(f"{'='*60}")
+        print()
+        
+        try:
+            while True:
+                current_time = time.time()
+                
+                # Auto-play mode
+                if playing and (current_time - last_frame_time >= frame_interval):
+                    current_frame += 1
+                    if current_frame >= total_frames:
+                        current_frame = total_frames - 1
+                        playing = False
+                        print("→ Reached end, auto-play stopped")
+                    last_frame_time = current_time
+                
+                # Get current frame data
+                events = reader.get_chunk(current_frame, chunk_size_us)
+                
+                if len(events) > 0:
+                    # Update display with current frame
+                    self._update_playback_display(events, eps, min_samples, current_frame, 
+                                                total_frames, chunk_size_us, playing)
+                else:
+                    print(f"No events in frame {current_frame}")
+                
+                # Handle keyboard input
+                key = cv2.waitKey(1) & 0xFF
+                
+                if key == 27:  # ESC
+                    print("\nExiting playback mode...")
+                    break
+                elif key == ord(' '):  # SPACE - Play/Pause
+                    playing = not playing
+                    status = "Playing" if playing else "Paused"
+                    print(f"→ {status} (Frame: {current_frame + 1}/{total_frames})")
+                elif key == 83:  # Right arrow - Next frame
+                    current_frame = min(current_frame + 1, total_frames - 1)
+                    playing = False
+                    print(f"→ Next frame: {current_frame + 1}/{total_frames}")
+                elif key == 81:  # Left arrow - Previous frame
+                    current_frame = max(current_frame - 1, 0)
+                    playing = False
+                    print(f"→ Previous frame: {current_frame + 1}/{total_frames}")
+                elif key == 82:  # Up arrow - Fast forward
+                    current_frame = min(current_frame + 10, total_frames - 1)
+                    playing = False
+                    print(f"→ Fast forward: {current_frame + 1}/{total_frames}")
+                elif key == 84:  # Down arrow - Fast backward
+                    current_frame = max(current_frame - 10, 0)
+                    playing = False
+                    print(f"→ Fast backward: {current_frame + 1}/{total_frames}")
+                elif key == 80:  # HOME key - First frame
+                    current_frame = 0
+                    playing = False
+                    print(f"→ First frame: {current_frame + 1}/{total_frames}")
+                elif key == 87:  # END key - Last frame
+                    current_frame = total_frames - 1
+                    playing = False
+                    print(f"→ Last frame: {current_frame + 1}/{total_frames}")
+                elif key == ord('w'):  # Increase eps
+                    eps += 1
+                    print(f"→ eps = {eps}")
+                elif key == ord('s'):  # Decrease eps
+                    eps = max(0.5, eps - 1)
+                    print(f"→ eps = {eps}")
+                elif key == ord('e'):  # Increase eps by 0.5
+                    eps += 0.5
+                    print(f"→ eps = {eps}")
+                elif key == ord('d'):  # Decrease eps by 0.5
+                    eps = max(0.5, eps - 0.5)
+                    print(f"→ eps = {eps}")
+                elif key == ord('a'):  # Increase min_samples
+                    min_samples += 10
+                    print(f"→ min_samples = {min_samples}")
+                elif key == ord('z'):  # Decrease min_samples
+                    min_samples = max(1, min_samples - 10)
+                    print(f"→ min_samples = {min_samples}")
+                elif key == ord('r'):  # Reset parameters
+                    eps = float(initial_eps)
+                    min_samples = int(initial_min_samples)
+                    print(f"→ Reset: eps={eps}, min_samples={min_samples}")
+                elif key == ord('p'):  # Print parameters
+                    print(f"\nCurrent State:")
+                    print(f"  Frame: {current_frame + 1}/{total_frames}")
+                    print(f"  Parameters: eps={eps}, min_samples={min_samples}")
+                    print(f"  Status: {'Playing' if playing else 'Paused'}")
+                
+        finally:
+            cv2.destroyAllWindows()
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1166,7 +1444,7 @@ Examples:
 
     # Mode selection
     parser.add_argument('--mode', type=str, default='interactive',
-                       choices=['single', 'interactive', 'batch'],
+                       choices=['single', 'interactive', 'batch', 'playback'],
                        help='Operation mode (default: interactive)')
     parser.add_argument('--direct', action='store_true', default=True,
                        help='Use direct event clustering (default: True, like event_tracking_3D_direct)')
@@ -1272,13 +1550,17 @@ Examples:
         rotation=rotation
     )
 
+    # Default to file mode when data_file is available
+    if not args.live and data_file and os.path.exists(data_file) and data_file.endswith('.raw'):
+        args.mode = 'playback'  # Set playback mode as default for raw files
+
     # Live camera mode
     if args.live:
         print("Using live event camera")
         tuner.live_camera_mode(
-            initial_eps=eps,
+            initial_eps=eps
             initial_min_samples=min_samples,
-            delta_t=delta_t,
+            delta_t=delta_
             n_events=n_events,
             fps=fps
         )
@@ -1294,6 +1576,7 @@ Examples:
         return 1
 
     # Load event data - auto-detect .raw or .npy
+    reader = None  # Initialize reader variable
     if data_file.endswith('.raw'):
         print(f"Loading .raw file: {data_file}")
         reader = RawFileReader(data_file, width=width, height=height, delta_t=delta_t_read)
@@ -1301,6 +1584,9 @@ Examples:
     else:
         print(f"Loading .npy file: {data_file}")
         event_data = tuner.load_events(data_file)
+        # For playback mode, create a compatible reader from npy data
+        if args.mode == 'playback':
+            reader = NPYFileReader(event_data)
 
     if len(event_data) == 0:
         print("Error: No events in file")
@@ -1342,6 +1628,21 @@ Examples:
             )
 
         tuner.batch_mode(event_data, eps_values, min_samples_values, args.output_dir)
+
+    elif args.mode == 'playback':
+        # Frame-by-frame playback mode (supports both .raw and .npy files)
+        if not data_file.endswith(('.raw', '.npy')):
+            print("Error: Playback mode supports .raw and .npy files only")
+            return 1
+        
+        print("Starting frame-by-frame playback mode...")
+        tuner.frame_playback_mode(
+            reader=reader,  # Use the already created reader
+            initial_eps=eps,
+            initial_min_samples=min_samples,
+            chunk_size_us=delta_t_read,
+            auto_fps=fps
+        )
 
     else:  # single mode
         save_path = None

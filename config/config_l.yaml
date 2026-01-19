@@ -34,11 +34,6 @@ image_processing:
   # Display scale
   display_scale: 0.8
 
-# Clustering (DBSCAN)
-clustering:
-  eps: 9
-  min_samples: 70
-
 # Memory buffer sizes
 buffers:
   max_events: 100000
@@ -47,9 +42,9 @@ buffers:
 
 # Data paths
 paths:
-  record_dir: "/home/xinchi/Event_RGB_catching_data/saved_data_l"
-  template_npy: "78.npy"
-  template_jpg: "78.jpg"
+  record_dir: "/media/xinchi/data/evaluation_data/saved_data_l"
+  template_npy: "l.npy"
+  template_jpg: "l.jpg"
 
 # Camera alignment
 alignment:
@@ -58,6 +53,7 @@ alignment:
   offset_x: 30
   offset_y: 29
   y_coordinate_offset: 1279
+  apply_rotation: false
 
 # Data reading
 data_reading:
@@ -99,11 +95,11 @@ roi:
   hsv_upper: [50, 255, 255]
   kernel_size: [5, 5]
   morphology_iterations: 2
-  roi_range: 200
+  roi_range: 100
   default_bbox: [470, 1170, 70, 70]
 
 # Ball tracking
 tracking:
   dbscan_eps: 15
-  dbscan_min_samples: 90
-  max_ball_buffer: 100
+  dbscan_min_samples: 100
+  max_ball_buffer: 1000

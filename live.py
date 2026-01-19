@@ -146,17 +146,44 @@ if __name__ == '__main__':
     
     # Load configuration based on task parameter
     config_mapping = {
+        "model": {
+            "normal": "config/config_l_model.yaml",
+            "dark": "config/config_d_model.yaml",
+            "cluster": "config/config_c_model.yaml",
+            "dark_cluster": "config/config_dc_model.yaml"
+        },
+        "rgb": {
+            "normal": "config/config_l_rgb.yaml",
+            "dark": "config/config_d_rgb.yaml",
+            "cluster": "config/config_c_rgb.yaml",
+            "dark_cluster": "config/config_dc_rgb.yaml"
+        },
+        "event": {
+            "normal": "config/config_l_event.yaml",
+            "dark": "config/config_d_event.yaml",
+            "cluster": "config/config_c_event.yaml",
+            "dark_cluster": "config/config_dc_event.yaml"
+        }
+    }
+    legacy_mapping = {
         "normal": "config/config.yaml",
         "dark": "config/config_d.yaml",
         "cluster": "config/config_c.yaml",
         "dark_cluster": "config/config_dc.yaml"
     }
+    mode_key = os.environ.get("TEST_MODE", "").strip().lower()
+    task_key = (args.task or "").lower()
+    config_file = None
+    if mode_key in config_mapping:
+        config_file = config_mapping[mode_key].get(task_key)
+    if config_file is None:
+        config_file = legacy_mapping.get(task_key)
     
     # Set environment variables for subprocess config loading
-    if args.task in config_mapping:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+    if config_file:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_file
         os.environ['ACTIVE_TASK'] = args.task
-        print(f"LIVE SYSTEM: Using task configuration '{args.task}': {config_mapping[args.task]}")
+        print(f"LIVE SYSTEM: Using task configuration '{args.task}': {config_file}")
     else:
         print(f"LIVE SYSTEM: Unknown task type: {args.task}, using default configuration")
     
@@ -237,7 +264,7 @@ if __name__ == '__main__':
                                               system_state, stop_event)),
         'landing_prediction_process': Process(target=landing_prediction, 
                                             args=(shared_ball_pixel_3D_data, ball_observations,
-                                                  shared_impact_point_data, record_index, system_state, stop_event)),
+                                                  shared_impact_point_data, record_index, system_state, stop_event, "Live", args.task)),
         'robot_control_process': Process(target=robot_control, 
                                        args=(shared_impact_point_data, system_state, stop_event)),
         'starter_process': Process(target=starter, 

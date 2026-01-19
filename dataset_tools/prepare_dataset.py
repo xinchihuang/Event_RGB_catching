@@ -148,14 +148,7 @@ def align_buffer(root_dir, raw_data_dir, index,
     finally:
         cap.release()
 
-    rgb_count = len(rgb_buffer)
-    if rgb_count == 0:
-        print(f"[{index}] No RGB frames found.")
-        return
 
-    print(f"[{index}] total rgb frames: {rgb_count}")
-    print(f"[{index}] total event frames: {event_count}")
-    print("align start")
 
     # --- Prepare output dirs ---
     out_dir = f"{root_dir}/{index}"
@@ -181,18 +174,29 @@ def align_buffer(root_dir, raw_data_dir, index,
         max_num_points_per_voxel=16,
         device=device
     )
+    rgb_count = len(rgb_buffer)
+    if rgb_count == 0:
+        print(f"[{index}] No RGB frames found.")
+        return
 
+    print(f"[{index}] total rgb frames: {rgb_count}")
+    print(f"[{index}] total event frames: {event_count}")
+    print("align start")
     # --- Time alignment ---
-    denom = max(rgb_count-skip_start-skip_end - 1, 1)
-    ratio = max(event_count / denom, 0.0)
-    print(ratio)
+    ratio=10
     absent_list, bbox = [], []
+    rgb_bias, event_bias = 0, 0
+    if rgb_count*10>event_count:
+        rgb_bias=int(rgb_count-event_count/10)
+        rgb_buffer=rgb_buffer[:-rgb_bias]
+    else:
+        event_bias=int(event_count-rgb_count*10)
+        event_buffer=event_buffer[event_bias:]
 
-    start_idx = max(0, int(skip_start))
-    end_idx = rgb_count - max(0, int(skip_end))
-    end_idx = max(end_idx, start_idx)
-
-    for frame_idx in range(start_idx, end_idx):
+    print(rgb_bias,event_bias)
+    start_idx=0
+    end_idx=len(rgb_buffer)
+    for frame_idx in range(0, end_idx):
         try:
             if frame_idx % 50 == 0:
                 print(f"[{index}] processing frame {frame_idx}/{end_idx-1}")
@@ -533,10 +537,10 @@ def align_buffer(root_dir, raw_data_dir, index,
         writer.writerow([bias, skip_start, skip_end])
 
 def main():
-    root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset"
-    raw_data_dir = "/media/xinchi/data/Event_RGB_catching_data/saved_data_d"
+    root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset_l"
+    raw_data_dir = "/media/xinchi/data/saved_data/saved_data_l"
 
-    for index in range(0, 1):
+    for index in range(13, 100):
         align_buffer(root_dir, raw_data_dir, index,
                      bias=-15, skip_start=0, skip_end=0,
                      debug_show=True,  # keep False for servers/headless
