@@ -1,0 +1,26 @@
+[
+  {
+    "test_mode": "Event",
+    "task": "normal", 
+    "start_index": 0,
+    "max_runs": 9
+  },
+   {
+    "test_mode": "Event",
+    "task": "dark",
+    "start_index": 0,
+    "max_runs": 9
+  },
+   {
+    "test_mode": "RGB",
+    "task": "clutter",
+    "start_index": 0,
+    "max_runs": 9
+  },
+    {
+    "test_mode": "RGB",
+    "task": "normal",
+    "start_index": 0,
+    "max_runs": 9
+  }
+]

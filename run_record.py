@@ -2,6 +2,7 @@
 """
 Auto-restart wrapper script for record.py
 Automatically restarts record.py with incremented record_index after completion
+Supports batch execution of multiple parameter sets
 """
 
 import subprocess
@@ -10,14 +11,17 @@ import time
 import sys
 import os
 import signal
+import json
 
 class RecordRunner:
-    def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180):
+    def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180, test_mode="Event", task="normal"):
         self.start_index = start_index
         self.current_index = start_index
         self.max_runs = max_runs
         self.restart_delay = restart_delay
         self.timeout = timeout
+        self.test_mode = test_mode
+        self.task = task
         self.run_count = 0
         self.should_stop = False
         
@@ -34,7 +38,11 @@ class RecordRunner:
         """Run record.py with the current record_index"""
         cmd = [sys.executable, "record.py", "--record_index", str(self.current_index)]
         
-        print(f"=== Starting record.py with record_index={self.current_index} ===")
+        # Add test_mode and task parameters
+        cmd.extend(["--test_mode", self.test_mode])
+        cmd.extend(["--task", self.task])
+        
+        print(f"=== Starting record.py with record_index={self.current_index}, test_mode={self.test_mode}, task={self.task} ===")
         print(f"Command: {' '.join(cmd)}")
         print(f"Run #{self.run_count + 1}" + (f" of {self.max_runs}" if self.max_runs else ""))
         print("-" * 60)
@@ -124,58 +132,103 @@ class RecordRunner:
         print(f"Record runner finished. Total runs: {self.run_count}")
         print(f"Final record index: {self.current_index - 1}")
 
+def run_batch_config(batch_configs):
+    """Run multiple parameter configurations sequentially"""
+    if isinstance(batch_configs, dict):
+        batch_configs = [batch_configs]
+    elif not isinstance(batch_configs, list):
+        raise ValueError("batch_config must be a JSON list or object")
+
+    total_configs = len(batch_configs)
+    print(f"Starting batch execution with {total_configs} configurations")
+    print("=" * 80)
+    
+    for config_idx, config in enumerate(batch_configs, 1):
+        print(f"\n### BATCH CONFIG {config_idx}/{total_configs} ###")
+        print(f"Configuration: {config}")
+        print("=" * 60)
+        
+        # Create runner for this configuration
+        runner = RecordRunner(
+            start_index=config.get('start_index', 40),
+            max_runs=config.get('max_runs'),
+            restart_delay=config.get('restart_delay', 5),
+            timeout=config.get('timeout', 180),
+            test_mode=config.get('test_mode', "Event"),
+            task=config.get('task', "normal")
+        )
+        
+        try:
+            runner.run_loop()
+            print(f"\n### BATCH CONFIG {config_idx}/{total_configs} COMPLETED ###")
+        except KeyboardInterrupt:
+            print(f"\n### BATCH CONFIG {config_idx}/{total_configs} INTERRUPTED ###")
+            print("Stopping batch execution...")
+            break
+        except Exception as e:
+            print(f"\n### BATCH CONFIG {config_idx}/{total_configs} FAILED ###")
+            print(f"Error: {e}")
+            # Continue with next configuration instead of stopping
+            continue
+    
+    print("\n" + "=" * 80)
+    print("Batch execution completed")
+
+def parse_batch_config(batch_config_arg):
+    """Parse batch configuration from file or JSON string"""
+    if not batch_config_arg:
+        return None
+    
+    # Try to parse as file path first
+    if os.path.exists(batch_config_arg):
+        try:
+            with open(batch_config_arg, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON file {batch_config_arg}: {e}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading file {batch_config_arg}: {e}")
+            sys.exit(1)
+    else:
+        # Try to parse as JSON string
+        try:
+            return json.loads(batch_config_arg)
+        except json.JSONDecodeError as e:
+            print(f"Error parsing JSON string: {e}")
+            print("Batch config should be either a valid JSON file path or JSON string")
+            sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(
         description='Auto-restart wrapper for record.py',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python run_record.py                              # Start from index 40, run indefinitely
-  python run_record.py --start_index 1             # Start from index 1
-  python run_record.py --max_runs 5                # Run exactly 5 times
-  python run_record.py --start_index 10 --max_runs 3  # Start from 10, run 3 times
-  python run_record.py --restart_delay 10          # Wait 10 seconds between restarts
+  # Example batch_config.json content:
+  [
+    {"test_mode": "Event", "task": "normal", "start_index": 0, "max_runs": 106},
+    {"test_mode": "Event", "task": "dark", "start_index": 0, "max_runs": 106},
+    {"test_mode": "RGB", "task": "clutter", "start_index": 0, "max_runs": 50}
+  ]
         """
     )
-    
-    parser.add_argument('--start_index', type=int, default=0,
-                       help='Initial record index (default: 0)')
-    parser.add_argument('--max_runs', type=int, default=10,
-                       help='Maximum number of runs (default: unlimited)')
-    parser.add_argument('--restart_delay', type=int, default=2,
-                       help='Delay in seconds before restart (default: 5)')
-    parser.add_argument('--timeout', type=int, default=30,
-                       help='Timeout in seconds for each record.py run (default: 180)')
+
+    parser.add_argument('--batch_config', type=str,default='batch_config.json',
+                       help='JSON file or JSON string containing batch parameter configurations')
     
     args = parser.parse_args()
-    
-    # Validate arguments
-    if args.start_index < 0:
-        print("Error: start_index must be non-negative")
-        sys.exit(1)
-    
-    if args.max_runs is not None and args.max_runs <= 0:
-        print("Error: max_runs must be positive")
-        sys.exit(1)
-    
-    if args.restart_delay < 0:
-        print("Error: restart_delay must be non-negative")
-        sys.exit(1)
-    
-    # Create and run the runner
-    runner = RecordRunner(
-        start_index=args.start_index,
-        max_runs=args.max_runs,
-        restart_delay=args.restart_delay,
-        timeout=args.timeout
-    )
-    
+
+
+    # Check if batch configuration is provided
+    batch_configs = parse_batch_config(args.batch_config)
+
     try:
-        runner.run_loop()
+        run_batch_config(batch_configs)
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received, shutting down...")
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error in batch mode: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

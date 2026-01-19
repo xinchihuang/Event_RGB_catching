@@ -11,13 +11,21 @@ import time
 import argparse
 
 
+# Centralized path configuration (override via env vars if needed)
+mode='c'
+REFERENCE_ROOT_DIR = os.environ.get("REFERENCE_ROOT_DIR", f"/media/xinchi/data/reference_{mode}")
+RECORD_DATA_DIR = os.environ.get(
+    "RECORD_DATA_DIR",
+    f"/media/xinchi/data/processed_data/saved_data_{mode}",
+)
+
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
 # Import custom modules
-from data_input.read_from_raw import read_from_raw
+from data_input.read_from_dat import read_from_raw, align_to_rgb
 from data_input.read_from_video import read_from_video
 
 
@@ -58,13 +66,13 @@ def keyboard(shared_value, system_state):
 
         listener.join()
 
-def save(shared_event_data, shared_flir_data, num_event, system_state, stop_event):
+def save(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event, event_data_version, flir_data_version, system_state, stop_event):
 
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
-    root_dir='/home/xinchi/Event_RGB_catching_data/reference'
+    root_dir = REFERENCE_ROOT_DIR
     
-    # Ensure all directories exist
+    # Ensure all directories exist/media/xinchi/data/saved_data
     os.makedirs(f"{root_dir}/rgb", exist_ok=True)
     os.makedirs(f"{root_dir}/event", exist_ok=True)
     os.makedirs(f"{root_dir}/overlay", exist_ok=True)
@@ -86,9 +94,13 @@ def save(shared_event_data, shared_flir_data, num_event, system_state, stop_even
             event_data = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf).copy()
             event_data = event_data[:num_event.value]
             rgb_image = flir_data
+            display_event_data = event_data
+            if event_data.size > 0:
+                display_event_data = event_data.copy()
+                display_event_data["x"], display_event_data["y"] = align_to_rgb(display_event_data)
             event_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
             event_frame = np.ascontiguousarray(event_frame)
-            event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
+            event_frame_gen.generate_frame(display_event_data, event_frame, accumulation_time_us=1000)
             image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
             _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
             event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
@@ -202,7 +214,7 @@ def shutdown_processes(processes, timeout=5):
 if __name__ == '__main__':
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=11,
+    parser.add_argument('--record_index', type=int, default=0,
                         help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Save",
                         help='Test mode (default: Model). Options: Model, Event, RGB, Show')
@@ -281,21 +293,25 @@ if __name__ == '__main__':
     record_index = Value('i', args.record_index)
     start_ts = Value('d', 0.0)
 
+    # Data version counters to prevent stale data processing
+    event_data_version = Value('i', 0)  # Incremented each time event data is updated
+    flir_data_version = Value('i', 0)   # Incremented each time FLIR data is updated
+
     print(f"Starting with record_index: {args.record_index}")
 
-    record_dir = '/home/xinchi/Event_RGB_catching_data/saved_data_c'
+    record_dir = RECORD_DATA_DIR
 
     # Define all available processes
     all_processes = {
         'event_process': Process(target=read_from_raw,
-                                 args=(shared_event_data, system_state, num_event, raw_count, record_index, start_ts,
+                                 args=(shared_event_data, event_data_version, system_state, num_event, raw_count, record_index, start_ts,
                                        stop_event, event_broadcasting, record_dir)),
         'flir_process': Process(target=read_from_video,
-                                args=(shared_flir_data, system_state, raw_count, record_index, start_ts, stop_event,
+                                args=(shared_flir_data, flir_data_version, system_state, raw_count, record_index, start_ts, stop_event,
                                       video_broadcasting, record_dir)),
         'keyboard_process': Process(target=keyboard, args=(keyboard_input, system_state)),
         'save_process': Process(target=save,
-                                   args=(shared_event_data, shared_flir_data, num_event, system_state, stop_event)),
+                                   args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event, event_data_version, flir_data_version, system_state, stop_event)),
         'starter_process': Process(target=starter, args=(system_state, stop_event))
     }
 
@@ -353,4 +369,3 @@ if __name__ == '__main__':
             except FileNotFoundError:
                 # Already unlinked
                 pass
-

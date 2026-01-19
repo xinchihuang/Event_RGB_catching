@@ -131,13 +131,36 @@ def get_config() -> ConfigLoader:
                 task_idx = sys.argv.index('--task')
                 if task_idx + 1 < len(sys.argv):
                     task = sys.argv[task_idx + 1]
-                    config_mapping = {
+                    test_mode = None
+                    if '--test_mode' in sys.argv:
+                        test_mode_idx = sys.argv.index('--test_mode')
+                        if test_mode_idx + 1 < len(sys.argv):
+                            test_mode = sys.argv[test_mode_idx + 1]
+                    if not test_mode:
+                        test_mode = os.environ.get("TEST_MODE")
+
+                    task_key = (task or "").lower()
+                    test_mode_key = (test_mode or "").strip().lower()
+                    mode_suffix = {"model": "model", "rgb": "rgb", "event": "event"}.get(test_mode_key)
+                    task_base = {
+                        "normal": "config_l",
+                        "dark": "config_d",
+                        "clutter": "config_c",
+                        "dark_clutter": "config_dc"
+                    }
+                    legacy_mapping = {
                         "normal": "config/config_l.yaml",
                         "dark": "config/config_d.yaml", 
                         "clutter": "config/config_c.yaml",
                         "dark_clutter": "config/config_dc.yaml"
                     }
-                    config_file = config_mapping.get(task)
+
+                    if mode_suffix:
+                        base = task_base.get(task_key)
+                        if base:
+                            config_file = f"config/{base}_{mode_suffix}.yaml"
+                    if config_file is None:
+                        config_file = legacy_mapping.get(task_key)
             except:
                 pass
         
@@ -230,7 +253,8 @@ class Config:
             'rgb_pixel_size': config.get('alignment.rgb_pixel_size', 4.86),
             'offset_x': config.get('alignment.offset_x', 30),
             'offset_y': config.get('alignment.offset_y', 29),
-            'y_coordinate_offset': config.get('alignment.y_coordinate_offset', 1279)
+            'y_coordinate_offset': config.get('alignment.y_coordinate_offset', 1279),
+            'apply_rotation': config.get('alignment.apply_rotation', True)
         }
     
     @staticmethod

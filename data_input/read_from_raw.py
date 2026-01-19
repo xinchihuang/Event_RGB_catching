@@ -11,6 +11,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
+
 def align_to_rgb(event_data, rgb_width=None, rgb_height=None, event_width=None, event_height=None):
     # Get dimensions from config if not provided
     if rgb_width is None or rgb_height is None or event_width is None or event_height is None:

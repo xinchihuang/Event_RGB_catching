@@ -31,10 +31,6 @@ image_processing:
   # Display scale
   display_scale: 0.8
 
-# Clustering (DBSCAN)
-clustering:
-  eps: 9
-  min_samples: 70
 
 # Memory buffer sizes
 buffers:
@@ -44,9 +40,9 @@ buffers:
 
 # Data paths
 paths:
-  record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_c"
-  template_npy: "78.npy"
-  template_jpg: "78.jpg"
+  record_dir: "/media/xinchi/data/evaluation_data/saved_data_c"
+  template_npy: "c.npy"
+  template_jpg: "c.jpg"
 
 # Camera alignment
 alignment:
@@ -55,6 +51,7 @@ alignment:
   offset_x: 30
   offset_y: 29
   y_coordinate_offset: 1279
+  apply_rotation: false
 
 # Data reading
 data_reading:
@@ -84,7 +81,7 @@ camera_intrinsics:
 
 # Trajectory fitting
 trajectory:
-  required_observations: 20
+  required_observations: 30
   inlier_threshold: 0.35
   gravity: -9.81
   impact_bounds_x: [-1.5, 1.5]

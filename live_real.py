@@ -299,7 +299,6 @@ if __name__ == '__main__':
                 continue
 
             process = all_processes[process_name]
-            
             process.start()
             started_processes.append(process)
             print(f"Started: {process_name}")

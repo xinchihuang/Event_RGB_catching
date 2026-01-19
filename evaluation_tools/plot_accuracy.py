@@ -7,7 +7,7 @@ from fitting.parabola_fitter import MonoRansac
 import matplotlib.pyplot as plt
 
 
-def index_to_position(point_index,y_bias=0,z_bias=0.2):
+def index_to_position(point_index,y_bias=-0.05,z_bias=-0.2):
     if point_index>0:
         row=point_index//10
         col=point_index%10
@@ -181,8 +181,9 @@ def main():
     camera_rpy_back = [45, 0, 90]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
-    save_dir = "/home/xinchi/Event_RGB_catching_data/ball_pixel_3D_records"
-    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_c.csv")
+    # save_dir = "/home/xinchi/Event_RGB_catching_data/old/ball_pixel_3D_records_event_l"
+    save_dir = "/home/xinchi/Event_RGB_catching_data/RGB_normal/ball_pixel_3D_records_ball"
+    label_file= os.path.join(os.path.dirname(os.path.dirname(__file__)), "evaluation_tools/label_l.csv")
     labels=np.loadtxt(label_file, delimiter=",")
     print(labels)
     # fitter = MonoFitter3D(camera_params=camera_config,rotation_matrix_back=rotation_matrix_back)
@@ -216,7 +217,7 @@ def main():
         print(i)
         observations=ball_memory
         observations[:,3]=observations[:,3]-observations[0,3]
-        observations= observations[:20, :]
+        observations= observations[:10, :]
         fitter.set_data(observations)
         result=fitter.get_params()
 
