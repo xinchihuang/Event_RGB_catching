@@ -174,7 +174,7 @@ if __name__ == '__main__':
                        help='Initial record index (default: 40)')
     parser.add_argument('--test_mode', type=str, default="Event",
                         help='Test mode (default: Model). Options: Model, Event, RGB')
-    parser.add_argument('--task', type=str, default="dark_clutter",
+    parser.add_argument('--task', type=str, default="normal",
                         choices=["normal", "dark", "clutter", "dark_cluster"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
@@ -280,7 +280,7 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process','gui_process'],
+        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','gui_process'],
         'RGB': ['event_process','flir_process','RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'keyboard_process','robot_control_process','gui_process'],
         'Model':['event_process','flir_process','model_ROI_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process','gui_process'],
     }
