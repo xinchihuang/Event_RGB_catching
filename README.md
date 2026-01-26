@@ -37,11 +37,10 @@ python show_data.py --record_index 0 --test_mode Show --task normal
 
 Note: `--task` options differ slightly per script. Check each script's `argparse` `choices` for exact values.
 
-## Media (Placeholders)
-Use the following slots to add screenshots or demo clips:
+## Media
 
-### Overview Diagram
-![System overview](docs/media/overview.png)
+### Perception Model Overview Diagram
+![System overview](docs/media/architecture.png)
 
 ### Tracking Visualization
 ![Tracking visualization](docs/media/tracking.png)
