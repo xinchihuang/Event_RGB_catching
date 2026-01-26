@@ -12,7 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
-def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_events,event_data_version,flir_data_version,system_state, stop_event):
+def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_events,event_data_version,flir_data_version,system_state, stop_event, ball_pixel_3D_version=None):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from sklearn.cluster import DBSCAN
 
@@ -78,6 +78,7 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     t = event_data['t'][-1] / 1000000
                     ROI_data = ROI_array_view.copy()  # Copy to avoid race conditions
                     x,y,w,h= ROI_data
+                    h=h+2
                     print(ROI_data)
                     rgb_image = flir_data
                     if (not p_x==x or not p_y==y or not p_w==w or not p_h==h) and (h>20 or w>20) and y<1200:
@@ -93,6 +94,8 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                             ball_pixel_3D[ball_num][2] = float(h)
                             ball_pixel_3D[ball_num][3] = t
                             ball_observations.value = ball_num + 1
+                            if ball_pixel_3D_version is not None:
+                                ball_pixel_3D_version.value += 1
                             print(ball_num + 1,"RGB",x,y,w,h)
                         p_x, p_y, p_w, p_h = x, y, w, h
 

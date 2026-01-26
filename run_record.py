@@ -214,7 +214,7 @@ Examples:
         """
     )
 
-    parser.add_argument('--batch_config', type=str,default='batch_config.json',
+    parser.add_argument('--batch_config', type=str,default='batch_config_demo.json',
                        help='JSON file or JSON string containing batch parameter configurations')
     
     args = parser.parse_args()

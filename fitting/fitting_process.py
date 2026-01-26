@@ -14,7 +14,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     import sys
     import os
     sys.path.append(os.path.join(os.path.dirname(__file__)))
-    from parabola_fitter import MonoRansac
+    from parabola_fitter import MonoRansacDrag
     from utils import rotate_matrix_coordinate
     import csv
 
@@ -58,11 +58,9 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     impact_point_memory, impact_point_dtype, impact_point_shape = shared_impact_point_data
     impact_point_shm = shared_memory.SharedMemory(name=impact_point_memory.name)
     impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
-    fitter = MonoRansac(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
+    fitter = MonoRansacDrag(camera_params=camera_config,rotation_matrix_to=rotation_matrix_to,rotation_matrix_back=rotation_matrix_back)
     buffered_impact_point = [0,0,0]
-    last_index=0
 
-    print()
     # Setup for saving ball_pixel_3D data based on test_mode and task
     base_dir = f"/media/xinchi/data/evaluation_data/evaluation_results/{test_mode}_{task}"
     ball_pixel_save_dir = f"{base_dir}/ball_pixel_3D_records_ball"
@@ -76,6 +74,9 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     pending_ball_pixels = None
     pending_impact_point = None
     pending_record_index = None
+    first_ball_ts = None
+    last_nonempty_ball_pixels = None
+    save_delay_sec = 0.25
     try:
         while not stop_event.is_set():
             # Safely read ball_observations value and bound check
@@ -86,41 +87,66 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
             # print(ball_pixels)
             # print("record_index", record_index.value,system_state.value)
             try:
+                if system_state.value != 't':
+                    first_ball_ts = None
+                    last_nonempty_ball_pixels = None
+
                 if system_state.value == 't':
-                    saved=False
-                    if ball_observations.value == last_index:
+                    if current_obs > 0:
+                        last_nonempty_ball_pixels = ball_pixels
+                        if first_ball_ts is None:
+                            first_ball_ts = time.perf_counter()
+                            saved = False
+
+                    if first_ball_ts is None:
                         continue
-                    else:
-                        last_index = ball_observations.value
+
+                    if time.perf_counter() - first_ball_ts < save_delay_sec:
+                        continue
+
+                    snapshot = last_nonempty_ball_pixels if last_nonempty_ball_pixels is not None else ball_pixels
 
                     # Get trajectory parameters from config
                     trajectory = Config.get_trajectory()
 
-                    if len(ball_pixels) >= trajectory['required_observations']:
-                        ball_memory = ball_pixels
-                        observations = ball_memory
-                        fitter.set_data(observations)
-                        result = fitter.get_params()
-                        impact_point=fitter.predict()
-                        # print(impact_point)
-                        bounds_x = trajectory['impact_bounds_x']
-                        bounds_y = trajectory['impact_bounds_y']
-                        if bounds_x[0] < impact_point[1] < bounds_x[1] and bounds_y[0] < impact_point[2] < bounds_y[1]:
-                            buffered_impact_point = impact_point
-                        else:
-                            impact_point = buffered_impact_point
+                    # if len(snapshot) >= trajectory['required_observations']:
+                    #     observations = snapshot
+                    #     fitter.set_data(observations)
+                    #     fitter.get_params()
+                    #     impact_point = fitter.predict()
+                    #     bounds_x = trajectory['impact_bounds_x']
+                    #     bounds_y = trajectory['impact_bounds_y']
+                    #     print(bounds_x,bounds_y,impact_point)
+                    #     if bounds_x[0] < impact_point[1] < bounds_x[1] and bounds_y[0] < impact_point[2] < bounds_y[1]:
+                    #         buffered_impact_point = impact_point
+                    #     else:
+                    #         impact_point = buffered_impact_point
+                    # else:
+                    #     impact_point = buffered_impact_point
 
-                        # print(impact_point_arrays)
-                        impact_point_array[0] = impact_point[0]
-                        impact_point_array[1] = impact_point[1]
-                        impact_point_array[2] = impact_point[2]
-                        # Snapshot the data now so saving isn't affected by resets.
-                        pending_ball_pixels = ball_pixels.copy()
-                        pending_impact_point = impact_point_array.copy()
-                        pending_record_index = record_index.value
-                        print(impact_point_array)
-                        print("=== STATE CHANGE: 't' -> 'c' (Landing prediction complete, ready for catch) ===")
-                        system_state.value='r'
+                    observations = snapshot
+                    fitter.set_data(observations)
+                    fitter.get_params()
+                    impact_point = fitter.predict()
+                    bounds_x = trajectory['impact_bounds_x']
+                    bounds_y = trajectory['impact_bounds_y']
+                    print(bounds_x, bounds_y, impact_point)
+                    if bounds_x[0] < impact_point[1] < bounds_x[1] and bounds_y[0] < impact_point[2] < bounds_y[1]:
+                        buffered_impact_point = impact_point
+                    else:
+                        impact_point = buffered_impact_point
+
+                    impact_point_array[0] = impact_point[0]
+                    impact_point_array[1] = impact_point[1]
+                    impact_point_array[2] = impact_point[2]
+
+                    # Snapshot the data now so saving isn't affected by resets.
+                    pending_ball_pixels = snapshot.copy()
+                    pending_impact_point = impact_point_array.copy()
+                    pending_record_index = record_index.value
+                    print(impact_point_array)
+                    print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
+                    system_state.value='r'
 
                 if system_state.value == 'r' and not saved:
                     if pending_ball_pixels is None or pending_impact_point is None:

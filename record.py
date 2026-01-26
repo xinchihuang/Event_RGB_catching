@@ -473,6 +473,7 @@ if __name__ == '__main__':
     # Data version counters to prevent stale data processing
     event_data_version = Value('i', 0)  # Incremented each time event data is updated
     flir_data_version = Value('i', 0)   # Incremented each time FLIR data is updated
+    ball_pixel_3D_version = Value('i', 0)  # Incremented each time ball_pixel_3D is updated
 
     print(f"Starting with record_index: {args.record_index}")
 
@@ -492,8 +493,8 @@ if __name__ == '__main__':
         ),
         'model_ROI_process': Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'RGB_ROI_process': Process(target=pure_RGB,args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,event_data_version,flir_data_version,system_state, stop_event)),
-        'event_tracking_process': Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,event_data_version,flir_data_version,system_state, stop_event)),
-        'RGB_tracking_process': Process(target=RGB_tracking_3D, args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event,event_data_version,flir_data_version,system_state, stop_event)),
+        'event_tracking_process': Process(target=event_tracking_3D,args=(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_event,event_data_version,flir_data_version,system_state, stop_event, ball_pixel_3D_version)),
+        'RGB_tracking_process': Process(target=RGB_tracking_3D, args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, ball_observations, num_event,event_data_version,flir_data_version,system_state, stop_event, ball_pixel_3D_version)),
         'landing_prediction_process': Process(target=landing_prediction, args=(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event,args.test_mode,args.task)),
         'keyboard_process': Process(target=keyboard, args=(keyboard_input,system_state)),
         'robot_control_process': Process(target=robot_control, args=(shared_impact_point_data,system_state,stop_event)),
@@ -504,7 +505,8 @@ if __name__ == '__main__':
                               args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                     shared_ball_pixel_3D_data, ball_observations, num_event,
                                     event_data_version, flir_data_version, system_state, stop_event,
-                                    False, args.save_csv)),
+                                    False, args.save_csv),
+                              kwargs={'ball_pixel_3D_version': ball_pixel_3D_version}),
     }
     
     # Define process groups for different functionalities

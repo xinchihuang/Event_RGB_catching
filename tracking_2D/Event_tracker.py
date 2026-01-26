@@ -4,7 +4,6 @@ import sys
 from multiprocessing import Process,Array,Queue,Manager,shared_memory,Value
 import numpy as np
 import time
-import pandas as pd
 
 # Import configuration
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -49,7 +48,7 @@ def ROI_filter(events, ROI_data):
     # print(f"ROI_filter: filtered events = {len(new_event)} (from {len(events)})")
     return new_event
 
-def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_events,event_data_version,flir_data_version,system_state, stop_event):
+def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,shared_ball_pixel_3D_data,ball_observations,num_events,event_data_version,flir_data_version,system_state, stop_event, ball_pixel_3D_version=None):
     """
     Direct event clustering without converting to image first.
     Clusters events directly using their (x, y) coordinates, ignoring polarity.
@@ -147,25 +146,13 @@ def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,
                 # Direct clustering on event coordinates without time information
                 coordinate_extract_start = time.time()
                 if len(event_data) > 0:
-                    # Method 1: Use pandas for faster unique operations (best for large datasets)
-                    df = pd.DataFrame({'y': event_data['y'], 'x': event_data['x']})
-                    points = df.drop_duplicates().values
-                    
-                    # Method 2: Use lexsort for faster unique (best balance of speed/memory)
-                    # y_coords = event_data['y']
-                    # x_coords = event_data['x']
-                    # # Sort by x then y for lexicographic ordering
-                    # sorted_idx = np.lexsort((x_coords, y_coords))
-                    # y_sorted = y_coords[sorted_idx]
-                    # x_sorted = x_coords[sorted_idx]
-                    # # Find unique consecutive pairs
-                    # unique_mask = np.concatenate(([True],
-                    #                             (y_sorted[1:] != y_sorted[:-1]) |
-                    #                             (x_sorted[1:] != x_sorted[:-1])))
-                    # points = np.column_stack((y_sorted[unique_mask], x_sorted[unique_mask]))
-                    #
-                    # Method 3: Alternative - direct extraction without unique (fastest but uses more points)
-                    # points = np.column_stack((event_data['y'], event_data['x']))
+                    # Fast unique-by-position using integer packing (y * base_width + x).
+                    y_coords = event_data['y'].astype(np.int64, copy=False)
+                    x_coords = event_data['x'].astype(np.int64, copy=False)
+                    base_width = rgb_width + 1
+                    packed = y_coords * base_width + x_coords
+                    unique_idx = np.unique(packed, return_index=True)[1]
+                    points = np.column_stack((y_coords[unique_idx], x_coords[unique_idx]))
                 else:
                     points = np.empty((0, 2))
 
@@ -193,7 +180,7 @@ def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,
                     w = max(cluster_points[:, 0]) - y
                     h = max(cluster_points[:, 1]) - x
 
-                    if w<120 or h<120 and y < 1200 :
+                    if (w<120 or h<120) and y < 1000 :
                         ball_detected = True
                         ball_center_x = x + h / 2
                         ball_center_y = y + w / 2
@@ -207,6 +194,8 @@ def event_tracking_3D_direct(shared_event_data,shared_flir_data,shared_ROI_data,
                         ball_pixel_3D[ball_num][2] = float(ball_size)
                         ball_pixel_3D[ball_num][3] = t
                         ball_observations.value = ball_num + 1
+                        if ball_pixel_3D_version is not None:
+                            ball_pixel_3D_version.value += 1
                 postprocess_time = time.time() - postprocess_start
 
                 # === Timing Section End ===
@@ -305,6 +294,13 @@ def event_tracking_3D_direct_compare(shared_event_data, shared_flir_data, shared
         print(f"PLAIN VERSION: Config loaded: {tracking}")
         dbscan = DBSCAN(eps=tracking['dbscan_eps'], min_samples=tracking['dbscan_min_samples'])
         dbscan_raw = DBSCAN(eps=tracking['dbscan_eps'], min_samples=tracking['dbscan_min_samples'])
+        task_key = (os.environ.get("ACTIVE_TASK") or "").strip().lower()
+        if task_key in ("dark", "dark_clutter"):
+            raw_size_adjust = 1.0
+        elif task_key in ("normal", "clutter"):
+            raw_size_adjust = -1.0
+        else:
+            raw_size_adjust = 0.0
 
     except Exception as e:
         print(f"PLAIN VERSION: Error during initialization: {e}")
@@ -376,11 +372,19 @@ def event_tracking_3D_direct_compare(shared_event_data, shared_flir_data, shared
                 # Direct clustering on event coordinates without time information
                 coordinate_extract_start = time.time()
                 if len(event_data) > 0:
-                    # Method 1: Use pandas for faster unique operations (best for large datasets)
-                    df = pd.DataFrame({'y': event_data['y'], 'x': event_data['x']})
-                    points = df.drop_duplicates().values
-                    df_raw = pd.DataFrame({'y': event_data_raw['y'], 'x': event_data_raw['x']})
-                    points_raw = df_raw.drop_duplicates().values
+                    # Fast unique-by-position using integer packing (y * base_width + x).
+                    y_coords = event_data['y'].astype(np.int64, copy=False)
+                    x_coords = event_data['x'].astype(np.int64, copy=False)
+                    base_width = rgb_width + 1
+                    packed = y_coords * base_width + x_coords
+                    unique_idx = np.unique(packed, return_index=True)[1]
+                    points = np.column_stack((y_coords[unique_idx], x_coords[unique_idx]))
+
+                    y_coords_raw = event_data_raw['y'].astype(np.int64, copy=False)
+                    x_coords_raw = event_data_raw['x'].astype(np.int64, copy=False)
+                    packed_raw = y_coords_raw * base_width + x_coords_raw
+                    unique_idx_raw = np.unique(packed_raw, return_index=True)[1]
+                    points_raw = np.column_stack((y_coords_raw[unique_idx_raw], x_coords_raw[unique_idx_raw]))
 
 
                 else:
@@ -438,7 +442,7 @@ def event_tracking_3D_direct_compare(shared_event_data, shared_flir_data, shared
                     ball_detected = True
                     ball_center_x_raw = x_raw + h_raw / 2
                     ball_center_y_raw = y_raw + w_raw / 2
-                    ball_size_raw = max(h_raw, w_raw)
+                    ball_size_raw = max(h_raw, w_raw) + raw_size_adjust
 
                     ball_num_raw = ball_observations.value
                     # Check bounds before writing to shared memory
@@ -496,5 +500,3 @@ def event_tracking_3D_direct_compare(shared_event_data, shared_flir_data, shared
     finally:
         print("Direct Event tracking: Cleaning up...")
         # Do NOT close shared memory in subprocess - main process handles cleanup
-
-

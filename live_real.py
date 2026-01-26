@@ -179,22 +179,52 @@ if __name__ == '__main__':
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
     
-    # Load configuration based on task parameter
+    # Load configuration based on task and test_mode
     config_mapping = {
+        "model": {
+            "normal": "config/config_l_model.yaml",
+            "dark": "config/config_d_model.yaml",
+            "clutter": "config/config_c_model.yaml",
+            "dark_cluster": "config/config_dc_model.yaml"
+        },
+        "rgb": {
+            "normal": "config/config_l_rgb.yaml",
+            "dark": "config/config_d_rgb.yaml",
+            "clutter": "config/config_c_rgb.yaml",
+            "dark_cluster": "config/config_dc_rgb.yaml"
+        },
+        "event": {
+            "normal": "config/config_l_event.yaml",
+            "dark": "config/config_d_event.yaml",
+            "clutter": "config/config_c_event.yaml",
+            "dark_cluster": "config/config_dc_event.yaml"
+        }
+    }
+    legacy_mapping = {
         "normal": "config/config_l.yaml",
         "dark": "config/config_d.yaml",
         "clutter": "config/config_c.yaml",
         "dark_cluster": "config/config_dc.yaml"
-
     }
-    
+    mode_key = (args.test_mode or "").strip().lower()
+    task_key = (args.task or "").lower()
+    config_file = None
+    if mode_key in config_mapping:
+        config_file = config_mapping[mode_key].get(task_key)
+    if config_file is None:
+        config_file = legacy_mapping.get(task_key)
+
     # Set environment variables for subprocess config loading
-    if args.task in config_mapping:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_mapping[args.task]
+    if config_file:
+        os.environ['ACTIVE_CONFIG_FILE'] = config_file
         os.environ['ACTIVE_TASK'] = args.task
-        print(f"使用任务配置 {args.task}: {config_mapping[args.task]}")
+        print(f"使用任务配置 {args.task}: {config_file}")
     else:
         print(f"未知任务类型: {args.task}, 使用默认配置")
+
+    # Set environment variables for GUI process to access test_mode and task
+    os.environ['TEST_MODE'] = args.test_mode
+    print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
     
     device = torch.device("cuda")
 
@@ -236,6 +266,7 @@ if __name__ == '__main__':
     # Data version counters to prevent stale data processing
     event_data_version = Value('i', 0)  # Incremented each time event data is updated
     flir_data_version = Value('i', 0)   # Incremented each time FLIR data is updated
+    ball_pixel_3D_version = Value('i', 0)  # Incremented each time ball_pixel_3D is updated
     
     print(f"Starting with record_index: {args.record_index}")
 
@@ -260,11 +291,13 @@ if __name__ == '__main__':
         'event_tracking_process': Process(target=event_tracking_3D_direct,
                                           args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                                 shared_ball_pixel_3D_data, ball_observations, num_event,
-                                                event_data_version, flir_data_version, system_state, stop_event)),
+                                                event_data_version, flir_data_version, system_state, stop_event,
+                                                ball_pixel_3D_version)),
         'RGB_tracking_process': Process(target=RGB_tracking_3D,
                                         args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                               shared_ball_pixel_3D_data, ball_observations, num_event,
-                                              event_data_version, flir_data_version, system_state, stop_event)),
+                                              event_data_version, flir_data_version, system_state, stop_event,
+                                              ball_pixel_3D_version)),
         'landing_prediction_process': Process(target=landing_prediction,
                                               args=(shared_ball_pixel_3D_data, ball_observations,
                                                     shared_impact_point_data, record_index, system_state, stop_event)),
@@ -274,7 +307,8 @@ if __name__ == '__main__':
         'gui_process': Process(target=gui_display_process,
                               args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                     shared_ball_pixel_3D_data, ball_observations, num_event,
-                                    event_data_version, flir_data_version, system_state, stop_event)),
+                                    event_data_version, flir_data_version, system_state, stop_event),
+                              kwargs={'ball_pixel_3D_version': ball_pixel_3D_version}),
     }
     
     # Define process groups for different functionalities
@@ -331,4 +365,3 @@ if __name__ == '__main__':
     finally:
         # Clean up all shared memory using the manager
         shm_manager.cleanup_all()
-

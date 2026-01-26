@@ -794,6 +794,110 @@ class MonoRansac:
         print(impact_point)
         return impact_point
 
+class MonoRansacDrag:
+    def __init__(self, camera_params, rotation_matrix_to, rotation_matrix_back, ball_diameter=0.104,
+                 drag_k_init=0.05, drag_k_bounds=(1e-4, 5.0)):
+        self.camera_params = camera_params
+        self.rotation_matrix_to = rotation_matrix_to
+        self.rotation_matrix_back = rotation_matrix_back
+        self.ball_diameter = ball_diameter
+        self.drag_k_init = drag_k_init
+        self.drag_k_bounds = drag_k_bounds
+
+    def set_data(self, data):
+        self.data = data
+
+    def _trajectory_model(self, params, t):
+        x0, y0, z0, vx, vy, vz, k = params
+        t = np.asarray(t, dtype=float).reshape(-1, 1)
+        p0 = np.array([x0, y0, z0], dtype=float).reshape(1, -1)
+        v0 = np.array([vx, vy, vz], dtype=float).reshape(1, -1)
+        g = GRAVITY.reshape(1, -1)
+        if k < 1e-6:
+            return p0 + v0 * t + 0.5 * g * t ** 2
+        exp_term = np.exp(-k * t)
+        drag_term = (v0 - g / k) * (1.0 - exp_term) / k + g * t / k
+        return p0 + drag_term
+
+    def _impact_time(self, x0, vx, k):
+        if vx == 0:
+            return np.inf
+        if k < 1e-6:
+            return abs(x0 / vx)
+        term = 1.0 + k * x0 / vx
+        if term <= 0:
+            return abs(x0 / vx)
+        impact_t = -np.log(term) / k
+        if impact_t < 0:
+            return abs(x0 / vx)
+        return impact_t
+
+    def get_params(self):
+        world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back, self.ball_diameter)
+        timesteps = self.data[:, 3]
+
+        init_position, velocity, inliers, points_3d = adaptive_ransac_parabola_3d(
+            world_coords,
+            timesteps,
+            use_drag=True,
+            drag_k=self.drag_k_init,
+        )
+        fit_points = world_coords[inliers] if inliers is not None else world_coords
+        fit_times = timesteps[inliers] if inliers is not None else timesteps
+
+        initial_guess = [
+            init_position[0], init_position[1], init_position[2],
+            velocity[0], velocity[1], velocity[2],
+            self.drag_k_init,
+        ]
+        lower = [-np.inf, -np.inf, -np.inf, -np.inf, -np.inf, -np.inf, self.drag_k_bounds[0]]
+        upper = [np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, self.drag_k_bounds[1]]
+
+        def residuals(params):
+            predicted_coords = self._trajectory_model(params, fit_times)
+            return (fit_points - predicted_coords).ravel()
+
+        opt_result = least_squares(
+            residuals,
+            initial_guess,
+            bounds=(lower, upper),
+            max_nfev=200,
+            xtol=1e-6,
+            ftol=1e-6,
+            verbose=0
+        )
+        params = opt_result.x.tolist() if opt_result.success else initial_guess
+        predeicted_params = {
+            "points": points_3d,
+            "params": {
+                "x0": params[0],
+                "y0": params[1],
+                "z0": params[2],
+                "vx": params[3],
+                "vy": params[4],
+                "vz": params[5],
+                "k": params[6],
+            },
+            "inliers": inliers,
+        }
+        self.predeicted_params = predeicted_params
+        return predeicted_params
+
+    def predict(self):
+        params = self.predeicted_params["params"]
+        x0 = params["x0"]
+        y0 = params["y0"]
+        z0 = params["z0"]
+        vx = params["vx"]
+        vy = params["vy"]
+        vz = params["vz"]
+        k = params.get("k", self.drag_k_init)
+
+        impact_t = self._impact_time(x0, vx, k)
+        impact_point = self._trajectory_model([x0, y0, z0, vx, vy, vz, k], [impact_t])[0]
+        impact_point[0] = 0
+        return impact_point.tolist()
+
 
 
 

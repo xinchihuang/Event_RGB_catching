@@ -215,7 +215,8 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     npy_path = os.path.join(project_root, Config.get_paths()['template_npy'])
-    first_event_data = np.load(npy_path)
+
+    first_event_data = np.load(npy_path, allow_pickle=True)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
                                                 device=device)
@@ -351,11 +352,11 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
             postprocess_start = time.time()
             bbox = out.get('target_bbox')
             confidence = out.get('confidence', 0.0)  # Get confidence, default to 0.0 if not available
-
+            print('confidence', confidence)
             # Confidence-based tracking strategy
             if confidence < 0.15:  # Very low confidence - reset to image center
                 center_x = rgb_width // 2
-                center_y = rgb_height // 2
+                center_y = rgb_height*2// 3
                 center_size = 40
                 bbox = [center_x - center_size // 2, center_y - center_size // 2, center_size, center_size]
                 print(f"Frame {count}: Very low confidence {confidence:.3f}, reset to center: {bbox}")

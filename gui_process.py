@@ -17,6 +17,19 @@ from config.config_loader import Config
 from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
 
+def _get_display_mode():
+    """Get display mode for overlay control (event/rgb/model)."""
+    mode = os.environ.get('TEST_MODE') or os.environ.get('TASK_MODE')
+    if not mode and '--test_mode' in sys.argv:
+        try:
+            mode_idx = sys.argv.index('--test_mode')
+            if mode_idx + 1 < len(sys.argv):
+                mode = sys.argv[mode_idx + 1]
+        except ValueError:
+            pass
+    return (mode or '').strip().lower()
+
+
 def save_cached_data_to_files(data_cache, save_dir):
     """将缓存的数据保存到文件"""
     if not data_cache or not save_dir:
@@ -126,7 +139,8 @@ def gui_display_process(
     system_state,
     stop_event,
     save_images=False,
-    save_csv=False
+    save_csv=False,
+    ball_pixel_3D_version=None
 ):
     """
     专职GUI显示进程
@@ -140,6 +154,15 @@ def gui_display_process(
     注意: 这是唯一调用OpenCV GUI函数的进程
     """
     print("GUI Process: Starting...")
+    sys.stdout.flush()
+
+    display_mode = _get_display_mode()
+    if display_mode not in ('event', 'rgb', 'model'):
+        display_mode = 'model'
+    draw_bbox_event = display_mode in ('event', 'model')
+    draw_bbox_rgb = display_mode in ('rgb', 'model')
+    draw_roi = display_mode == 'model'
+    print(f"GUI Process: Display mode set to {display_mode}")
     sys.stdout.flush()
 
     # Get image dimensions from config
@@ -225,6 +248,7 @@ def gui_display_process(
     # Track last displayed versions to avoid displaying stale data
     last_event_version = -1
     last_flir_version = -1
+    last_ball_version = -1
 
     # 3. Main display loop
     while not stop_event.is_set():
@@ -235,11 +259,18 @@ def gui_display_process(
                 continue
 
             # Check if we have new data, skip if stale
-            current_event_version = event_data_version.value
-            if current_event_version == last_event_version:
-                time.sleep(0.001)  # Brief sleep to avoid busy-waiting
-                continue
-            last_event_version = current_event_version
+            if display_mode == 'rgb':
+                current_flir_version = flir_data_version.value
+                if current_flir_version == last_flir_version:
+                    time.sleep(0.001)  # Brief sleep to avoid busy-waiting
+                    continue
+                last_flir_version = current_flir_version
+            else:
+                current_event_version = event_data_version.value
+                if current_event_version == last_event_version:
+                    time.sleep(0.001)  # Brief sleep to avoid busy-waiting
+                    continue
+                last_event_version = current_event_version
 
             # Read event data and generate visualization
             current_num_events = num_event.value
@@ -272,74 +303,81 @@ def gui_display_process(
             # Read ball_pixel_3D data and draw bounding box for latest observation only
             current_obs = ball_observations.value
             ball_info = {'detected': False}
-            
+
+            if ball_pixel_3D_version is not None:
+                current_ball_version = ball_pixel_3D_version.value
+                if current_ball_version != last_ball_version:
+                    last_ball_version = current_ball_version
+                else:
+                    current_obs = 0
+
             if current_obs > 0 and current_obs <= ball_pixel_3D_shape[0]:
                 ball_pixels = ball_pixel_3D_buffer[:current_obs].copy()
 
                 # Draw only the latest observation (most recent detection)
-                if current_obs > 0:
-                    latest_idx = current_obs - 1  # Get the latest observation index
-                    x, y, h = ball_pixels[latest_idx][:3]
-                    if h > 0:  # Valid detection
-                        x_int, y_int, h_int = int(x), int(y), int(h)
-                        # Draw bounding box centered at (x, y)
-                        x1 = x_int - h_int // 2
-                        y1 = y_int - h_int // 2
-                        x2 = x_int + h_int // 2
-                        y2 = y_int + h_int // 2
+                latest_idx = current_obs - 1  # Get the latest observation index
+                x, y, h = ball_pixels[latest_idx][:3]
+                if h > 0:  # Valid detection
+                    x_int, y_int, h_int = int(x), int(y), int(h)
+                    # Draw bounding box centered at (x, y)
+                    x1 = x_int - h_int // 2
+                    y1 = y_int - h_int // 2
+                    x2 = x_int + h_int // 2
+                    y2 = y_int + h_int // 2
 
+                    if draw_bbox_event:
                         # Draw on event image (green box)
                         cv2.rectangle(event_image, (x1, y1), (x2, y2), (0, 255, 0), 5)
-                        
-                        # Also draw on RGB image for better visibility
-                        cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
-                        
                         # Add center point marker
                         cv2.circle(event_image, (x_int, y_int), 5, (0, 255, 255), -1)  # Yellow center
+                    if draw_bbox_rgb:
+                        # Draw on RGB image for better visibility
+                        cv2.rectangle(rgb_image, (x1, y1), (x2, y2), (0, 255, 0), 3)
+                        # Add center point marker
                         cv2.circle(rgb_image, (x_int, y_int), 3, (0, 255, 255), -1)
-                        
-                        # Store ball info for metadata
-                        ball_info = {
-                            'detected': True,
-                            'x': float(x),
-                            'y': float(y), 
-                            'size': float(h),
-                            'bbox': [x1, y1, x2, y2]
-                        }
-                        
-                        # Save bounding box to CSV (if enabled)
-                        if save_csv and csv_filename:
-                            save_bbox_to_csv([x1, y1, x2, y2], csv_filename)
 
-            # Read ROI data and draw expanded ROI on both images
-            roi = ROI_buffer.copy()
+                    # Store ball info for metadata
+                    ball_info = {
+                        'detected': True,
+                        'x': float(x),
+                        'y': float(y),
+                        'size': float(h),
+                        'bbox': [x1, y1, x2, y2]
+                    }
+                    
+                    # Save bounding box to CSV (if enabled)
+                    if save_csv and csv_filename:
+                        save_bbox_to_csv([x1, y1, x2, y2], csv_filename)
+
             roi_info = {'valid': False}
-            
-            if roi[2] > 0 and roi[3] > 0:  # Valid ROI
-                x_r, y_r, w_r, h_r = [int(v) for v in roi]
-                
-                # Expand ROI according to roi_range (same logic as Event_tracker.py)
-                x_r_expanded = max(x_r - roi_range, 0)
-                y_r_expanded = max(y_r - 2*roi_range, 0)
-                w_r_expanded = w_r + 2 * roi_range
-                h_r_expanded = h_r + 4 * roi_range
-                
-                # Draw original ROI box in blue
-                cv2.rectangle(event_image, (x_r, y_r), (x_r + w_r, y_r + h_r), (255, 0, 0), 3)
-                cv2.rectangle(rgb_image, (x_r, y_r), (x_r + w_r, y_r + h_r), (255, 0, 0), 2)
-                
-                # Draw expanded ROI box in red (dashed if possible)
-                cv2.rectangle(event_image, (x_r_expanded, y_r_expanded), 
-                            (x_r_expanded + w_r_expanded, y_r_expanded + h_r_expanded), (0, 0, 255), 2)
-                cv2.rectangle(rgb_image, (x_r_expanded, y_r_expanded), 
-                            (x_r_expanded + w_r_expanded, y_r_expanded + h_r_expanded), (0, 0, 255), 2)
-                
-                # Store ROI info for metadata
-                roi_info = {
-                    'valid': True,
-                    'x': x_r, 'y': y_r, 'w': w_r, 'h': h_r,
-                    'expanded': [x_r_expanded, y_r_expanded, w_r_expanded, h_r_expanded]
-                }
+            if draw_roi:
+                # Read ROI data and draw expanded ROI on both images
+                roi = ROI_buffer.copy()
+                if roi[2] > 0 and roi[3] > 0:  # Valid ROI
+                    x_r, y_r, w_r, h_r = [int(v) for v in roi]
+                    
+                    # Expand ROI according to roi_range (same logic as Event_tracker.py)
+                    x_r_expanded = max(x_r - roi_range, 0)
+                    y_r_expanded = max(y_r - 2*roi_range, 0)
+                    w_r_expanded = w_r + 2 * roi_range
+                    h_r_expanded = h_r + 4 * roi_range
+                    
+                    # Draw original ROI box in blue
+                    cv2.rectangle(event_image, (x_r, y_r), (x_r + w_r, y_r + h_r), (255, 0, 0), 3)
+                    cv2.rectangle(rgb_image, (x_r, y_r), (x_r + w_r, y_r + h_r), (255, 0, 0), 2)
+                    
+                    # Draw expanded ROI box in red (dashed if possible)
+                    cv2.rectangle(event_image, (x_r_expanded, y_r_expanded), 
+                                (x_r_expanded + w_r_expanded, y_r_expanded + h_r_expanded), (0, 0, 255), 2)
+                    cv2.rectangle(rgb_image, (x_r_expanded, y_r_expanded), 
+                                (x_r_expanded + w_r_expanded, y_r_expanded + h_r_expanded), (0, 0, 255), 2)
+                    
+                    # Store ROI info for metadata
+                    roi_info = {
+                        'valid': True,
+                        'x': x_r, 'y': y_r, 'w': w_r, 'h': h_r,
+                        'expanded': [x_r_expanded, y_r_expanded, w_r_expanded, h_r_expanded]
+                    }
 
             # Resize for display
             scale = processing['display_scale']

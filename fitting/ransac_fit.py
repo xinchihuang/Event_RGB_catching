@@ -8,6 +8,25 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 GRAVITY = np.array([0, 0, -9.81])  # in positive y direction
 
+
+def _drag_alpha_beta(time, k):
+    t = np.asarray(time, dtype=float)
+    if k < 1e-6:
+        alpha = t
+        beta = 0.5 * t ** 2
+    else:
+        exp_term = np.exp(-k * t)
+        alpha = (1.0 - exp_term) / k
+        beta = t / k - (1.0 - exp_term) / (k ** 2)
+    return alpha, beta
+
+
+def _trajectory_drag(p, v, time, k):
+    alpha, beta = _drag_alpha_beta(time, k)
+    return (p.reshape(1, -1)
+            + v.reshape(1, -1) * alpha.reshape(-1, 1)
+            + GRAVITY.reshape(1, -1) * beta.reshape(-1, 1))
+
 def bboxes_to_3d_points(bboxes, area_ball=.1 ** 2, camera_matrix=None, distortion_coeffs=None, distortion_model=None):
     # get depth from area
     area = compute_area_from_bboxes(bboxes) * np.pi / 4
@@ -39,6 +58,24 @@ def minimal_solution_parabola(points_3d, time):
     return p, v
 
 
+def minimal_solution_drag(points_3d, time, k):
+    time = np.asarray(time, dtype=float)
+    if k < 1e-6:
+        return minimal_solution_parabola(points_3d, time)
+    alpha, beta = _drag_alpha_beta(time, k)
+    A = np.array([[1.0, alpha[0]], [1.0, alpha[1]]], dtype=float)
+    if np.isclose(np.linalg.det(A), 0.0):
+        return minimal_solution_parabola(points_3d, time)
+    adjusted = points_3d - GRAVITY.reshape(1, -1) * beta.reshape(-1, 1)
+    p = np.zeros(3)
+    v = np.zeros(3)
+    for axis in range(3):
+        sol = np.linalg.solve(A, adjusted[:, axis])
+        p[axis] = sol[0]
+        v[axis] = sol[1]
+    return p, v
+
+
 def ransac_iter_from_confidence_and_outlier_probability(outlier_probability, confidence=0.99):
     return int(np.log(1 - confidence) / np.log(1 - (1 - outlier_probability) ** 2))
 
@@ -63,9 +100,35 @@ def least_squares_solution_parabola(points_3d, time):
     return p_opt, v_opt
 
 
+def least_squares_solution_drag(points_3d, time, k):
+    time = np.asarray(time, dtype=float)
+    if k < 1e-6:
+        return least_squares_solution_parabola(points_3d, time)
+    alpha, beta = _drag_alpha_beta(time, k)
+    adjusted = points_3d - GRAVITY.reshape(1, -1) * beta.reshape(-1, 1)
+    n = len(points_3d)
+    alpha_sum = alpha.sum()
+    alpha_2_sum = (alpha ** 2).sum()
+    adjusted_sum = adjusted.sum(0)
+    alpha_adjusted_sum = (adjusted * alpha.reshape(-1, 1)).sum(0)
+    denom = alpha_sum ** 2 - n * alpha_2_sum
+    if np.isclose(denom, 0.0):
+        return least_squares_solution_parabola(points_3d, time)
+    p_opt = (alpha_sum * alpha_adjusted_sum - adjusted_sum * alpha_2_sum) / denom
+    v_opt = (alpha_sum * adjusted_sum - n * alpha_adjusted_sum) / denom
+    return p_opt, v_opt
+
+
 def compute_inliers(points_3d, time, p, v, inlier_threshold=0.1):
     points_3d_gravity_comp = points_3d - 0.5 * GRAVITY.reshape((1, -1)) * time.reshape((-1, 1)) ** 2
     errors = (points_3d_gravity_comp - v.reshape((1, -1)) * time.reshape((-1, 1)) - p.reshape((1, -1)))
+    inliers = (errors ** 2).sum(-1) < inlier_threshold ** 2
+    return inliers
+
+
+def compute_inliers_drag(points_3d, time, p, v, k, inlier_threshold=0.1):
+    predicted = _trajectory_drag(p, v, time, k)
+    errors = points_3d - predicted
     inliers = (errors ** 2).sum(-1) < inlier_threshold ** 2
     return inliers
 
@@ -80,7 +143,8 @@ def reasonable_estimate(p, v):
     return True  # (impact_point[0] <= xlims[1] and impact_point[0] >= xlims[0] and impact_point[1] <= ylims[1] and impact_point[1] >= ylims[0])
 
 
-def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.99, num_max_ransac_iter=500, inlier_threshold=0.35):
+def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.9, num_max_ransac_iter=500,
+                                inlier_threshold=0.35, use_drag=False, drag_k=0.05):
     # parabola has equation p(t) = 1/2 g t^2 e_y + v t + p
     # unknowns are p and v
     num_ransac_iter = num_max_ransac_iter
@@ -92,11 +156,17 @@ def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.99, num_max_ransac
     # print(time)
     while num_iter_done < num_ransac_iter:
         indices = np.random.choice(len(points_3d), size=(2,), replace=False)
-        p, v = minimal_solution_parabola(points_3d[indices], time[indices])
+        if use_drag:
+            p, v = minimal_solution_drag(points_3d[indices], time[indices], drag_k)
+        else:
+            p, v = minimal_solution_parabola(points_3d[indices], time[indices])
 
 
         if reasonable_estimate(p, v):
-            inliers = compute_inliers(points_3d, time, p, v, inlier_threshold=inlier_threshold)
+            if use_drag:
+                inliers = compute_inliers_drag(points_3d, time, p, v, drag_k, inlier_threshold=inlier_threshold)
+            else:
+                inliers = compute_inliers(points_3d, time, p, v, inlier_threshold=inlier_threshold)
         else:
             inliers = np.full_like(points_3d[:, 0], fill_value=False, dtype="bool")
         num_inliers = inliers.sum()
@@ -119,7 +189,10 @@ def adaptive_ransac_parabola_3d(points_3d, time, confidence=0.99, num_max_ransac
 
         num_iter_done += 1
 
-    p_opt, v_opt = least_squares_solution_parabola(points_3d[inliers], time[inliers])
+    if use_drag:
+        p_opt, v_opt = least_squares_solution_drag(points_3d[inliers], time[inliers], drag_k)
+    else:
+        p_opt, v_opt = least_squares_solution_parabola(points_3d[inliers], time[inliers])
     # p_opt, v_opt = max_p, max_v #least_squares_solution_parabola(points_3d[inliers], time[inliers])
     # print(f"NUM OF INLIERS {num_inliers}, NUM OF POINTS {points_3d.shape[0]}")
     # print("INLIERS")
