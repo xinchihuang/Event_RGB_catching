@@ -51,10 +51,6 @@ Replace with a GIF or link to an MP4:
 
 ![Demo clip](docs/media/demo.gif)
 
-Or embed a video link:
-```
-https://your.video.hosting/link
-```
 
 ## Configuration
 - `config/`: YAML configs used by different modes.
@@ -91,4 +87,4 @@ Some scripts use keyboard control (via `pynput`). Typical keys:
 Refer to console logs for exact behavior.
 
 ---
-If you want me to add setup steps, dataset details, or a workflow diagram, tell me your hardware setup and preferred workflow.
+
