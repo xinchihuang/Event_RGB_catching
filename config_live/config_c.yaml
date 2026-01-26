@@ -1,0 +1,106 @@
+# Event RGB Catching System Configuration
+# Main configuration file for hardcoded parameters
+
+# Image dimensions
+image:
+  rgb_width: 1080
+  rgb_height: 1440
+  event_width: 720
+  event_height: 1280
+
+# Timing parameters (seconds)
+timing:
+  startup_delay: 3
+  reset_delay: 2
+  shutdown_timeout: 5
+
+# Image processing
+image_processing:
+  # Event frame generation
+  accumulation_time_us: 1000
+  fps: 0.0
+  
+  # Binary threshold
+  binary_threshold: 40
+  binary_max_value: 255
+  
+  # Image enhancement
+  contrast_alpha: 0.5
+  contrast_beta: 30
+  
+  # Display scale
+  display_scale: 0.8
+
+# Clustering (DBSCAN)
+clustering:
+  eps: 9
+  min_samples: 70
+
+# Memory buffer sizes
+buffers:
+  max_events: 100000
+  ball_observations: 100
+  ball_pixel_3d: 1000
+
+# Data paths
+paths:
+  record_dir: "/media/xinchi/data/Event_RGB_catching_data/saved_data_c"
+  template_npy: "78.npy"
+  template_jpg: "78.jpg"
+
+# Camera alignment
+alignment:
+  event_pixel_size: 3.45
+  rgb_pixel_size: 4.86
+  offset_x: 30
+  offset_y: 29
+  y_coordinate_offset: 1279
+
+# Data reading
+data_reading:
+  delta_t: 2000
+  n_events: 10000
+  send_interval: 0.002
+  video_period: 0.02
+
+# Motor control
+motor:
+  bitrate: 1000000
+  motor_id: 101
+  main_can_id: 254
+  kp: 100
+  kd: 1
+  shaft_length: 0.5
+  joint_height: 0.7
+  movement_delay: 2
+
+# Camera intrinsics
+camera_intrinsics:
+  fx: 987.1678420424932
+  fy: 986.0683237433913
+  cx: 513.7733221750243
+  cy: 739.7418995490075
+  distortion_coeffs: [-0.11123899870851763, -0.020663002330730863, -0.0002997445722290338, 0.0007964973013426446, 0.014818755754515196]
+
+# Trajectory fitting
+trajectory:
+  required_observations: 25
+  inlier_threshold: 0.35
+  gravity: -9.81
+  impact_bounds_x: [-1.5, 1.5]
+  impact_bounds_y: [0, 2]
+
+# ROI detection
+roi:
+  hsv_lower: [30, 90, 0]
+  hsv_upper: [50, 255, 255]
+  kernel_size: [5, 5]
+  morphology_iterations: 2
+  roi_range: 100
+  default_bbox: [475, 1170, 70, 70]
+
+# Ball tracking
+tracking:
+  dbscan_eps: 15
+  dbscan_min_samples: 100
+  max_ball_buffer: 1000
