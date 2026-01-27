@@ -42,8 +42,6 @@ Note: `--task` options differ slightly per script. Check each script's `argparse
 ### Perception Model Overview Diagram
 ![System overview](docs/media/architecture.png)
 
-### Tracking Visualization
-![Tracking visualization](docs/media/tracking.png)
 
 ### Demo Video (GIF/MP4)
 Replace with a GIF or link to an MP4:
