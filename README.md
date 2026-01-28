@@ -40,13 +40,12 @@ Note: `--task` options differ slightly per script. Check each script's `argparse
 ## Media
 
 ### Perception Model Overview Diagram
-![System overview](doc/media/architecture.png)
+![System overview](doc/architecture.png)
 
 
 ### Demo Video (GIF/MP4)
-Replace with a GIF or link to an MP4:
 
-![Demo clip](doc/media/demo.gif)
+![Demo clip](doc/demo.gif)
 
 
 ## Configuration
