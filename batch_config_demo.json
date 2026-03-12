@@ -1,27 +1,10 @@
 [
  {
-    "test_mode": "Model",
-    "task": "clutter",
-    "start_index":0,
-    "max_runs": 1
-  },
-    {
-    "test_mode": "Model",
+    "test_mode": "Event",
     "task": "normal",
     "start_index":0,
-    "max_runs": 1
-  },
-  {
-    "test_mode": "Model",
-    "task": "dark",
-    "start_index":1,
-    "max_runs": 1
-  },
-    {
-    "test_mode": "Model",
-    "task": "dark_clutter",
-    "start_index":1,
-    "max_runs": 1
+    "max_runs": 10
   }
+
 
 ]

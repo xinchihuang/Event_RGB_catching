@@ -172,10 +172,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Event",
+    parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB')
-    parser.add_argument('--task', type=str, default="normal",
-                        choices=["normal", "dark", "clutter", "dark_cluster"],
+    parser.add_argument('--task', type=str, default="dark_clutter",
+                        choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
     
@@ -185,19 +185,19 @@ if __name__ == '__main__':
             "normal": "config/config_l_model.yaml",
             "dark": "config/config_d_model.yaml",
             "clutter": "config/config_c_model.yaml",
-            "dark_cluster": "config/config_dc_model.yaml"
+            "dark_clutter": "config/config_dc_model.yaml"
         },
         "rgb": {
             "normal": "config/config_l_rgb.yaml",
             "dark": "config/config_d_rgb.yaml",
             "clutter": "config/config_c_rgb.yaml",
-            "dark_cluster": "config/config_dc_rgb.yaml"
+            "dark_clutter": "config/config_dc_rgb.yaml"
         },
         "event": {
             "normal": "config/config_l_event.yaml",
             "dark": "config/config_d_event.yaml",
             "clutter": "config/config_c_event.yaml",
-            "dark_cluster": "config/config_dc_event.yaml"
+            "dark_clutter": "config/config_dc_event.yaml"
         }
     }
     legacy_mapping = {
@@ -314,7 +314,7 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','gui_process'],
+        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','gui_process','robot_control_process'],
         'RGB': ['event_process','flir_process','RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'keyboard_process','robot_control_process','gui_process'],
         'Model':['event_process','flir_process','model_ROI_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process','gui_process'],
     }
@@ -333,6 +333,7 @@ if __name__ == '__main__':
                 continue
 
             process = all_processes[process_name]
+            
             process.start()
             started_processes.append(process)
             print(f"Started: {process_name}")

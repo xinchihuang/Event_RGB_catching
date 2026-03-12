@@ -474,8 +474,8 @@ def main():
     )
 
     parser.add_argument('raw_file', type=str, nargs='?',
-                        default='/media/xinchi/data/Event_RGB_catching_data/saved_data_c/event/0.raw',
-                        help='.raw文件路径 (默认: /media/xinchi/data/Event_RGB_catching_data/saved_data_l/event/0.raw)')
+                        default='/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw',
+                        )
     parser.add_argument('--task', type=str, default='clutter',
                         choices=['normal', 'dark', 'clutter', 'dark_clutter'],
                         help='任务类型，用于加载对应配置 (默认: clutter)')

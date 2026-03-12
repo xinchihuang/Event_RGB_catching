@@ -62,7 +62,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     buffered_impact_point = [0,0,0]
 
     # Setup for saving ball_pixel_3D data based on test_mode and task
-    base_dir = f"/media/xinchi/data/evaluation_data/evaluation_results/{test_mode}_{task}"
+    # base_dir = f"/media/xinchi/data/evaluation_data/evaluation_results/{test_mode}_{task}"
+    base_dir = f"/home/xinchi/real_test_data/test_results/{test_mode}_{task}"
     ball_pixel_save_dir = f"{base_dir}/ball_pixel_3D_records_ball"
     if not os.path.exists(ball_pixel_save_dir):
         os.makedirs(ball_pixel_save_dir)
@@ -76,7 +77,7 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     pending_record_index = None
     first_ball_ts = None
     last_nonempty_ball_pixels = None
-    save_delay_sec = 0.25
+    save_delay_sec = 0.3
     try:
         while not stop_event.is_set():
             # Safely read ball_observations value and bound check
@@ -145,8 +146,10 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     pending_impact_point = impact_point_array.copy()
                     pending_record_index = record_index.value
                     print(impact_point_array)
-                    print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
-                    system_state.value='r'
+                    # print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
+                    # system_state.value='r'
+                    print("=== STATE CHANGE: 't' -> 'c' (Timer reached, ready to catch) ===")
+                    system_state.value = 'c'
 
                 if system_state.value == 'r' and not saved:
                     if pending_ball_pixels is None or pending_impact_point is None:

@@ -43,7 +43,7 @@ buffers:
 # Data paths
 paths:
   #  record_dir: "/media/xinchi/data/processed_data/saved_data_l"
-  record_dir: "/media/xinchi/data/evaluation_data/saved_data_l"
+  record_dir: "/home/xinchi/real_data/saved_data_l"
   template_npy: "l.npy"
   template_jpg: "l.jpg"
 
@@ -101,6 +101,6 @@ roi:
 
 # Ball tracking
 tracking:
-  dbscan_eps: 15
+  dbscan_eps: 23
   dbscan_min_samples: 100
   max_ball_buffer: 1000
