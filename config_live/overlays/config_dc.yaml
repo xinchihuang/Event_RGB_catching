@@ -1,0 +1,25 @@
+image_processing:
+  display_scale: 0.6
+paths:
+  record_dir: /media/xinchi/data/Event_RGB_catching_data/saved_data_dc
+  template_npy: 94.npy
+  template_jpg: 94.jpg
+rgb_param:
+  kernel_size:
+  - 5
+  - 5
+  morphology_iterations: 2
+  hsv_lower:
+  - 30
+  - 90
+  - 0
+  hsv_upper:
+  - 50
+  - 255
+  - 255
+roi_range: 100
+default_bbox:
+- 410
+- 1160
+- 70
+- 70

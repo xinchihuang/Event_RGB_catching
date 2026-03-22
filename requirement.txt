@@ -1,0 +1,17 @@
+# Core runtime
+numpy
+opencv-python
+pyyaml
+scikit-learn
+torch
+torchvision
+scipy
+spconv
+
+# Utilities / tooling
+pynput
+pyttsx3
+python-can
+matplotlib
+tqdm
+pandas

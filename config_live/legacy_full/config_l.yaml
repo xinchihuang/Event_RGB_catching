@@ -1,0 +1,93 @@
+image:
+  rgb_width: 1080
+  rgb_height: 1440
+  event_width: 720
+  event_height: 1280
+timing:
+  startup_delay: 3
+  reset_delay: 2
+  shutdown_timeout: 5
+image_processing:
+  accumulation_time_us: 1000
+  fps: 0.0
+  binary_threshold: 40
+  binary_max_value: 255
+  contrast_alpha: 0.5
+  contrast_beta: 30
+  brightness_multiplier: 1.0
+  display_scale: 0.8
+clustering:
+  eps: 9
+  min_samples: 70
+buffers:
+  max_events: 100000
+  ball_observations: 100
+  ball_pixel_3d: 1000
+paths:
+  record_dir: /media/xinchi/data/Event_RGB_catching_data/saved_data_l
+  evaluation_root: /media/xinchi/data/test_data/evaluation_results
+  template_npy: 78.npy
+  template_jpg: 78.jpg
+alignment:
+  event_pixel_size: 3.45
+  rgb_pixel_size: 4.86
+  offset_x: 30
+  offset_y: 29
+  y_coordinate_offset: 1279
+data_reading:
+  delta_t: 2000
+  n_events: 10000
+  send_interval: 0.002
+  video_period: 0.02
+motor:
+  bitrate: 1000000
+  motor_id: 101
+  main_can_id: 254
+  kp: 100
+  kd: 1
+  shaft_length: 0.5
+  joint_height: 0.7
+  movement_delay: 2
+camera_intrinsics:
+  fx: 987.1678420424932
+  fy: 986.0683237433913
+  cx: 513.7733221750243
+  cy: 739.7418995490075
+  distortion_coeffs:
+  - -0.11123899870851763
+  - -0.020663002330730863
+  - -0.0002997445722290338
+  - 0.0007964973013426446
+  - 0.014818755754515196
+camera_extrinsics:
+  camera_rpy_to:
+  - 0
+  - 45
+  - -90
+  camera_rpy_back:
+  - 45
+  - 0
+  - 90
+tracking:
+  dbscan_eps: 15
+  dbscan_min_samples: 100
+  max_ball_buffer: 1000
+rgb_param:
+  kernel_size:
+  - 5
+  - 5
+  morphology_iterations: 2
+  hsv_lower:
+  - 30
+  - 90
+  - 0
+  hsv_upper:
+  - 50
+  - 255
+  - 255
+roi_range: 100
+default_bbox:
+- 470
+- 1170
+- 70
+- 70
