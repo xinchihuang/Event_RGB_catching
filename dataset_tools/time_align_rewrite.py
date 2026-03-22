@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Trim and time-align event packets with RGB frames, optionally preview and save.
+
+Usage:
+  python3 dataset_tools/time_align_rewrite.py --record-dir ... --index ... --count ... --save-dir ...
+"""
 import argparse
 import os
 import tempfile
@@ -8,8 +14,8 @@ import numpy as np
 from metavision_core.event_io import EventsIterator, DatWriter
 from metavision_sdk_core import ColorPalette, PeriodicFrameGenerationAlgorithm
 # ---- Edit defaults here ----
-RECORD_DIR_DEFAULT = "/media/xinchi/data/saved_data_raw/saved_data_l"
-SAVE_DIR_DEFAULT = "/media/xinchi/data/processed_data/saved_data_l"
+RECORD_DIR_DEFAULT = "/media/xinchi/data/saved_data_raw/saved_data_sakib"
+SAVE_DIR_DEFAULT = "/media/xinchi/data/processed_data/saved_data_sakib"
 # RECORD_DIR_DEFAULT = "/media/xinchi/data/processed_data/saved_data_dc"
 IMAGE_DIMS = {
     "rgb_width": 1080,
@@ -309,7 +315,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Load and align event/RGB buffers.")
     parser.add_argument("--record-dir", default=RECORD_DIR_DEFAULT)
     parser.add_argument("--index", type=int, default=0)
-    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--count", type=int, default=20)
     parser.add_argument("--auto", action="store_true")
     parser.add_argument("--ratio", type=int, default=10)
     parser.add_argument("--delta-t", type=int, default=DATA_READING["delta_t"])

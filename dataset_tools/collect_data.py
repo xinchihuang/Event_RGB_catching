@@ -6,6 +6,10 @@ This revision fixes two regressions in the version you pasted back:
    sees live events.
 2. **Viewer double‑processing** – now uses only `generate_frame()` for CD frames.
 Other minor clean‑ups are annotated inline.
+
+Usage:
+  python3 dataset_tools/collect_data.py
+  Controls: r=start, f=finish/save, q=quit.
 """
 
 

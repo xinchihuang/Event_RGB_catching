@@ -1,3 +1,0 @@
-dataset_name,dataset_path,total_sequences,valid_sequences,total_frames,positive_frames,negative_frames,sequences_with_positives,missing_files
-dataset_c,/media/xinchi/data/Event_RGB_catching_data/dataset_c,100,100,15216,1280,13936,89,0
-dataset_dc,/media/xinchi/data/Event_RGB_catching_data/dataset_dc,100,100,14616,1226,13390,92,0

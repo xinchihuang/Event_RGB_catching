@@ -1,43 +1,50 @@
+"""
+Build a merged dataset by copying all positive samples and a random subset of negatives.
+
+Usage:
+  python3 dataset_tools/pick_positive.py
+  (Edit source_datasets, negative_sample_probability, and output_dir in this file.)
+"""
 import os
 import shutil
 import random
 import cv2
 import numpy as np
 
-# 配置多个源数据集路径
+# Source dataset roots to merge.
 source_datasets = [
     "/media/xinchi/data/saved_data/dataset_c",
     "/media/xinchi/data/saved_data/dataset_d",
     "/media/xinchi/data/saved_data/dataset_dc",
     "/media/xinchi/data/saved_data/dataset_l",
-    # 在这里添加更多源数据集路径
+    # Add more dataset roots here if needed.
 ]
 
-# 配置负样本包含概率（0.0-1.0）
+# Probability to keep a negative sample (0.0-1.0).
 negative_sample_probability = 0.1
 
 output_dir = "/media/xinchi/data/saved_data/selected_dataset"
 os.makedirs(output_dir, exist_ok=True)
 
-# 先处理数据，统计实际生成的样本数量
+# Track generated samples before writing train/list files.
 train_lines = []
 list_lines = []
 
-# 全局计数器，用于合并后的数据集
+# Global counter for the merged dataset sequences.
 global_sequence_count = 0
 
 for source_dir in source_datasets:
     for i in range(0, 100):
         data_path = os.path.join(source_dir, f"{i}")
         
-        # 检查数据路径是否存在
+        # Skip missing sequences.
         if not os.path.exists(data_path):
             continue
             
         absent_path = os.path.join(data_path, "absent.txt")
         ground_truth_path = os.path.join(data_path, "groundtruth.txt")
         
-        # 检查必要文件是否存在
+        # Require both metadata files.
         if not (os.path.exists(absent_path) and os.path.exists(ground_truth_path)):
             continue
         
@@ -62,10 +69,10 @@ for source_dir in source_datasets:
             for line_count, (absent_line, gt_line) in enumerate(zip(absent_file, ground_truth_file), start=1):
                 is_positive = absent_line.strip() != '0'
                 
-                # 包含所有正样本
+                # Always keep positives.
                 if is_positive:
                     include_sample = True
-                # 按概率包含负样本
+                # Keep negatives with a fixed probability.
                 else:
                     include_sample = random.random() < negative_sample_probability
                 
@@ -75,18 +82,18 @@ for source_dir in source_datasets:
                 new_absent_file.write(absent_line)
                 new_ground_truth_file.write(gt_line)
 
-                # 复制对应的文件
+                # Copy matching frame files.
                 for file_type, extension in [("rgb", "jpg"), ("event", "jpg"), ("combined", "jpg"), ("voxel", "mat")]:
                     src_file = os.path.join(data_path, file_type, f"{line_count}.{extension}")
                     dst_file = os.path.join(new_data_path, file_type, f"{image_count}.{extension}")
                     
                     if os.path.exists(src_file):
                         if file_type == "rgb" and "dataset_dc" in source_dir:
-                            # 对dataset_dc的RGB图像增加亮度
+                            # Brighten dataset_dc RGB images for consistency.
                             img = cv2.imread(src_file)
                             if img is not None:
 
-                                # 增加亮度（调整倍数可根据需要修改）
+                                # Increase brightness (adjust factor if needed).
                                 img_brightened = np.clip(img * 3, 0, 255).astype(np.uint8)
                                 cv2.imwrite(dst_file, img_brightened)
                             else:
@@ -97,19 +104,19 @@ for source_dir in source_datasets:
                 image_count += 1
                 positive_samples_found = True
 
-        # 如果找到了样本（正样本或负样本），则递增全局序列计数器
+        # Increment only if any samples were kept.
         if positive_samples_found:
             global_sequence_count += 1
         else:
-            # 如果没有找到任何样本，删除创建的空文件夹
+            # Remove empty sequence folders.
             shutil.rmtree(new_data_path, ignore_errors=True)
 
-# 根据实际生成的样本数量生成train.txt和list.txt
+# Write train/list files based on the final sequence count.
 for i in range(global_sequence_count):
     train_lines.append(f"{i}\n")
     list_lines.append(f"{i}\n")
 
-# 写入新生成的文件
+# Persist index lists.
 with open(os.path.join(output_dir, "train.txt"), 'w') as f:
     f.writelines(train_lines)
 

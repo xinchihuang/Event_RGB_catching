@@ -60,7 +60,9 @@ def load_labels(label_file):
     return None
 
 
-def plot_2d_prediction_comparison(exp_results, output_path, title_prefix, success_threshold=0.25, show=False):
+def plot_2d_prediction_comparison(exp_results, output_path, title_prefix,
+                                  success_threshold=0.25, show=False,
+                                  unsuccess_output_path=None):
     """
     Plot 2D comparison of real vs predicted landing points.
     """
@@ -123,6 +125,19 @@ def plot_2d_prediction_comparison(exp_results, output_path, title_prefix, succes
     errors = np.sqrt((real_y - pred_y) ** 2 + (real_z - pred_z) ** 2)
     mean_error = float(np.mean(errors)) if len(errors) > 0 else 0
 
+    if unsuccess_output_path:
+        failed_rows = []
+        for i in range(len(exp_results)):
+            if success_flags[i]:
+                continue
+            failed_rows.append(trajectory_ids[i])
+        if failed_rows:
+            os.makedirs(os.path.dirname(unsuccess_output_path) or ".", exist_ok=True)
+            with open(unsuccess_output_path, "w", encoding="utf-8") as handle:
+                handle.write("trajectory_id\n")
+                for row in failed_rows:
+                    handle.write(f"{row}\n")
+
     plt.xlabel("Y Coordinate (m)")
     plt.ylabel("Z Coordinate (m)")
     plt.title(f"Landing Point Prediction Results - {title_prefix}\n"
@@ -157,6 +172,8 @@ def plot_2d_prediction_comparison(exp_results, output_path, title_prefix, succes
     print(f"Successful Predictions: {np.sum(success_flags)}")
     print(f"Failed Predictions: {np.sum(~success_flags)}")
     print(f"Saved plot: {output_path}")
+    if unsuccess_output_path and os.path.exists(unsuccess_output_path):
+        print(f"Saved unsuccess cases: {unsuccess_output_path}")
 
 
 def discover_combinations(root_dir):
@@ -214,7 +231,7 @@ def resolve_label_path(test_mode, task, label_map, default_path, root_dir):
 def main():
     parser = argparse.ArgumentParser(description="Plot landing prediction results for multiple test modes and tasks.")
     parser.add_argument("--root-dir", type=str,
-                        default="/media/xinchi/data/evaluation_data/evaluation_results",
+                        default="/media/xinchi/data/test_data/evaluation_results",
                         help="Root directory containing {test_mode}_{task} folders.")
     parser.add_argument("--test-modes", type=str, default="Event,RGB,Model",
                         help="Comma-separated test modes to analyze (e.g., Event,RGB,Model).")
@@ -321,12 +338,15 @@ def main():
 
         output_name = f"landing_point_comparison_{test_mode}_{task}.png"
         output_path = os.path.join(args.output_dir, output_name)
+        unsuccess_name = f"unsuccess_cases_{test_mode}_{task}.csv"
+        unsuccess_path = os.path.join(args.output_dir, unsuccess_name)
         title_prefix = f"{test_mode}_{task}"
         plot_2d_prediction_comparison(
             exp_results,
             output_path=output_path,
             title_prefix=title_prefix,
             success_threshold=args.success_threshold,
+            unsuccess_output_path=unsuccess_path,
             show=args.show,
         )
 

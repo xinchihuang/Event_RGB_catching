@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Count event packets and RGB frames for saved recordings.
+
+Usage:
+  python3 dataset_tools/count_saved_data.py --record-dir ... --all
+"""
 import argparse
 import os
 import tempfile

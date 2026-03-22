@@ -296,9 +296,9 @@ def event_tracking_3D_direct_compare(shared_event_data, shared_flir_data, shared
         dbscan_raw = DBSCAN(eps=tracking['dbscan_eps'], min_samples=tracking['dbscan_min_samples'])
         task_key = (os.environ.get("ACTIVE_TASK") or "").strip().lower()
         if task_key in ("dark", "dark_clutter"):
-            raw_size_adjust = 1.0
+            raw_size_adjust = 0.0
         elif task_key in ("normal", "clutter"):
-            raw_size_adjust = -1.0
+            raw_size_adjust = 0.0
         else:
             raw_size_adjust = 0.0
 

@@ -12,9 +12,44 @@ import sys
 import os
 import signal
 import json
+import csv
+
+
+def load_indices_from_csv(csv_path):
+    if not csv_path:
+        return []
+    path = csv_path
+    if not os.path.isabs(path):
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+    if not os.path.exists(path):
+        print(f"Error: index CSV {path} does not exist.")
+        return []
+    indices = []
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as handle:
+            reader = csv.reader(handle)
+            for row in reader:
+                if not row:
+                    continue
+                value = row[0].strip()
+                if not value:
+                    continue
+                if value.lower() in {"trajectory_id", "index", "record_index"}:
+                    continue
+                try:
+                    idx = int(float(value))
+                except ValueError:
+                    print(f"Warning: invalid index '{value}' in {path}, skipping")
+                    continue
+                indices.append(idx)
+    except Exception as e:
+        print(f"Error reading index CSV {path}: {e}")
+        return []
+    return indices
 
 class RecordRunner:
-    def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180, test_mode="Event", task="normal"):
+    def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180,
+                 test_mode="Event", task="normal", index_list=None):
         self.start_index = start_index
         self.current_index = start_index
         self.max_runs = max_runs
@@ -22,8 +57,11 @@ class RecordRunner:
         self.timeout = timeout
         self.test_mode = test_mode
         self.task = task
+        self.index_list = list(index_list) if index_list else None
+        self.index_pos = 0
         self.run_count = 0
         self.should_stop = False
+        self.last_index = None
         
         # Setup signal handlers
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -67,7 +105,12 @@ class RecordRunner:
 
         """Main execution loop with auto-restart"""
         print(f"Starting record runner with initial index: {self.start_index}")
-        if self.max_runs:
+        if self.index_list:
+            total_planned = len(self.index_list)
+            if self.max_runs:
+                total_planned = min(self.max_runs, total_planned)
+            print(f"Index list mode: {total_planned} runs from CSV list")
+        elif self.max_runs:
             print(f"Maximum runs: {self.max_runs}")
         print(f"Restart delay: {self.restart_delay} seconds")
         print("=" * 60)
@@ -77,6 +120,12 @@ class RecordRunner:
             if self.max_runs and self.run_count >= self.max_runs:
                 print(f"Reached maximum runs ({self.max_runs}), stopping...")
                 break
+
+            if self.index_list:
+                if self.index_pos >= len(self.index_list):
+                    print("Reached end of index list, stopping...")
+                    break
+                self.current_index = self.index_list[self.index_pos]
             
             # Run record.py
             start_time = time.time()
@@ -90,13 +139,17 @@ class RecordRunner:
             print(f"Run #{self.run_count} completed with return code: {returncode}")
             print(f"Duration: {duration:.2f} seconds")
             print(f"Record index used: {self.current_index}")
+            self.last_index = self.current_index
             
             # Check return code
             if returncode != 0:
                 print(f"Warning: record.py exited with non-zero code ({returncode})")
             
             # Increment index for next run
-            self.current_index += 1
+            if self.index_list:
+                self.index_pos += 1
+            else:
+                self.current_index += 1
             
             # Check if we should continue
             if self.should_stop:
@@ -130,7 +183,10 @@ class RecordRunner:
         
         print("=" * 60)
         print(f"Record runner finished. Total runs: {self.run_count}")
-        print(f"Final record index: {self.current_index - 1}")
+        if self.last_index is not None:
+            print(f"Final record index: {self.last_index}")
+        else:
+            print("Final record index: n/a")
 
 def run_batch_config(batch_configs):
     """Run multiple parameter configurations sequentially"""
@@ -149,13 +205,25 @@ def run_batch_config(batch_configs):
         print("=" * 60)
         
         # Create runner for this configuration
+        index_list = config.get("index_list")
+        index_csv = config.get("index_csv")
+        if index_list and not isinstance(index_list, list):
+            print("Error: index_list must be a JSON list of integers")
+            continue
+        if index_csv:
+            index_list = load_indices_from_csv(index_csv)
+            if not index_list:
+                print(f"Error: no valid indices loaded from {index_csv}, skipping config")
+                continue
+
         runner = RecordRunner(
             start_index=config.get('start_index', 40),
             max_runs=config.get('max_runs'),
             restart_delay=config.get('restart_delay', 5),
             timeout=config.get('timeout', 180),
             test_mode=config.get('test_mode', "Event"),
-            task=config.get('task', "normal")
+            task=config.get('task', "normal"),
+            index_list=index_list
         )
         
         try:
@@ -191,6 +259,13 @@ def parse_batch_config(batch_config_arg):
             print(f"Error reading file {batch_config_arg}: {e}")
             sys.exit(1)
     else:
+        path_hint = os.path.splitext(batch_config_arg)[1].lower() == ".json"
+        path_hint = path_hint or (os.sep in batch_config_arg)
+        if os.altsep:
+            path_hint = path_hint or (os.altsep in batch_config_arg)
+        if path_hint:
+            print(f"Error: batch config file not found: {batch_config_arg}")
+            sys.exit(1)
         # Try to parse as JSON string
         try:
             return json.loads(batch_config_arg)
@@ -214,7 +289,7 @@ Examples:
         """
     )
 
-    parser.add_argument('--batch_config', type=str,default='batch_config_demo.json',
+    parser.add_argument('--batch_config', type=str,default='batch_config.json',
                        help='JSON file or JSON string containing batch parameter configurations')
     
     args = parser.parse_args()

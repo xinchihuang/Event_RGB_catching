@@ -123,10 +123,6 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
         import os
         current_dir = os.path.dirname(__file__)
         sys.path.append(current_dir)
-        from initial_bbox.ball_detector import BallDetector
-
-        # 初始化球检测器
-        # ball_detector = BallDetector(min_radius=5, max_radius=40, param2=25)
 
         # 生成事件图像用于辅助检测和叠加显示
         # Note: This is called once during initialization, so creating a local buffer is acceptable

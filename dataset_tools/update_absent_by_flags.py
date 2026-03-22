@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
+"""
+Apply frame flags to update absent.txt across a dataset.
+
+Usage:
+  python3 dataset_tools/update_absent_by_flags.py
+  (Edit dataset_path in main() to target a different dataset.)
+"""
 import os
 
 def load_frame_flags(dataset_path):
     """
-    从frame_flags.txt加载标记数据
-    返回格式: {seq_id: {frame_id: flag}}
+    Load flags from frame_flags.txt.
+    Returns: {seq_id: {frame_id: flag}}
     """
     flags_file = os.path.join(dataset_path, "frame_flags.txt")
     frame_flags = {}
@@ -37,18 +44,18 @@ def load_frame_flags(dataset_path):
 
 def update_absent_files(dataset_path, frame_flags):
     """
-    根据frame_flags更新absent.txt文件
-    逻辑：
-    1. 如果帧被明确标记为flag=1，设为present (1)
-    2. 如果帧被明确标记为flag=0，设为absent (0) 
-    3. 如果帧没有被标记，设为absent (0)
+    Update absent.txt using frame_flags.
+    Rules:
+    1) flag=1 -> present (1)
+    2) flag=0 -> absent (0)
+    3) not flagged -> absent (0)
     """
     
     if not frame_flags:
         print("No frame flags found, nothing to update.")
         return 0, 0
     
-    # 获取所有序列
+    # Gather all sequences.
     all_sequences = []
     for item in os.listdir(dataset_path):
         item_path = os.path.join(dataset_path, item)
@@ -69,7 +76,7 @@ def update_absent_files(dataset_path, frame_flags):
         
         print(f"Processing sequence {seq_id}...")
         
-        # 读取absent.txt
+        # Read absent.txt.
         absent_data = []
         with open(absent_file, 'r') as f:
             for line in f:
@@ -83,17 +90,17 @@ def update_absent_files(dataset_path, frame_flags):
         
         modified_frames = 0
         
-        # 获取该序列的标记信息
+        # Flags for this sequence.
         seq_flags = frame_flags.get(seq_id, {})
         
-        # 遍历所有帧
+        # Update each frame.
         for frame_id in range(len(absent_data)):
             if frame_id in seq_flags:
-                # 帧有明确标记
+                # Explicitly flagged.
                 should_be_present = seq_flags[frame_id]
                 new_value = 1 if should_be_present else 0
             else:
-                # 帧没有标记，默认设为absent
+                # Default to absent if not flagged.
                 new_value = 0
             
             if absent_data[frame_id] != new_value:
@@ -105,7 +112,7 @@ def update_absent_files(dataset_path, frame_flags):
                 flag_status = "flagged" if frame_id in seq_flags else "not flagged"
                 print(f"  Frame {frame_id}: set to {status} (was {old_status}, {flag_status})")
         
-        # 写回absent.txt
+        # Write back absent.txt.
         if modified_frames > 0:
             with open(absent_file, 'w') as f:
                 for absent_value in absent_data:
@@ -127,7 +134,7 @@ def main():
     print(f"Dataset path: {dataset_path}")
     print()
     
-    # 加载frame flags
+    # Load flags.
     print("Loading frame flags...")
     frame_flags = load_frame_flags(dataset_path)
     
@@ -135,14 +142,14 @@ def main():
         print("No frame flags found. Exiting.")
         return
     
-    # 获取所有序列以计算统计信息
+    # Collect all sequences to compute stats.
     all_sequences = []
     for item in os.listdir(dataset_path):
         item_path = os.path.join(dataset_path, item)
         if os.path.isdir(item_path) and item.isdigit():
             all_sequences.append(int(item))
     
-    # 计算统计信息
+    # Compute summary statistics.
     total_sequences_with_flags = len(frame_flags)
     total_flagged_frames = sum(len(frames) for frames in frame_flags.values())
     flagged_as_present = sum(1 for frames in frame_flags.values() 
@@ -150,7 +157,7 @@ def main():
     flagged_as_absent = sum(1 for frames in frame_flags.values() 
                            for flag in frames.values() if not flag)
     
-    # 计算总帧数
+    # Count total frames in dataset.
     total_frames = 0
     for seq_id in all_sequences:
         absent_file = os.path.join(dataset_path, str(seq_id), "absent.txt")
@@ -169,7 +176,7 @@ def main():
     print(f"Unflagged frames (will be set to absent): {unflagged_frames}")
     print()
     
-    # 确认操作
+    # Confirm destructive update.
     frames_to_modify = flagged_as_absent + unflagged_frames
     if frames_to_modify == 0:
         print("No frames need to be modified. Exiting.")
@@ -180,7 +187,7 @@ def main():
         print("Operation cancelled.")
         return
     
-    # 执行更新
+    # Apply updates.
     print("\nUpdating absent.txt files...")
     total_sequences, total_modified = update_absent_files(dataset_path, frame_flags)
     

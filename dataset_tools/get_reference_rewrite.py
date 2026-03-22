@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Export aligned event packs, RGB frames, and overlay previews for a record.
+
+Usage:
+  python3 dataset_tools/get_reference_rewrite.py --record_index N --record_dir ... --output_dir ...
+"""
 import argparse
 import os
 import sys

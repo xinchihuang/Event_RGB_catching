@@ -1,15 +1,13 @@
-import math
 import cv2
 import os
 import sys
 import torch
-from multiprocessing import Process, Array, Queue, Manager, shared_memory, Value
+from multiprocessing import Process, shared_memory, Value
 import multiprocessing
 import signal
 import numpy as np
 import time
 import argparse
-from gi.overrides.Gtk import initialized
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
@@ -21,16 +19,13 @@ from data_input.read_from_raw import read_from_raw
 from data_input.read_from_video import read_from_video
 # from data_input.read_from_files_simple import read_from_raw_files as read_from_raw
 # from data_input.read_from_files_simple import read_from_video_files as read_from_video
-from ROI_generation.AMTTrack_ROI import model
-from ROI_generation.RGB_ROI import pure_RGB
-from tracking_2D.HSV_tracker import RGB_tracking_3D
-from tracking_2D.Event_tracker import event_tracking_3D_direct as event_tracking_3D, event_tracking_3D_direct_compare
-from fitting.fitting_process import landing_prediction
-from hardware.motor import robot_control
+from tracking.ROI_generation.AMTTrack_ROI import model
+from RGB_baseline.RGB_ROI import pure_RGB
+from RGB_baseline.HSV_tracker import RGB_tracking_3D
+from tracking.Event_tracker import event_tracking_3D_direct_compare
 from gui_process_compare import gui_display_process_compare
 
 # Import configuration
-from config.config_loader import Config
 
 
 def starter(system_state, stop_event):

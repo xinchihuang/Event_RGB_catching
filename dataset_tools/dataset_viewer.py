@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Interactive viewer for dataset sequences with RGB/Event/Combined/Voxel modes and frame flags.
+
+Usage:
+  python3 dataset_tools/dataset_viewer.py
+"""
 import os
 import cv2
 import numpy as np
@@ -14,29 +20,29 @@ class DatasetViewer:
         self.view_mode = 'combined'  # 'rgb', 'event', 'combined', 'voxel'
         self.show_bbox = True
         self.frame_flags = {}  # {seq_id: {frame_id: flag}}
-        self.present_only_mode = True  # 只显示present帧的模式
+        self.present_only_mode = True  # Present-only filter.
         self.load_sequences()
         self.load_flags()
         
-        # 启动时如果是Present Only模式，找到第一个present帧
+        # If present-only is enabled, jump to the first present frame.
         if self.present_only_mode and self.sequences:
             self.current_sequence = 0
             self.current_frame = 0
             self.find_next_present_frame()
 
     def load_sequences(self):
-        """加载所有可用的序列"""
+        """Load all available sequences."""
         for seq_name in sorted(os.listdir(self.dataset_path), key=lambda x: int(x) if x.isdigit() else float('inf')):
             seq_path = os.path.join(self.dataset_path, seq_name)
             if os.path.isdir(seq_path) and seq_name.isdigit():
-                # 检查必要文件是否存在
+                # Require metadata files.
                 if os.path.exists(os.path.join(seq_path, "absent.txt")) and \
                    os.path.exists(os.path.join(seq_path, "groundtruth.txt")):
                     self.sequences.append(int(seq_name))
         print(f"Found {len(self.sequences)} sequences")
 
     def load_flags(self):
-        """加载已保存的标记"""
+        """Load saved frame flags."""
         flags_file = os.path.join(self.dataset_path, "frame_flags.txt")
         if os.path.exists(flags_file):
             with open(flags_file, 'r') as f:
@@ -49,7 +55,7 @@ class DatasetViewer:
                         self.frame_flags[seq_id][frame_id] = bool(flag)
 
     def save_flags(self):
-        """保存标记到文件"""
+        """Persist flags to frame_flags.txt."""
         flags_file = os.path.join(self.dataset_path, "frame_flags.txt")
         with open(flags_file, 'w') as f:
             for seq_id, frames in self.frame_flags.items():
@@ -58,7 +64,7 @@ class DatasetViewer:
         print(f"Flags saved to {flags_file}")
 
     def toggle_frame_flag(self):
-        """切换当前帧的标记状态"""
+        """Toggle the flag for the current frame."""
         if not self.sequences:
             return
             
@@ -71,24 +77,24 @@ class DatasetViewer:
         current_flag = self.frame_flags[seq_id].get(frame_id, False)
         self.frame_flags[seq_id][frame_id] = not current_flag
         
-        # 立即保存
+        # Save immediately.
         self.save_flags()
         
         flag_status = "FLAGGED" if self.frame_flags[seq_id][frame_id] else "UNFLAGGED"
         print(f"Frame {frame_id} in sequence {seq_id} is now {flag_status}")
         
-        # 自动播放下一帧
+        # Advance to next frame automatically.
         self.next_frame()
 
     def get_frame_flag(self, seq_id, frame_id):
-        """获取指定帧的标记状态"""
+        """Get the flag status for a specific frame."""
         return self.frame_flags.get(seq_id, {}).get(frame_id, False)
 
     def get_sequence_info(self, seq_id):
-        """获取序列信息"""
+        """Load absent and groundtruth info for a sequence."""
         seq_path = os.path.join(self.dataset_path, str(seq_id))
         
-        # 读取absent和groundtruth信息
+        # Read absent.txt and groundtruth.txt.
         absent_file = os.path.join(seq_path, "absent.txt")
         groundtruth_file = os.path.join(seq_path, "groundtruth.txt")
         
@@ -107,32 +113,32 @@ class DatasetViewer:
         return absent_data, groundtruth_data
 
     def load_frame(self, seq_id, frame_id, view_mode):
-        """加载指定帧的图像"""
+        """Load the image for a given frame and view mode."""
         seq_path = os.path.join(self.dataset_path, str(seq_id))
         
         if view_mode == 'voxel':
-            # 加载voxel数据（.mat文件）
+            # Load voxel data (.mat).
             voxel_path = os.path.join(seq_path, "voxel", f"{frame_id}.mat")
             if os.path.exists(voxel_path):
                 try:
                     mat_data = loadmat(voxel_path)
-                    # 假设voxel数据的键名为'voxel'，您可能需要根据实际情况调整
+                    # Pick the first non-metadata key.
                     for key in mat_data.keys():
                         if not key.startswith('__'):
                             voxel_data = mat_data[key]
                             break
                     
-                    # 将voxel数据可视化（假设是3D数据，取某个通道或求和）
+                    # Visualize voxel data (sum over the last axis if 3D).
                     if len(voxel_data.shape) == 3:
-                        # 如果是3D，在第三维求和或取最后一层
+                        # For 3D, sum across the depth axis.
                         img = np.sum(voxel_data, axis=2)
                     else:
                         img = voxel_data
                     
-                    # 归一化到0-255
+                    # Normalize to 0-255.
                     img = cv2.normalize(img, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                     
-                    # 转换为3通道
+                    # Convert to 3-channel for display.
                     if len(img.shape) == 2:
                         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
                     
@@ -141,7 +147,7 @@ class DatasetViewer:
                     print(f"Cannot load voxel file {voxel_path}: {e}")
                     return None
         else:
-            # 加载图像文件
+            # Load image file.
             img_path = os.path.join(seq_path, view_mode, f"{frame_id}.jpg")
             if os.path.exists(img_path):
                 return cv2.imread(img_path)
@@ -149,14 +155,14 @@ class DatasetViewer:
         return None
 
     def draw_bbox(self, img, bbox):
-        """在图像上绘制边界框"""
+        """Draw a bounding box on the image."""
         if bbox and len(bbox) >= 4:
             x, y, w, h = map(int, bbox[:4])
             cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
         return img
 
     def show_frame(self):
-        """显示当前帧"""
+        """Render the current frame."""
         if not self.sequences:
             print("No sequences found")
             return False
@@ -165,7 +171,7 @@ class DatasetViewer:
         absent_data, groundtruth_data = self.get_sequence_info(seq_id)
         
         if self.current_frame >= len(absent_data):
-            # 自动跳到下一个序列
+            # Auto-advance to the next sequence.
             if self.current_sequence < len(self.sequences) - 1:
                 self.next_sequence()
                 return True
@@ -193,25 +199,25 @@ class DatasetViewer:
                 self.next_frame()
                 return True
         else:
-            # 加载单一模式图像
+            # Load single-mode image.
             img = self.load_frame(seq_id, self.current_frame, self.view_mode)
             if img is None:
                 print(f"Cannot load frame: seq{seq_id}, frame{self.current_frame}, mode{self.view_mode}")
-                # 自动跳到下一帧而不是退出
+                # Advance instead of exiting on missing frames.
                 self.next_frame()
                 return True
 
-        # 绘制边界框（如果启用且目标存在）
+        # Draw bbox if enabled and target is present.
         if self.show_bbox and self.current_frame < len(groundtruth_data):
             is_present = absent_data[self.current_frame] != '0'
             if is_present:
                 self.draw_bbox(img, groundtruth_data[self.current_frame])
 
-        # 检查当前帧的标记状态
+        # Flag indicator for the current frame.
         is_flagged = self.get_frame_flag(seq_id, self.current_frame)
         flag_indicator = "★" if is_flagged else "☆"
         
-        # 添加信息文本
+        # Render status overlay.
         info_text = [
             f"Sequence: {seq_id}/{len(self.sequences)-1} ({self.current_sequence+1}/{len(self.sequences)})",
             f"Frame: {self.current_frame}/{len(absent_data)-1} {flag_indicator}",
@@ -236,32 +242,32 @@ class DatasetViewer:
         return True
 
     def handle_key(self, key):
-        """处理键盘输入"""
+        """Handle keyboard input."""
         if key == ord('q') or key == 27:  # 'q' or Esc
             return False
-        elif key == ord(' '):  # Space - 播放/暂停
+        elif key == ord(' '):  # Space - Play/pause
             self.paused = not self.paused
-        elif key == ord('d'):  # 下一帧
+        elif key == ord('d'):  # Next frame
             self.next_frame()
-        elif key == ord('a'):  # 上一帧
+        elif key == ord('a'):  # Previous frame
             self.prev_frame()
-        elif key == ord('s'):  # 下一序列
+        elif key == ord('s'):  # Next sequence
             self.next_sequence()
-        elif key == ord('w'):  # 上一序列
+        elif key == ord('w'):  # Previous sequence
             self.prev_sequence()
-        elif key == ord('r'):  # RGB模式
+        elif key == ord('r'):  # RGB mode
             self.view_mode = 'rgb'
-        elif key == ord('e'):  # Event模式
+        elif key == ord('e'):  # Event mode
             self.view_mode = 'event'
-        elif key == ord('t'):  # Combined模式
+        elif key == ord('t'):  # Combined mode
             self.view_mode = 'combined'
-        elif key == ord('y'):  # Voxel模式
+        elif key == ord('y'):  # Voxel mode
             self.view_mode = 'voxel'
-        elif key == ord('b'):  # 切换边界框显示
+        elif key == ord('b'):  # Toggle bbox overlay
             self.show_bbox = not self.show_bbox
-        elif key == ord('f'):  # 标记当前帧
+        elif key == ord('f'):  # Flag current frame
             self.toggle_frame_flag()
-        elif key == ord('p'):  # 切换present only模式
+        elif key == ord('p'):  # Toggle present-only mode
             self.present_only_mode = not self.present_only_mode
             present_status = "ON" if self.present_only_mode else "OFF"
             print(f"Present Only Mode: {present_status}")
@@ -269,19 +275,19 @@ class DatasetViewer:
         return True
 
     def next_frame(self):
-        """下一帧"""
+        """Advance to the next frame."""
         if not self.sequences:
             return
         
         seq_id = self.sequences[self.current_sequence]
         absent_data, _ = self.get_sequence_info(seq_id)
         
-        # 在Present Only模式下，跳过absent帧
+        # Skip absent frames in present-only mode.
         if self.present_only_mode:
             start_frame = self.current_frame + 1
             found_present = False
             
-            # 在当前序列中寻找下一个present帧
+            # Find next present frame in current sequence.
             for frame_idx in range(start_frame, len(absent_data)):
                 if absent_data[frame_idx] != '0':
                     self.current_frame = frame_idx
@@ -289,40 +295,40 @@ class DatasetViewer:
                     break
             
             if not found_present:
-                # 当前序列没有更多present帧，切换到下一序列
+                # No more present frames; move to next sequence.
                 if self.current_sequence < len(self.sequences) - 1:
                     self.next_sequence()
-                    # 在新序列中找第一个present帧
+                    # Jump to first present frame in new sequence.
                     self.find_next_present_frame()
                 else:
                     self.paused = True
                     print("Reached end of dataset")
         else:
-            # 正常模式
+            # Normal playback mode.
             if self.current_frame < len(absent_data) - 1:
                 self.current_frame += 1
             else:
-                # 自动切换到下一个序列的第一帧
+                # Auto-advance to the next sequence start.
                 if self.current_sequence < len(self.sequences) - 1:
                     self.next_sequence()
                 else:
-                    # 如果已经是最后一个序列的最后一帧，停止播放
+                    # Stop when reaching the end.
                     self.paused = True
                     print("Reached end of dataset")
 
     def prev_frame(self):
-        """上一帧"""
+        """Go to the previous frame."""
         if not self.sequences:
             return
             
         seq_id = self.sequences[self.current_sequence]
         absent_data, _ = self.get_sequence_info(seq_id)
         
-        # 在Present Only模式下，跳过absent帧
+        # Skip absent frames in present-only mode.
         if self.present_only_mode:
             found_present = False
             
-            # 在当前序列中向前寻找present帧
+            # Search backward for a present frame.
             for frame_idx in range(self.current_frame - 1, -1, -1):
                 if absent_data[frame_idx] != '0':
                     self.current_frame = frame_idx
@@ -330,17 +336,17 @@ class DatasetViewer:
                     break
             
             if not found_present:
-                # 当前序列没有更多present帧，切换到上一序列
+                # No more present frames; move to previous sequence.
                 if self.current_sequence > 0:
                     self.prev_sequence()
-                    # 在新序列中找最后一个present帧
+                    # Jump to last present frame in new sequence.
                     self.find_prev_present_frame()
         else:
-            # 正常模式
+            # Normal playback mode.
             if self.current_frame > 0:
                 self.current_frame -= 1
             else:
-                # 切换到上一个序列的最后一帧
+                # Move to last frame of previous sequence.
                 self.prev_sequence()
                 if self.sequences:
                     seq_id = self.sequences[self.current_sequence]
@@ -348,25 +354,25 @@ class DatasetViewer:
                     self.current_frame = len(absent_data) - 1
 
     def next_sequence(self):
-        """下一序列"""
+        """Advance to the next sequence."""
         if self.sequences and self.current_sequence < len(self.sequences) - 1:
             self.current_sequence += 1
             self.current_frame = 0
-            # 在Present Only模式下，找到第一个present帧
+            # Jump to the first present frame if needed.
             if self.present_only_mode:
                 self.find_next_present_frame()
 
     def prev_sequence(self):
-        """上一序列"""
+        """Go to the previous sequence."""
         if self.current_sequence > 0:
             self.current_sequence -= 1
             self.current_frame = 0
-            # 在Present Only模式下，找到第一个present帧
+            # Jump to the first present frame if needed.
             if self.present_only_mode:
                 self.find_next_present_frame()
 
     def find_next_present_frame(self):
-        """在当前序列中找到下一个present帧"""
+        """Find the next present frame in the current sequence."""
         if not self.sequences:
             return
             
@@ -378,27 +384,27 @@ class DatasetViewer:
                 self.current_frame = frame_idx
                 return
         
-        # 如果当前序列没有present帧，保持当前帧不变
+        # If none found, keep the current frame.
         
     def find_prev_present_frame(self):
-        """在当前序列中找到上一个present帧（从最后往前找）"""
+        """Find the last present frame in the current sequence."""
         if not self.sequences:
             return
             
         seq_id = self.sequences[self.current_sequence]
         absent_data, _ = self.get_sequence_info(seq_id)
         
-        # 从最后一帧开始向前找
+        # Search backward from the last frame.
         for frame_idx in range(len(absent_data) - 1, -1, -1):
             if absent_data[frame_idx] != '0':
                 self.current_frame = frame_idx
                 return
                 
-        # 如果当前序列没有present帧，设为第一帧
+        # If none found, reset to the first frame.
         self.current_frame = 0
 
     def run(self):
-        """运行查看器"""
+        """Run the viewer loop."""
         print("Dataset Viewer Starting...")
         print("Controls:")
         print("  SPACE: Play/Pause")
@@ -417,8 +423,8 @@ class DatasetViewer:
 
             key = cv2.waitKey(30) & 0xFF
             
-            # 自动播放
-            if not self.paused and key == 255:  # 没有按键时
+            # Auto-play when no key is pressed.
+            if not self.paused and key == 255:  # No key event.
                 self.next_frame()
                 continue
             
@@ -426,7 +432,7 @@ class DatasetViewer:
                 break
 
         cv2.destroyAllWindows()
-        # 在退出时保存标记
+        # Save flags on exit.
         self.save_flags()
 
 if __name__ == "__main__":

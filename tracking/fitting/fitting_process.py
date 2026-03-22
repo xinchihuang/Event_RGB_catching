@@ -28,25 +28,10 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     #
     # }
     # Get camera intrinsics from config
-    from config.config_loader import get_config
-    config_loader = get_config()
-    intrinsics = config_loader.get('camera_intrinsics', {})
-    
-    camera_config = {
-        "fx": intrinsics.get('fx', 987.1678420424932),
-        "fy": intrinsics.get('fy', 986.0683237433913),
-        "cy": intrinsics.get('cy', 739.7418995490075),
-        "cx": intrinsics.get('cx', 513.7733221750243),
-        "dist_coeffs": intrinsics.get('distortion_coeffs', [
-            -0.11123899870851763,
-            -0.020663002330730863,
-            -0.0002997445722290338,
-            0.0007964973013426446,
-            0.014818755754515196
-        ])
-    }
-    camera_rpy_to = [0, 45, -90]
-    camera_rpy_back = [45, 0, 90]
+    camera_config = Config.get_camera_intrinsics()
+    extrinsics = Config.get_camera_extrinsics()
+    camera_rpy_to = extrinsics["camera_rpy_to"]
+    camera_rpy_back = extrinsics["camera_rpy_back"]
     rotation_matrix_to = rotate_matrix_coordinate(camera_rpy_to[0], camera_rpy_to[1], camera_rpy_to[2])
     rotation_matrix_back = rotate_matrix_coordinate(camera_rpy_back[0], camera_rpy_back[1], camera_rpy_back[2])
 
@@ -62,8 +47,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     buffered_impact_point = [0,0,0]
 
     # Setup for saving ball_pixel_3D data based on test_mode and task
-    # base_dir = f"/media/xinchi/data/evaluation_data/evaluation_results/{test_mode}_{task}"
-    base_dir = f"/home/xinchi/real_test_data/test_results/{test_mode}_{task}"
+    paths = Config.get_paths()
+    base_dir = f"{paths['evaluation_root']}/{test_mode}_{task}"
     ball_pixel_save_dir = f"{base_dir}/ball_pixel_3D_records_ball"
     if not os.path.exists(ball_pixel_save_dir):
         os.makedirs(ball_pixel_save_dir)
@@ -77,7 +62,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     pending_record_index = None
     first_ball_ts = None
     last_nonempty_ball_pixels = None
-    save_delay_sec = 0.3
+    trajectory = Config.get_trajectory()
+    save_delay_sec = trajectory.get('save_delay_sec', 0.15)
     try:
         while not stop_event.is_set():
             # Safely read ball_observations value and bound check
@@ -106,9 +92,6 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                         continue
 
                     snapshot = last_nonempty_ball_pixels if last_nonempty_ball_pixels is not None else ball_pixels
-
-                    # Get trajectory parameters from config
-                    trajectory = Config.get_trajectory()
 
                     # if len(snapshot) >= trajectory['required_observations']:
                     #     observations = snapshot
@@ -146,10 +129,8 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     pending_impact_point = impact_point_array.copy()
                     pending_record_index = record_index.value
                     print(impact_point_array)
-                    # print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
-                    # system_state.value='r'
-                    print("=== STATE CHANGE: 't' -> 'c' (Timer reached, ready to catch) ===")
-                    system_state.value = 'c'
+                    print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
+                    system_state.value='r'
 
                 if system_state.value == 'r' and not saved:
                     if pending_ball_pixels is None or pending_impact_point is None:

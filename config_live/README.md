@@ -1,96 +1,109 @@
-# Configuration System
+# Configuration (config_live/)
 
-Simple configuration management for Event RGB Catching System hardcoded parameters.
+This stack mirrors `config/` but is kept separate for live tuning. The loader
+merges:
+
+1) `camera_config.yaml`
+2) `tracking_config.yaml`
+3) One overlay from `config_live/overlays/`
 
 ## Files
+- `camera_config.yaml`: shared camera, alignment, and data-read defaults.
+- `tracking_config.yaml`: shared tracking and trajectory defaults.
+- `overlays/*.yaml`: per-task overrides (paths, ROI, HSV, etc.).
+- `config_loader.py`: loader utility.
 
-- `config.yaml` - Main configuration file with all hardcoded parameters
-- `config_loader.py` - Simple configuration loader utility
+## Loading order
+Overlay values always override base values when keys overlap.
+You can select an overlay via `ACTIVE_CONFIG_FILE` or `--task`.
 
-## Usage
+## Parameter reference
 
-### Basic Usage
+### camera_config.yaml
 
-```python
-from config.config_loader import load_config
+**image**
+- `image.rgb_width`, `image.rgb_height`: RGB frame size in pixels.
+- `image.event_width`, `image.event_height`: event sensor size in pixels.
 
-# Get individual values
-rgb_width = load_config('image.rgb_width', 1080)
-eps = load_config('clustering.eps', 9)
-record_dir = load_config('paths.record_dir')
-```
+**timing**
+- `startup_delay`: initial delay before tracking starts (seconds).
+- `reset_delay`: delay between resets (seconds).
+- `shutdown_timeout`: grace period before forced shutdown (seconds).
 
-### Using Config Class
+**image_processing**
+- `accumulation_time_us`: event frame accumulation window (microseconds).
+- `fps`: target FPS for event frame generation (0.0 = use accumulation only).
+- `binary_threshold`: threshold used for event frame binarization.
+- `binary_max_value`: max value for binary threshold.
+- `contrast_alpha`, `contrast_beta`: linear contrast/brightness for display.
+- `brightness_multiplier`: optional RGB brightness multiplier (may be overridden in overlays).
+- `display_scale`: UI display scale factor.
 
-```python
-from config.config_loader import Config
+**clustering**
+- `eps`, `min_samples`: legacy DBSCAN defaults used by some tools.
 
-# Get grouped parameters
-dims = Config.get_image_dimensions()
-# Returns: {'rgb_width': 1080, 'rgb_height': 1440, ...}
+**buffers**
+- `max_events`: shared-memory capacity for event packets.
+- `ball_observations`: max stored observations for fitting.
+- `ball_pixel_3d`: max stored 3D points.
 
-timing = Config.get_timing()
-# Returns: {'startup_delay': 3, 'reset_delay': 2, ...}
+**paths**
+- `paths.evaluation_root`: output base for evaluation artifacts.
 
-processing = Config.get_image_processing()
-# Returns: {'accumulation_time_us': 1000, 'fps': 0.0, ...}
-```
+**alignment**
+- `event_pixel_size`, `rgb_pixel_size`: physical pixel size (um) for alignment.
+- `offset_x`, `offset_y`: pixel offsets from event to RGB coordinates.
+- `y_coordinate_offset`: y-axis shift after rotation.
 
-## Configuration Categories
+**data_reading**
+- `delta_t`: event slice duration in microseconds.
+- `n_events`: max number of events per slice.
+- `send_interval`: publish interval for event stream (seconds).
+- `video_period`: RGB publish interval (seconds).
 
-### Image Dimensions
-- `image.rgb_width` (1080)
-- `image.rgb_height` (1440) 
-- `image.event_width` (720)
-- `image.event_height` (1280)
+**motor**
+- `bitrate`, `motor_id`, `main_can_id`: CAN settings.
+- `kp`, `kd`: motor control gains.
+- `shaft_length`, `joint_height`: arm geometry for angle calculation.
+- `movement_delay`: delay after move commands (seconds).
 
-### Timing Parameters
-- `timing.startup_delay` (3 seconds)
-- `timing.reset_delay` (2 seconds)
-- `timing.shutdown_timeout` (5 seconds)
+**camera_intrinsics**
+- `fx`, `fy`, `cx`, `cy`: intrinsics used for 3D reconstruction.
+- `distortion_coeffs`: lens distortion parameters.
 
-### Image Processing
-- `image_processing.accumulation_time_us` (1000)
-- `image_processing.binary_threshold` (40)
-- `image_processing.contrast_alpha` (0.5)
-- `image_processing.display_scale` (0.8)
+**camera_extrinsics**
+- `camera_rpy_to`, `camera_rpy_back`: rotation angles (degrees) for world transforms.
 
-### Clustering (DBSCAN)
-- `clustering.eps` (9)
-- `clustering.min_samples` (70)
+### tracking_config.yaml
 
-### File Paths
-- `paths.record_dir`
-- `paths.template_npy` (94.npy)
-- `paths.template_jpg` (94.jpg)
+**tracking**
+- `dbscan_eps`: DBSCAN radius in pixels for event clustering.
+- `dbscan_min_samples`: minimum points to form a cluster.
+- `max_ball_buffer`: max stored ball points for fitting.
 
-## Migration Example
+**trajectory**
+- `inlier_threshold`: RANSAC inlier threshold.
+- `gravity`: gravity constant used in fitting.
+- `impact_bounds_x`, `impact_bounds_y`: valid impact bounds (meters).
+- `save_delay_sec`: wait time before saving a record after tracking starts.
 
-**Before (hardcoded):**
-```python
-rgb_width, rgb_height = 1080, 1440
-dbscan = DBSCAN(eps=9, min_samples=70)
-```
+### overlays (config_live/overlays/*.yaml)
 
-**After (configurable):**
-```python
-from config.config_loader import Config
+**paths**
+- `paths.record_dir`: root folder for recorded data.
+- `paths.template_npy`, `paths.template_jpg`: template files used by Model mode.
 
-dims = Config.get_image_dimensions()
-rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+**rgb_param**
+- `hsv_lower`, `hsv_upper`: HSV thresholds for RGB ROI detection.
+- `kernel_size`: morphology kernel size for ROI mask cleanup.
+- `morphology_iterations`: number of morphology iterations.
 
-clustering = Config.get_clustering()
-dbscan = DBSCAN(eps=clustering['eps'], min_samples=clustering['min_samples'])
-```
+**roi_range**
+- ROI expansion radius in pixels (used when expanding the detected ROI).
 
-## Modifying Configuration
+**default_bbox** / **backup_bbox**
+- Fallback bounding boxes when detection is missing or unstable.
 
-Edit `config.yaml` to change parameter values:
-
-```yaml
-clustering:
-  eps: 12        # Changed from 9
-  min_samples: 80 # Changed from 70
-```
-
-Configuration is loaded once at startup. Restart the application to apply changes.
+## Notes
+- Update overlays for per-task tuning; keep shared values in base files.
+- Restart the application to apply config changes.

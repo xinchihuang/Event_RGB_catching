@@ -1,3 +1,10 @@
+"""
+Generate dataset frames (RGB/event/combined/voxel) from raw recordings.
+
+Usage:
+  python3 dataset_tools/prepare_dataset.py
+  (Edit root_dir/raw_data_dir and index range in main().)
+"""
 import os
 import csv
 import cv2
