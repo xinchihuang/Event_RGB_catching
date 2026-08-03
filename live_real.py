@@ -1,12 +1,9 @@
-import math
-import cv2
 import os
 import sys
 import torch
-from multiprocessing import Process, Array, Queue, Manager, shared_memory, Value
+from multiprocessing import Process, Value
 import multiprocessing
 import signal
-import numpy as np
 import time
 import argparse
 
@@ -16,19 +13,16 @@ if prj_path not in sys.path:
     sys.path.append(prj_path)
 
 # Import custom modules
-from data_input.read_from_raw import read_from_raw
-from data_input.read_from_video import read_from_video
 from data_input.read_from_event import read_from_event
 from data_input.read_from_flir import read_from_flir
-from ROI_generation.AMTTrack_ROI import model
-from ROI_generation.RGB_ROI import pure_RGB
-from tracking_2D.HSV_tracker import RGB_tracking_3D
-from tracking_2D.Event_tracker import event_tracking_3D_direct
-from fitting.fitting_process import landing_prediction
+from tracking.ROI_generation.AMTTrack_ROI import model
+from RGB_baseline.RGB_ROI import pure_RGB
+from RGB_baseline.HSV_tracker import RGB_tracking_3D
+from tracking.Event_tracker import event_tracking_3D_direct
+from tracking.fitting.fitting_process import landing_prediction
 from hardware.motor import robot_control
 from gui_process import gui_display_process
 # Import configuration
-from config.config_loader import Config
 from shared_memory_manager import SharedMemoryManager
 
 # Global variables for signal handler
@@ -193,59 +187,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Event RGB Catching System')
     parser.add_argument('--record_index', type=int, default=0,
                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="Event",
+    parser.add_argument('--test_mode', type=str, default="Model",
                         help='Test mode (default: Model). Options: Model, Event, RGB')
-    parser.add_argument('--task', type=str, default="normal",
-                        choices=["normal", "dark", "clutter", "dark_cluster"],
+    parser.add_argument('--task', type=str, default="dark_clutter",
+                        choices=["normal", "dark", "clutter", "dark_clutter"],
                                 help='Task configuration to use (default: normal)')
     args = parser.parse_args()
     
-    # Load configuration based on task and test_mode
-    config_mapping = {
-        "model": {
-            "normal": "config/config_l_model.yaml",
-            "dark": "config/config_d_model.yaml",
-            "clutter": "config/config_c_model.yaml",
-            "dark_cluster": "config/config_dc_model.yaml"
-        },
-        "rgb": {
-            "normal": "config/config_l_rgb.yaml",
-            "dark": "config/config_d_rgb.yaml",
-            "clutter": "config/config_c_rgb.yaml",
-            "dark_cluster": "config/config_dc_rgb.yaml"
-        },
-        "event": {
-            "normal": "config/config_l_event.yaml",
-            "dark": "config/config_d_event.yaml",
-            "clutter": "config/config_c_event.yaml",
-            "dark_cluster": "config/config_dc_event.yaml"
-        }
-    }
-    legacy_mapping = {
-        "normal": "config/config_l.yaml",
-        "dark": "config/config_d.yaml",
-        "clutter": "config/config_c.yaml",
-        "dark_cluster": "config/config_dc.yaml"
-    }
-    mode_key = (args.test_mode or "").strip().lower()
-    task_key = (args.task or "").lower()
-    config_file = None
-    if mode_key in config_mapping:
-        config_file = config_mapping[mode_key].get(task_key)
-    if config_file is None:
-        config_file = legacy_mapping.get(task_key)
-
-    # Set environment variables for subprocess config loading
-    if config_file:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_file
-        os.environ['ACTIVE_TASK'] = args.task
-        print(f"使用任务配置 {args.task}: {config_file}")
-    else:
-        print(f"未知任务类型: {args.task}, 使用默认配置")
-
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
     print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
+    from config.config_loader import get_current_config_name
+    print(f"Active config overlay: {get_current_config_name()}")
     
     device = torch.device("cuda")
 

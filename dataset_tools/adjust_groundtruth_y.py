@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
+"""
+Shift the y coordinate in all groundtruth.txt files under a dataset root.
+
+Usage:
+  python3 dataset_tools/adjust_groundtruth_y.py
+  (Edit dataset_path and y_offset in main() to suit your dataset.)
+"""
 import os
 import csv
 
 def adjust_groundtruth_y(dataset_path, y_offset=-30):
     """
-    调整所有groundtruth.txt文件中的y坐标值
+    Adjust y values in all groundtruth.txt files.
     Args:
-        dataset_path: 数据集路径
-        y_offset: y坐标偏移量，默认-30
+        dataset_path: dataset root path
+        y_offset: y offset to add (default: -30)
     """
     
     if not os.path.exists(dataset_path):
         print(f"Dataset path does not exist: {dataset_path}")
         return
     
-    # 获取所有序列文件夹
+    # Collect all sequence folders.
     sequence_dirs = []
     for item in os.listdir(dataset_path):
         item_path = os.path.join(dataset_path, item)
@@ -37,7 +44,7 @@ def adjust_groundtruth_y(dataset_path, y_offset=-30):
         
         print(f"Processing sequence {seq_id}...")
         
-        # 读取原始数据
+        # Read existing data.
         bbox_data = []
         with open(groundtruth_file, 'r') as f:
             for line in f:
@@ -56,17 +63,17 @@ def adjust_groundtruth_y(dataset_path, y_offset=-30):
                     print(f"Warning: Incomplete data in {groundtruth_file}: {line}")
                     bbox_data.append([0, 0, 0, 0])
         
-        # 调整y坐标
+        # Apply y shift.
         modified_count = 0
         for bbox in bbox_data:
             x, y, w, h = bbox
-            if y > 0:  # 只有非零值才调整
-                new_y = max(0, y + y_offset)  # 确保y不小于0
+            if y > 0:  # Only adjust non-zero entries.
+                new_y = max(0, y + y_offset)  # Keep y >= 0.
                 if new_y != y:
                     bbox[1] = new_y
                     modified_count += 1
         
-        # 写回文件
+        # Write back to file.
         with open(groundtruth_file, 'w', newline='') as f:
             writer = csv.writer(f)
             for bbox in bbox_data:
@@ -91,7 +98,7 @@ def main():
     print(f"Y offset: {y_offset}")
     print()
     
-    # 确认操作
+    # Confirm destructive update.
     response = input("This will modify all groundtruth.txt files. Continue? (y/N): ")
     if response.lower() != 'y':
         print("Operation cancelled.")

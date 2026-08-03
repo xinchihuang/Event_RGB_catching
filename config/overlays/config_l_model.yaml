@@ -1,0 +1,23 @@
+paths:
+  record_dir: /media/xinchi/data/processed_data/saved_data_l
+  template_npy: l.npy
+  template_jpg: l.jpg
+rgb_param:
+  kernel_size:
+  - 5
+  - 5
+  morphology_iterations: 2
+  hsv_lower:
+  - 30
+  - 90
+  - 0
+  hsv_upper:
+  - 50
+  - 255
+  - 255
+roi_range: 150
+default_bbox:
+- 560
+- 1010
+- 70
+- 70

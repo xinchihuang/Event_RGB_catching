@@ -1,9 +1,8 @@
-import math
 import cv2
 import os
 import sys
 import torch
-from multiprocessing import Process, Array, Queue, Manager, shared_memory, Value
+from multiprocessing import Process, shared_memory, Value
 import multiprocessing
 import signal
 import numpy as np
@@ -21,16 +20,15 @@ from data_input.read_from_aligned_buffers import read_from_aligned_buffers
 
 # from data_input.read_from_files_simple import read_from_raw_files as read_from_raw
 # from data_input.read_from_files_simple import read_from_video_files as read_from_video
-from ROI_generation.AMTTrack_ROI import model
-from ROI_generation.RGB_ROI import pure_RGB
-from tracking_2D.HSV_tracker import RGB_tracking_3D
-from tracking_2D.Event_tracker import event_tracking_3D_direct as event_tracking_3D
-from fitting.fitting_process import landing_prediction
+from tracking.ROI_generation.AMTTrack_ROI import model
+from RGB_baseline.RGB_ROI import pure_RGB
+from RGB_baseline.HSV_tracker import RGB_tracking_3D
+from tracking.Event_tracker import event_tracking_3D_direct as event_tracking_3D
+from tracking.fitting.fitting_process import landing_prediction
 from hardware.motor import robot_control
 from gui_process import gui_display_process
 
 # Import configuration
-from config.config_loader import Config
 
 def starter(system_state,stop_event):
     system_state.value='w'
@@ -347,49 +345,6 @@ if __name__ == '__main__':
                         help='Enable CSV saving for ball detections (default: disabled)')
     args = parser.parse_args()
     
-    # Set environment variables for config selection
-    config_mapping = {
-        "model": {
-            "normal": "config/config_l_model.yaml",
-            "dark": "config/config_d_model.yaml",
-            "clutter": "config/config_c_model.yaml",
-            "dark_clutter": "config/config_dc_model.yaml"
-        },
-        "rgb": {
-            "normal": "config/config_l_rgb.yaml",
-            "dark": "config/config_d_rgb.yaml",
-            "clutter": "config/config_c_rgb.yaml",
-            "dark_clutter": "config/config_dc_rgb.yaml"
-        },
-        "event": {
-            "normal": "config/config_l_event.yaml",
-            "dark": "config/config_d_event.yaml",
-            "clutter": "config/config_c_event.yaml",
-            "dark_clutter": "config/config_dc_event.yaml"
-        }
-    }
-    legacy_mapping = {
-        "normal": "config/config_l.yaml",
-        "dark": "config/config_d.yaml",
-        "clutter": "config/config_c.yaml",
-        "dark_clutter": "config/config_dc.yaml"
-    }
-    mode_key = (args.test_mode or "").strip().lower()
-    task_key = (args.task or "").lower()
-    config_file = None
-    if mode_key in config_mapping:
-        config_file = config_mapping[mode_key].get(task_key)
-    if config_file is None:
-        config_file = legacy_mapping.get(task_key)
-
-    # Set environment variables for subprocess config loading
-    if config_file:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_file
-        os.environ['ACTIVE_TASK'] = args.task
-        print(f"使用任务配置 {args.task}: {config_file}")
-    else:
-        print(f"未知任务类型: {args.task}, 使用默认配置")
-    
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
     print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
@@ -477,10 +432,11 @@ if __name__ == '__main__':
     print(f"Starting with record_index: {args.record_index}")
 
     # Get record directory from config
-    from config.config_loader import Config
+    from config.config_loader import Config, get_current_config_name
     paths = Config.get_paths()
     record_dir = paths['record_dir']
     print(f"Record directory: {record_dir}")
+    print(f"Active config overlay: {get_current_config_name()}")
 
     # Define all available processes
     all_processes = {

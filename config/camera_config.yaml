@@ -1,0 +1,57 @@
+# Camera config shared by all variants.
+# This file only includes keys that are identical across all config overlays.
+
+# Image dimensions.
+image:
+  rgb_width: 1080
+  rgb_height: 1440
+  event_width: 720
+  event_height: 1280
+# Image processing defaults.
+image_processing:
+  accumulation_time_us: 1000
+  fps: 0.0
+  binary_threshold: 40
+  binary_max_value: 255
+  contrast_alpha: 0.5
+  contrast_beta: 30
+  display_scale: 0.8
+# Output and evaluation paths.
+paths:
+  evaluation_root: /media/xinchi/data/test_data/evaluation_results
+# Event/RGB alignment parameters.
+alignment:
+  event_pixel_size: 3.45
+  rgb_pixel_size: 4.86
+  offset_x: 30
+  offset_y: 29
+  y_coordinate_offset: 1279
+  apply_rotation: false
+# Data reading parameters.
+data_reading:
+  delta_t: 2000
+  n_events: 10000
+  send_interval: 0.002
+  video_period: 0.02
+# Camera intrinsics.
+camera_intrinsics:
+  fx: 987.1678420424932
+  fy: 986.0683237433913
+  cx: 513.7733221750243
+  cy: 739.7418995490075
+  distortion_coeffs:
+  - -0.11123899870851763
+  - -0.020663002330730863
+  - -0.0002997445722290338
+  - 0.0007964973013426446
+  - 0.014818755754515196
+# Camera extrinsics.
+camera_extrinsics:
+  camera_rpy_to:
+  - 0
+  - 45
+  - -90
+  camera_rpy_back:
+  - 45
+  - 0
+  - 90

@@ -1,0 +1,16 @@
+# Trajectory fitting defaults.
+trajectory:
+  inlier_threshold: 0.35
+  gravity: -9.81
+  impact_bounds_x:
+  - -1.5
+  - 1.5
+  impact_bounds_y:
+  - 0
+  - 2
+  save_delay_sec: 0.15
+# Tracking defaults.
+tracking:
+  dbscan_eps: 15
+  dbscan_min_samples: 100
+  max_ball_buffer: 1000

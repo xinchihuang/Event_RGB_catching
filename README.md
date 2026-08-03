@@ -1,89 +1,103 @@
-# Event_RGB_catching
+# Event RGB Catching
 
-Real-time ball detection, tracking, and landing prediction/catching using event cameras and RGB cameras. The system is built as a multi-process pipeline with shared memory, covering event/RGB data ingestion, ROI generation, 2D/3D tracking, trajectory fitting, and robot control, plus optional GUI visualization.
+Event + RGB capture, tracking, and landing prediction for ball catching.
+This repo supports live operation with cameras and offline playback from recorded data.
 
-## Key Features
-- Event-only and RGB-assisted tracking modes
-- ROI generation (model-based and color-threshold based)
-- 3D trajectory reconstruction and landing prediction
-- Motor/robot control interface
-- Multi-process shared-memory data flow with GUI display
+## Installation
 
-## Entry Scripts
-Common entry points (by usage):
-- `live_real.py`: full pipeline (event + RGB/model ROI + tracking + prediction + control + GUI)
-- `live.py`: event-camera live mode (simplified)
-- `record.py`: aligned-buffer recording and tracking pipeline
-- `run_record.py`: auto-restart batch runner for `record.py`
-- `show_data.py`: playback/visualization for aligned data + GUI
+### Hardware requirements
+- Event camera: Prophesee EVK4 HD, Metavision SDK 4.6.2.
+- RGB camera: FLIR Blackfly S 16S2C, Spinnaker SDK (PySpin).
+- Optional: PCAN USB + motor driver for live catching.
+- Optional: CUDA-capable GPU for Model mode (AMTTrack + spconv).
 
-Examples:
+### Python dependencies
+Install the Python packages from `requirement.txt`:
+
 ```bash
-# Live event-only mode
-python live.py --task normal
-
-# Full pipeline (adjust test_mode and task as needed)
-python live_real.py --test_mode Event --task normal
-
-# Recording / processing pipeline
-python record.py --record_index 0 --test_mode Event --task normal
-
-# Batch runs for record.py
-python run_record.py --start_index 0 --test_mode Event --task normal
-
-# Playback / visualization
-python show_data.py --record_index 0 --test_mode Show --task normal
+pip install -r requirement.txt
 ```
-
-Note: `--task` options differ slightly per script. Check each script's `argparse` `choices` for exact values.
-
-## Media
-
-### Perception Model Overview Diagram
-![System overview](doc/architecture.png)
-
-
-### Demo Video (GIF/MP4)
-
-![Demo clip](doc/demo.gif)
-
-
-## Configuration
-- `config/`: YAML configs used by different modes.
-- Config selection is based on `--test_mode` and `--task`.
-- Environment variables supported:
-  - `ACTIVE_CONFIG_FILE`: explicit config file path (highest priority)
-  - `ACTIVE_TASK`: task name (e.g., normal/dark/clutter)
-  - `TEST_MODE`: mode (Event/RGB/Model)
-  - `ENABLE_GUI=0`: disable GUI
-
-See `config/config_loader.py` for the selection logic.
-
-## Project Structure (Core Modules)
-- `data_input/`: event/video/RGB/aligned-buffer readers
-- `ROI_generation/`: ROI generation (model/color)
-- `tracking_2D/`: event/RGB tracking
-- `fitting/`: trajectory fitting and landing prediction
-- `hardware/`: motor control interface
-- `gui_process.py`: GUI display process
-- `AMTTrack/`: tracking model and related tooling
-
-## Dependencies
-This is a Python project. Common dependencies include:
-- `numpy`, `opencv-python`, `torch`, `pyyaml`, `pynput`
-
-For real hardware (event camera / FLIR / motor), you will also need the corresponding SDKs and drivers.
 
 For the verified Ubuntu 22.04/Python 3.10 version matrix, strict installation
 order, camera SDK setup, and validation commands, see
 [UBUNTU22_INSTALL.md](UBUNTU22_INSTALL.md).
 
-## Interaction Notes
-Some scripts use keyboard control (via `pynput`). Typical keys:
-- `t`: start tracking
-- `w`: wait/pause
-- `e`: exit (in some scripts)
+## Configuration
 
-Refer to console logs for exact behavior.
+The active configuration is merged as:
+`camera_config + tracking_config + overlay`.
 
----
+Default stack:
+- `config/camera_config.yaml`
+- `config/tracking_config.yaml`
+- `config/overlays/*.yaml`
+
+Live tuning stack (same schema):
+- `config_live/camera_config.yaml`
+- `config_live/tracking_config.yaml`
+- `config_live/overlays/*.yaml`
+
+For parameter meanings and tuning workflow, see:
+- `config/README.md`
+- `config_live/README.md`
+- `tools/README.md`
+
+## Run modes
+
+### 1) Live catching from cameras (event + RGB + motor)
+Reads from the event camera + FLIR camera and drives the motor.
+
+```bash
+python live_real.py --test_mode Model --task dark_clutter
+```
+
+### 2) Playback from recorded data (offline test)
+Reads event + RGB from disk and runs the pipeline.
+
+```bash
+python record.py --record_index 0 --test_mode Model --task dark
+```
+
+Expected data layout under `record_dir` (set in the overlay):
+- `event/{index}.raw` or `event/{index}.dat`
+- `rgb/{index}.mp4`
+
+### 3) Live tracking only (no motor)
+Reads from cameras and runs tracking + landing prediction, without motor control.
+
+```bash
+python tracking.py --test_mode Event --task normal
+```
+
+Notes:
+- Set `ENABLE_GUI=0` to disable the GUI.
+- Keyboard control: `t` = start tracking, `w` = wait, `e` = exit.
+
+## Test modes and tasks
+
+`--test_mode` selects which pipeline is active:
+- `Model`: AMTTrack ROI + event tracking.
+- `Event`: event-only tracking.
+- `RGB`: RGB ROI + RGB tracking.
+
+`--task` selects the overlay set:
+- `normal`, `dark`, `clutter`, `dark_clutter`
+
+To change parameters, edit the overlay YAML that matches your task in
+`config/overlays/` (or `config_live/overlays/` for the live stack).
+You can also force a specific overlay with `ACTIVE_CONFIG_FILE`.
+
+## Calibration
+
+Calibration details live in `config/README.md`, `config_live/README.md`,
+and `tools/README.md`.
+
+## Evaluation tools
+
+The `evaluation_tools/` folder contains scripts for comparing predictions,
+plotting landing errors, and reviewing saved results. Use these after running
+`record.py` or `live_real.py` to analyze performance and generate plots.
+
+## Notes
+- `config/` is the default stack used by the main scripts.
+- `config_live/` mirrors the same schema and is available for live tuning.

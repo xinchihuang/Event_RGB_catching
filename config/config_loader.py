@@ -11,6 +11,16 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 
+def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    """Recursively merge overlay into base."""
+    if not isinstance(base, dict) or not isinstance(overlay, dict):
+        return overlay
+    merged = dict(base)
+    for key, value in overlay.items():
+        merged[key] = _deep_merge(merged.get(key), value)
+    return merged
+
+
 class ConfigLoader:
     """Simple configuration loader for hardcoded parameters"""
     
@@ -19,10 +29,12 @@ class ConfigLoader:
         Initialize configuration loader
         
         Args:
-            config_file: Configuration file name (default: config.yaml)
+            config_file: Overlay configuration file name (default: config/config_l.yaml)
         """
         # Look for config file in project root
         project_root = Path(__file__).parent.parent
+        self.camera_config_path = project_root / "config/camera_config.yaml"
+        self.tracking_config_path = project_root / "config/tracking_config.yaml"
         self.config_path = project_root / config_file
         self.current_config_file = config_file
         
@@ -58,32 +70,81 @@ class ConfigLoader:
             List of available configuration file names
         """
         project_root = Path(__file__).parent.parent
+        overlay_dir = project_root / "config/overlays"
         config_files = []
-        
-        # Look for all YAML config files
-        for config_file in project_root.glob("config*.yaml"):
-            config_files.append(config_file.name)
-        
+
+        if overlay_dir.exists():
+            for config_file in overlay_dir.glob("*.yaml"):
+                config_files.append(str(Path("config/overlays") / config_file.name))
+        else:
+            config_dir = project_root / "config"
+            for config_file in config_dir.glob("*.yaml"):
+                if config_file.name in {"camera_config.yaml", "tracking_config.yaml"}:
+                    continue
+                config_files.append(str(Path("config") / config_file.name))
+
         return sorted(config_files)
     
     def _load_config(self) -> None:
-        """Load configuration from YAML file"""
-        if not self.config_path.exists():
-            self.logger.warning(f"Config file not found: {self.config_path}")
-            return
-        
-        try:
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config = yaml.safe_load(f) or {}
-            
-            self.logger.info(f"Configuration loaded: {self.config_path}")
-            
-        except yaml.YAMLError as e:
-            self.logger.error(f"YAML parsing error: {e}")
-            raise
-        except Exception as e:
-            self.logger.error(f"Failed to load config: {e}")
-            raise
+        """Load configuration from camera + tracking + overlay YAML files"""
+        camera_config = {}
+        if self.camera_config_path.exists():
+            try:
+                with open(self.camera_config_path, 'r', encoding='utf-8') as f:
+                    camera_config = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                self.logger.error(f"YAML parsing error in camera config: {e}")
+                raise
+            except Exception as e:
+                self.logger.error(f"Failed to load camera config: {e}")
+                raise
+        else:
+            self.logger.warning(f"Camera config file not found: {self.camera_config_path}")
+
+        tracking_config = {}
+        if self.tracking_config_path.exists():
+            try:
+                with open(self.tracking_config_path, 'r', encoding='utf-8') as f:
+                    tracking_config = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                self.logger.error(f"YAML parsing error in tracking config: {e}")
+                raise
+            except Exception as e:
+                self.logger.error(f"Failed to load tracking config: {e}")
+                raise
+        else:
+            self.logger.warning(f"Tracking config file not found: {self.tracking_config_path}")
+
+        base_config = _deep_merge(camera_config, tracking_config)
+
+        overlay_config = {}
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    overlay_config = yaml.safe_load(f) or {}
+            except yaml.YAMLError as e:
+                self.logger.error(f"YAML parsing error in overlay config: {e}")
+                raise
+            except Exception as e:
+                self.logger.error(f"Failed to load overlay config: {e}")
+                raise
+        else:
+            self.logger.warning(f"Overlay config file not found: {self.config_path}")
+
+        self.config = _deep_merge(base_config, overlay_config)
+        if overlay_config:
+            self.logger.info(
+                "Configuration loaded: camera=%s, tracking=%s, overlay=%s",
+                self.camera_config_path,
+                self.tracking_config_path,
+                self.config_path,
+            )
+        else:
+            self.logger.info(
+                "Configuration loaded: camera=%s, tracking=%s",
+                self.camera_config_path,
+                self.tracking_config_path,
+            )
     
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -148,25 +209,24 @@ def get_config() -> ConfigLoader:
                         "clutter": "config_c",
                         "dark_clutter": "config_dc"
                     }
-                    legacy_mapping = {
-                        "normal": "config/config_l.yaml",
-                        "dark": "config/config_d.yaml", 
-                        "clutter": "config/config_c.yaml",
-                        "dark_clutter": "config/config_dc.yaml"
-                    }
 
                     if mode_suffix:
                         base = task_base.get(task_key)
                         if base:
                             config_file = f"config/{base}_{mode_suffix}.yaml"
-                    if config_file is None:
-                        config_file = legacy_mapping.get(task_key)
             except:
                 pass
         
         # 3. 使用默认配置
         if config_file is None:
             config_file = "config/config_l.yaml"
+
+        project_root = Path(__file__).parent.parent
+        candidate = Path(config_file)
+        if not candidate.is_absolute():
+            overlay_candidate = Path("config/overlays") / candidate.name
+            if (project_root / overlay_candidate).exists():
+                config_file = str(overlay_candidate)
             
         _config = ConfigLoader(config_file)
     return _config
@@ -243,6 +303,10 @@ class Config:
                 'RECORD_DIR',
                 config.get('paths.record_dir', '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc')
             ),
+            'evaluation_root': os.environ.get(
+                'EVALUATION_RESULTS_DIR',
+                config.get('paths.evaluation_root', '/media/xinchi/data/test_data/evaluation_results')
+            ),
             'template_npy': config.get('paths.template_npy', '94.npy'),
             'template_jpg': config.get('paths.template_jpg', '94.jpg')
         }
@@ -258,6 +322,36 @@ class Config:
             'offset_y': config.get('alignment.offset_y', 29),
             'y_coordinate_offset': config.get('alignment.y_coordinate_offset', 1279),
             'apply_rotation': config.get('alignment.apply_rotation', True)
+        }
+
+    @staticmethod
+    def get_camera_extrinsics():
+        """Get camera extrinsic rotation parameters"""
+        config = get_config()
+        return {
+            'camera_rpy_to': config.get('camera_extrinsics.camera_rpy_to', [0, 45, -90]),
+            'camera_rpy_back': config.get('camera_extrinsics.camera_rpy_back', [45, 0, 90])
+        }
+
+    @staticmethod
+    def get_camera_intrinsics():
+        """Get camera intrinsic parameters"""
+        config = get_config()
+        return {
+            'fx': config.get('camera_intrinsics.fx', 987.1678420424932),
+            'fy': config.get('camera_intrinsics.fy', 986.0683237433913),
+            'cx': config.get('camera_intrinsics.cx', 513.7733221750243),
+            'cy': config.get('camera_intrinsics.cy', 739.7418995490075),
+            'dist_coeffs': config.get(
+                'camera_intrinsics.distortion_coeffs',
+                [
+                    -0.11123899870851763,
+                    -0.020663002330730863,
+                    -0.0002997445722290338,
+                    0.0007964973013426446,
+                    0.014818755754515196,
+                ],
+            ),
         }
     
     @staticmethod
@@ -276,13 +370,13 @@ class Config:
         """Get ROI detection parameters"""
         config = get_config()
         return {
-            'hsv_lower': config.get('roi.hsv_lower', [30, 90, 0]),
-            'hsv_upper': config.get('roi.hsv_upper', [50, 255, 255]),
-            'kernel_size': config.get('roi.kernel_size', [5, 5]),
-            'morphology_iterations': config.get('roi.morphology_iterations', 2),
-            'roi_range': config.get('roi.roi_range', 200),
-            'default_bbox': config.get('roi.default_bbox', [430, 1180, 40, 40]),
-            'backup_bbox': config.get('roi.backup_bbox', [180, 1030, 40, 40])
+            'hsv_lower': config.get('rgb_param.hsv_lower', [30, 90, 0]),
+            'hsv_upper': config.get('rgb_param.hsv_upper', [50, 255, 255]),
+            'kernel_size': config.get('rgb_param.kernel_size', [5, 5]),
+            'morphology_iterations': config.get('rgb_param.morphology_iterations', 2),
+            'roi_range': config.get('roi_range', 200),
+            'default_bbox': config.get('default_bbox', [430, 1180, 40, 40]),
+            'backup_bbox': config.get('backup_bbox', [180, 1030, 40, 40])
         }
     
     @staticmethod
@@ -290,9 +384,9 @@ class Config:
         """Get tracking parameters"""
         config = get_config()
         return {
-            'dbscan_eps': config.get('tracking.dbscan_eps', 12),
-            'dbscan_min_samples': config.get('tracking.dbscan_min_samples', 110),
-            'max_ball_buffer': config.get('tracking.max_ball_buffer', 100),
+            'dbscan_eps': config.get('tracking.dbscan_eps', 15),
+            'dbscan_min_samples': config.get('tracking.dbscan_min_samples', 100),
+            'max_ball_buffer': config.get('tracking.max_ball_buffer', 1000),
             'hsv_display_scale': config.get('tracking.hsv_display_scale', 0.75)
         }
     
@@ -316,11 +410,11 @@ class Config:
         """Get trajectory fitting parameters"""
         config = get_config()
         return {
-            'required_observations': config.get('trajectory.required_observations', 10),
             'inlier_threshold': config.get('trajectory.inlier_threshold', 0.35),
             'gravity': config.get('trajectory.gravity', -9.81),
             'impact_bounds_x': config.get('trajectory.impact_bounds_x', [-1.5, 1.5]),
-            'impact_bounds_y': config.get('trajectory.impact_bounds_y', [0, 2])
+            'impact_bounds_y': config.get('trajectory.impact_bounds_y', [0, 2]),
+            'save_delay_sec': config.get('trajectory.save_delay_sec', 0.15)
         }
 
 
