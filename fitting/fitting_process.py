@@ -9,7 +9,17 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
-def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact_point_data,record_index,system_state,stop_event,test_mode="Event",task="Normal"):
+def landing_prediction(
+    shared_ball_pixel_3D_data,
+    ball_observations,
+    shared_impact_point_data,
+    record_index,
+    system_state,
+    stop_event,
+    test_mode="Event",
+    task="Normal",
+    trigger_motor=False,
+):
 
     import sys
     import os
@@ -62,13 +72,16 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
     buffered_impact_point = [0,0,0]
 
     # Setup for saving ball_pixel_3D data based on test_mode and task
-    base_dir = f"/media/xinchi/data/evaluation_data/evaluation_results/{test_mode}_{task}"
+    evaluation_results_dir = os.environ.get(
+        "EVALUATION_RESULTS_DIR",
+        "/media/xinchi/data/evaluation_data/evaluation_results",
+    )
+    base_dir = os.path.join(evaluation_results_dir, f"{test_mode}_{task}")
     ball_pixel_save_dir = f"{base_dir}/ball_pixel_3D_records_ball"
-    if not os.path.exists(ball_pixel_save_dir):
-        os.makedirs(ball_pixel_save_dir)
     impact_pixel_save_dir = f"{base_dir}/ball_pixel_3D_records"
-    if not os.path.exists(impact_pixel_save_dir):
-        os.makedirs(impact_pixel_save_dir)
+    if not trigger_motor:
+        os.makedirs(ball_pixel_save_dir, exist_ok=True)
+        os.makedirs(impact_pixel_save_dir, exist_ok=True)
     ball_pixels_data_list = []  # Store ball_pixels data for current record
     saved=True
     pending_ball_pixels = None
@@ -140,13 +153,17 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     impact_point_array[1] = impact_point[1]
                     impact_point_array[2] = impact_point[2]
 
-                    # Snapshot the data now so saving isn't affected by resets.
-                    pending_ball_pixels = snapshot.copy()
-                    pending_impact_point = impact_point_array.copy()
-                    pending_record_index = record_index.value
                     print(impact_point_array)
-                    print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
-                    system_state.value='r'
+                    if trigger_motor:
+                        print("=== STATE CHANGE: 't' -> 'c' (Landing prediction complete, triggering motor) ===")
+                        system_state.value = 'c'
+                    else:
+                        # Snapshot the data now so saving isn't affected by resets.
+                        pending_ball_pixels = snapshot.copy()
+                        pending_impact_point = impact_point_array.copy()
+                        pending_record_index = record_index.value
+                        print("=== STATE CHANGE: 't' -> 'r' (Timer reached, ready to save) ===")
+                        system_state.value = 'r'
 
                 if system_state.value == 'r' and not saved:
                     if pending_ball_pixels is None or pending_impact_point is None:
@@ -169,8 +186,9 @@ def landing_prediction(shared_ball_pixel_3D_data,ball_observations,shared_impact
                     pending_impact_point = None
                     pending_record_index = None
 
-            except:
-                continue
+            except Exception as exc:
+                print(f"Landing prediction error: {exc}", flush=True)
+                time.sleep(0.01)
     finally:
         print("Landing prediction: Cleaning up...")
         # Do NOT close shared memory in subprocess - main process handles cleanup

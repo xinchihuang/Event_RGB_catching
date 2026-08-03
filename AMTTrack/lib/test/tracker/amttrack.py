@@ -21,7 +21,11 @@ class AMTTrack(BaseTracker):
     def __init__(self, params, dataset_name):
         super(AMTTrack, self).__init__(params)
         network = build_amttrack(params.cfg, training=False)
-        _, missing_key = network.load_state_dict(torch.load(self.params.checkpoint, map_location='cpu')['net'], strict=False)
+        # This project checkpoint contains training metadata in addition to tensors.
+        # PyTorch 2.6+ defaults to weights_only=True, unlike the PyTorch version
+        # used to create the checkpoint.
+        checkpoint = torch.load(self.params.checkpoint, map_location='cpu', weights_only=False)
+        _, missing_key = network.load_state_dict(checkpoint['net'], strict=False)
         print("missing_key:", missing_key)
         
         self.cfg = params.cfg

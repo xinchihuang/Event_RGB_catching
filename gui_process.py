@@ -216,8 +216,19 @@ def gui_display_process(
         return
 
     # 2. Initialize OpenCV window (ONLY in this process)
-    cv2.startWindowThread()
-    cv2.namedWindow('Event & RGB Tracking')
+    # waitKey(1) in the display loop already drives the Qt event loop.
+    # startWindowThread() can block indefinitely with the Qt5 backend.
+    print("GUI Process: Creating OpenCV window...")
+    sys.stdout.flush()
+    cv2.namedWindow('Event & RGB Tracking', cv2.WINDOW_NORMAL)
+    window_scale = float(os.environ.get('GUI_WINDOW_SCALE', '3'))
+    cv2.resizeWindow(
+        'Event & RGB Tracking',
+        int(400 * window_scale),
+        int(300 * window_scale),
+    )
+    print("GUI Process: OpenCV window created")
+    sys.stdout.flush()
 
     # Create directory for saved images if saving is enabled
     save_dir = None
@@ -253,6 +264,9 @@ def gui_display_process(
     # 3. Main display loop
     while not stop_event.is_set():
         try:
+            if system_state.value == 'e':
+                break
+
             # Only display when system is in tracking mode
             if system_state.value != 't':
                 time.sleep(0.01)

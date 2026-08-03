@@ -163,14 +163,8 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
             # 叠加显示RGB图像和事件图像
             combined = np.hstack((vis_image, event_image_viz))
 
-            # 显示检测结果，让用户确认
-            scale = processing['display_scale']
-            height, width = combined.shape[:2]
-            new_size = (int(width * scale), int(height * scale))
-            resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
-            cv2.imshow('Ball Detection (RGB + Event) - Press any key to continue', resized_img)
-            cv2.waitKey(2000)  # 显示2秒
-            cv2.destroyAllWindows()
+            # The preview is shown by the parent process before child processes
+            # start. OpenCV/Qt GUI calls from multiple processes can deadlock.
 
             return x, y, w, h
         else:

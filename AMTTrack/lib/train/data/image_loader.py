@@ -1,7 +1,11 @@
-import jpeg4py
 import cv2 as cv
 from PIL import Image
 import numpy as np
+
+try:
+    import jpeg4py
+except ImportError:
+    jpeg4py = None
 
 davis_palette = np.repeat(np.expand_dims(np.arange(0,256), 1), 3, 1).astype(np.uint8)
 davis_palette[:22, :] = [[0, 0, 0], [128, 0, 0], [0, 128, 0], [128, 128, 0],
@@ -33,6 +37,8 @@ default_image_loader.use_jpeg4py = None
 
 def jpeg4py_loader(path):
     """ Image reading using jpeg4py https://github.com/ajkxyz/jpeg4py"""
+    if jpeg4py is None:
+        return None
     try:
         return jpeg4py.JPEG(path).decode()
     except Exception as e:
@@ -57,6 +63,8 @@ def opencv_loader(path):
 def jpeg4py_loader_w_failsafe(path):
     """ Image reading using jpeg4py https://github.com/ajkxyz/jpeg4py"""
     try:
+        if jpeg4py is None:
+            raise ImportError("jpeg4py is not installed")
         return jpeg4py.JPEG(path).decode()
     except:
         try:

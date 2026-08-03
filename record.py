@@ -9,7 +9,6 @@ import signal
 import numpy as np
 import time
 import argparse
-from gi.overrides.Gtk import initialized
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
@@ -530,6 +529,9 @@ if __name__ == '__main__':
             if process_name == 'gui_process' and not USE_GUI:
                 print(f"Skipped: {process_name} (GUI disabled)")
                 continue
+            if process_name == 'gui_process':
+                print(f"Deferred: {process_name} (runs in main process)")
+                continue
 
             process = all_processes[process_name]
             process.start()
@@ -537,6 +539,27 @@ if __name__ == '__main__':
             print(f"Started: {process_name}")
         else:
             print(f"Warning: Process '{process_name}' not found!")
+
+    # Qt/OpenCV windows must run on the main process's main thread. Running
+    # namedWindow() in a multiprocessing child can block indefinitely.
+    if USE_GUI and 'gui_process' in processes_to_start:
+        print("Started: gui_process (main process)")
+        gui_display_process(
+            shared_event_data,
+            shared_flir_data,
+            shared_ROI_data,
+            shared_ball_pixel_3D_data,
+            ball_observations,
+            num_event,
+            event_data_version,
+            flir_data_version,
+            system_state,
+            stop_event,
+            False,
+            args.save_csv,
+            ball_pixel_3D_version=ball_pixel_3D_version,
+        )
+
     # Wait for processes to finish or system_state becomes 'e'
     try:
         while True:

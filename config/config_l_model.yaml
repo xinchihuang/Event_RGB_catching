@@ -54,7 +54,7 @@ alignment:
   offset_x: 30
   offset_y: 29
   y_coordinate_offset: 1279
-  apply_rotation: false
+  apply_rotation: true
 
 # Data reading
 data_reading:

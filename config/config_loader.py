@@ -239,7 +239,10 @@ class Config:
         """Get file paths"""
         config = get_config()
         return {
-            'record_dir': config.get('paths.record_dir', '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc'),
+            'record_dir': os.environ.get(
+                'RECORD_DIR',
+                config.get('paths.record_dir', '/media/xinchi/data/Event_RGB_catching_data/saved_data_dc')
+            ),
             'template_npy': config.get('paths.template_npy', '94.npy'),
             'template_jpg': config.get('paths.template_jpg', '94.jpg')
         }

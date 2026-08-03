@@ -5,3 +5,9 @@
 *.tar
 *.png
 
+# Python virtual environments and bytecode caches
+.venv/
+.venv312/
+__pycache__/
+*.py[cod]
+

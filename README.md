@@ -74,6 +74,10 @@ This is a Python project. Common dependencies include:
 
 For real hardware (event camera / FLIR / motor), you will also need the corresponding SDKs and drivers.
 
+For the verified Ubuntu 22.04/Python 3.10 version matrix, strict installation
+order, camera SDK setup, and validation commands, see
+[UBUNTU22_INSTALL.md](UBUNTU22_INSTALL.md).
+
 ## Interaction Notes
 Some scripts use keyboard control (via `pynput`). Typical keys:
 - `t`: start tracking
@@ -83,4 +87,3 @@ Some scripts use keyboard control (via `pynput`). Typical keys:
 Refer to console logs for exact behavior.
 
 ---
-

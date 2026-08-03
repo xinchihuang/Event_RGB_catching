@@ -9,7 +9,6 @@ import signal
 import numpy as np
 import time
 import argparse
-from gi.overrides.Gtk import initialized
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
@@ -45,39 +44,56 @@ def signal_handler(sig, frame):
     sys.exit(0)
 def keyboard(shared_value,system_state):
     from pynput import keyboard
+    import queue
     import threading
     import time
-    
-    def play_voice_notification(message):
-        """Play voice notification"""
+
+    voice_messages = queue.Queue()
+
+    def voice_worker():
+        """Keep one TTS engine alive so its native callbacks remain valid."""
+        engine = None
         try:
             import pyttsx3
             engine = pyttsx3.init()
-            engine.setProperty('rate', 200)  # Speech rate
-            engine.setProperty('volume', 0.9)  # Volume level
-            engine.say(message)
-            engine.runAndWait()
-        except ImportError:
-            print(f"Voice notification: {message} (pyttsx3 not available)")
-        except Exception as e:
-            print(f"Voice playback failed: {e}, using text notification: {message}")
+            engine.setProperty('rate', 200)
+            engine.setProperty('volume', 0.9)
+        except Exception as exc:
+            print(f"Voice engine unavailable: {exc}")
+
+        try:
+            while True:
+                message = voice_messages.get()
+                if message is None:
+                    break
+                if engine is None:
+                    print(f"Voice notification: {message}")
+                    continue
+                try:
+                    engine.say(message)
+                    engine.runAndWait()
+                except Exception as exc:
+                    print(f"Voice playback failed: {exc}; message: {message}")
+        finally:
+            if engine is not None:
+                try:
+                    engine.stop()
+                except Exception:
+                    pass
+
+    voice_thread = threading.Thread(target=voice_worker, daemon=True)
+    voice_thread.start()
     
     def state_monitor():
         """Monitor state changes and trigger voice notifications"""
         previous_state = system_state.value
-        while True:
+        while system_state.value != 'e':
             current_state = system_state.value
             if previous_state != current_state and current_state == 't':
                 print(f"State change detected: {previous_state} -> {current_state}")
-                # Play voice in new thread to avoid blocking
-                voice_thread = threading.Thread(
-                    target=play_voice_notification, 
-                    args=("System started tracking. Throw the ball now!",),
-                    daemon=True
-                )
-                voice_thread.start()
+                voice_messages.put("System started tracking. Throw the ball now!")
             previous_state = current_state
-            time.sleep(0.1)  # Check interval 100ms
+            time.sleep(0.1)
     
     # Start state monitoring thread
     monitor_thread = threading.Thread(target=state_monitor, daemon=True)
@@ -102,7 +118,12 @@ def keyboard(shared_value,system_state):
             system_state.value='e'
 
     with keyboard.Listener(on_press=on_press) as listener:
-        listener.join()
+        while listener.is_alive() and system_state.value != 'e':
+            time.sleep(0.1)
+        listener.stop()
+
+    voice_messages.put(None)
+    voice_thread.join(timeout=3)
 def shutdown_processes(processes, timeout=5):
     """
     安全地关闭进程列表
@@ -300,7 +321,8 @@ if __name__ == '__main__':
                                               ball_pixel_3D_version)),
         'landing_prediction_process': Process(target=landing_prediction,
                                               args=(shared_ball_pixel_3D_data, ball_observations,
-                                                    shared_impact_point_data, record_index, system_state, stop_event)),
+                                                    shared_impact_point_data, record_index, system_state,
+                                                    stop_event, args.test_mode, args.task, True)),
         'keyboard_process': Process(target=keyboard, args=(keyboard_input, system_state)),
         'robot_control_process': Process(target=robot_control,
                                          args=(shared_impact_point_data, system_state, stop_event)),
@@ -314,7 +336,7 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','gui_process'],
+        'Event': ['event_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process','gui_process'],
         'RGB': ['event_process','flir_process','RGB_ROI_process', 'RGB_tracking_process', 'landing_prediction_process', 'keyboard_process','robot_control_process','gui_process'],
         'Model':['event_process','flir_process','model_ROI_process','event_tracking_process','landing_prediction_process','keyboard_process','robot_control_process','gui_process'],
     }
@@ -333,6 +355,7 @@ if __name__ == '__main__':
                 continue
 
             process = all_processes[process_name]
+            process.name = process_name
             process.start()
             started_processes.append(process)
             print(f"Started: {process_name}")
@@ -344,6 +367,22 @@ if __name__ == '__main__':
             # Check if system should exit
             if system_state.value == 'e':
                 print("System exit requested, terminating processes...")
+                stop_event.set()
+                break
+
+            # A failed worker must stop the whole real-hardware pipeline.
+            # Otherwise the remaining GUI/keyboard workers keep this parent
+            # alive and make a startup failure look like a hang.
+            failed_processes = [
+                p for p in started_processes
+                if p.exitcode is not None and p.exitcode != 0
+            ]
+            if failed_processes:
+                failures = ", ".join(
+                    f"{p.name} (exit code {p.exitcode})"
+                    for p in failed_processes
+                )
+                print(f"Critical subprocess failure: {failures}")
                 stop_event.set()
                 break
             
