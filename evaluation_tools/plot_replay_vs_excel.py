@@ -144,14 +144,14 @@ def draw_panel(ax, rows, stat, limits, threshold):
         points = np.array([[r['aligned_gt_y_m'], r['aligned_gt_z_m']] for r in failures])
         ax.scatter(points[:, 0], points[:, 1], marker='x', s=20, linewidths=.85,
                    c=COLORS['missing'], alpha=.65, zorder=3)
-    ax.set_title(f"{stat['mode']} / {stat['case']}  |  误差 ≤ {threshold*100:g} cm："
+    ax.set_title(f"{stat['mode']} / {stat['case']}  |  error <= {threshold*100:g} cm: "
                  f"{stat['accurate']}/{stat['eligible']} ({stat['overall_success_pct']:.1f}%)", fontsize=10, pad=7)
     mean = f"{stat['mean_error_m']*100:.1f} cm" if stat['mean_error_m'] != '' else '—'
-    ax.text(.025, .97, f"有效预测 {stat['valid_prediction_pairs']}  ·  平均误差 {mean}\n"
-            f"全零 {stat['no_detection']}  ·  超时 {stat['timeout']}  ·  缺数据 {stat['missing_input']}",
+    ax.text(.025, .97, f"Valid predictions {stat['valid_prediction_pairs']}  ·  mean error {mean}\n"
+            f"All-zero {stat['no_detection']}  ·  timeouts {stat['timeout']}  ·  missing inputs {stat['missing_input']}",
             transform=ax.transAxes, va='top', fontsize=8,
             bbox=dict(facecolor='white', edgecolor='none', alpha=.85, pad=3), zorder=5)
-    ax.set_xlabel('落点 Y / m', fontsize=9); ax.set_ylabel('落点 Z / m', fontsize=9)
+    ax.set_xlabel('Impact Y / m', fontsize=9); ax.set_ylabel('Impact Z / m', fontsize=9)
     ax.tick_params(labelsize=8)
     for spine in ax.spines.values(): spine.set_color('#c9d0da')
 
@@ -205,23 +205,23 @@ def main():
             ax=axes[ri,ci]
             stat=next((s for s in stats if s['mode']==mode and s['case']==case),None)
             if stat is None:
-                ax.set_axis_off();ax.text(.5,.5,f'{mode} / {case}\n本轮未运行',ha='center',va='center',color='#8b96a7',fontsize=14)
+                ax.set_axis_off();ax.text(.5,.5,f'{mode} / {case}\nNot run in this batch',ha='center',va='center',color='#8b96a7',fontsize=14)
                 continue
             group=[r for r in rows if r['mode']==mode and r['case']==case]
             draw_panel(ax,group,stat,limits,args.threshold)
             single,sax=plt.subplots(figsize=(7,7))
             draw_panel(sax,group,stat,limits,args.threshold)
             single.tight_layout();single.savefig(out/f'landing_{mode}_{case}.png',dpi=200);plt.close(single)
-    fig.suptitle('本次回放预测落点 vs. 丢球 400 次实测落点',fontsize=22,y=.99)
-    fig.text(.5,.952,'按 image_id 匹配：0–99 l  |  100–199 c  |  200–299 dc  |  300–399 d',ha='center',fontsize=12)
-    handles=[Line2D([],[],marker='o',ls='',markerfacecolor='none',markeredgecolor='#9ba6b4',label='真实落点'),
-             Line2D([],[],marker='o',ls='',color=COLORS['accurate'],label=f'预测误差 ≤ {args.threshold*100:g} cm'),
-             Line2D([],[],marker='o',ls='',color=COLORS['inaccurate'],label=f'预测误差 > {args.threshold*100:g} cm'),
-             Line2D([],[],marker='x',ls='',color=COLORS['missing'],label='无有效预测（标在真实落点处）'),
-             Line2D([],[],color='#8693a4',lw=.8,label='同一次投掷的真实点—预测点')]
+    fig.suptitle('Replay impact predictions vs. 400 measured throws',fontsize=22,y=.99)
+    fig.text(.5,.952,'Matched by image_id: 0–99 l  |  100–199 c  |  200–299 dc  |  300–399 d',ha='center',fontsize=12)
+    handles=[Line2D([],[],marker='o',ls='',markerfacecolor='none',markeredgecolor='#9ba6b4',label='Ground truth'),
+             Line2D([],[],marker='o',ls='',color=COLORS['accurate'],label=f'Prediction error <= {args.threshold*100:g} cm'),
+             Line2D([],[],marker='o',ls='',color=COLORS['inaccurate'],label=f'Prediction error > {args.threshold*100:g} cm'),
+             Line2D([],[],marker='x',ls='',color=COLORS['missing'],label='No valid prediction (shown at ground truth)'),
+             Line2D([],[],color='#8693a4',lw=.8,label='Ground truth to prediction for the same throw')]
     fig.legend(handles=handles,loc='upper center',bbox_to_anchor=(.5,.941),ncol=5,frameon=False,fontsize=10)
-    fig.text(.5,.04,f'沿用项目坐标转换：Y = Excel x_m {args.y_offset:+g} m；Z = Excel y_m {args.z_offset:+g} m（尚未独立校准）。',ha='center',fontsize=10)
-    fig.text(.5,.023,'成功比例计入全零/超时失败；缺输入或缺标签不计分母。平均误差仅统计有效预测。未检测到不画成原点预测。',ha='center',fontsize=10)
+    fig.text(.5,.04,f'Project coordinate conversion: Y = Excel x_m {args.y_offset:+g} m; Z = Excel y_m {args.z_offset:+g} m (not independently calibrated).',ha='center',fontsize=10)
+    fig.text(.5,.023,'Success rate includes all-zero/timeouts; missing inputs/labels are excluded. Mean error uses valid predictions only. Missing detections are not plotted at the origin.',ha='center',fontsize=10)
     fig.subplots_adjust(left=.055,right=.98,bottom=.08,top=.895,hspace=.34,wspace=.27)
     fig.savefig(out/'landing_accuracy_overview.png',dpi=200)
     fig.savefig(out/'landing_accuracy_overview.pdf')

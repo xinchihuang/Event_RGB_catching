@@ -33,7 +33,7 @@ class MonoFitter:
 
         def residuals(params):
             predicted_coords = trajectory_model(params, timesteps)
-            return (world_coords[:2] - predicted_coords[:2]).ravel()  # 展平成1D数组
+            return (world_coords[:2] - predicted_coords[:2]).ravel()  # Flatten to a 1D array.
 
         opt_result = least_squares(
             residuals,
@@ -71,7 +71,7 @@ class MonoFitter:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -99,7 +99,7 @@ class MonoFitter3D:
 
         def residuals(params):
             predicted_coords = trajectory_model(params, timesteps)
-            return (world_coords - predicted_coords).ravel()  # 展平成1D数组
+            return (world_coords - predicted_coords).ravel()  # Flatten to a 1D array.
 
         opt_result = least_squares(
             residuals,
@@ -138,7 +138,7 @@ class MonoFitter3D:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -156,23 +156,23 @@ class MonoFitterRansac:
         world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
         timesteps = self.data[:, 3]
 
-        # 提取 X 和 Y 方向数据
+        # Extract X and Y components.
         X = world_coords[:, 0]
         Y = world_coords[:, 1]
         Z = world_coords[:, 2]
 
-        # 使用 RANSAC 拟合 X, Y, Z
+        # Fit X, Y, Z with RANSAC.
         ransac_X = RANSACRegressor().fit(timesteps.reshape(-1, 1), X)
         ransac_Y = RANSACRegressor().fit(timesteps.reshape(-1, 1), Y)
         ransac_Z = RANSACRegressor().fit(timesteps.reshape(-1, 1), Z)
 
-        # 获取拟合的初始值
+        # Get initial estimates for fitting.
         X0, Vx = ransac_X.estimator_.intercept_, ransac_X.estimator_.coef_[0]
         Y0, Vy = ransac_Y.estimator_.intercept_, ransac_Y.estimator_.coef_[0]
         Z0, Vz = ransac_Z.estimator_.intercept_, ransac_Z.estimator_.coef_[0]
 
-        # # 由于 Z 方向受重力影响，我们调整初始 Vz
-        # Vz += 0.5 * 9.81 * np.mean(timesteps)  # 估算初始速度
+        # # Adjust initial Vz to account for gravity along Z.
+        # Vz += 0.5 * 9.81 * np.mean(timesteps)  # Estimate initial velocity.
 
         initial_guess = [X0, Y0, Z0, Vx, Vy, Vz]
 
@@ -245,7 +245,7 @@ class MonoPixelFitter:
                 predicted_coords=trajectory_model(params, t)
                 # print(predicted_coords)
                 u_pred, v_pred,d_pix_pred = world_to_pixel(predicted_coords, self.camera_params, self.rotation_matrix_to)
-                if u_pred is None:  # 无效点跳过
+                if u_pred is None:  # Skip invalid points.
                     errors.extend([100000.0, 100000.0])
                 else:
                     errors.extend([u_obs - u_pred, v_obs - v_pred])
@@ -294,7 +294,7 @@ class MonoPixelFitter:
         vy = params['vy']
         vz = params['vz']
         print(x0, y0, z0, vx, vy, vz)
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -327,7 +327,7 @@ class MonoPixelFitter3D:
                 predicted_coords=trajectory_model(params, t)
                 # print(predicted_coords)
                 u_pred, v_pred,d_pix_pred = world_to_pixel(predicted_coords, self.camera_params, self.rotation_matrix_to)
-                if u_pred is None:  # 无效点跳过
+                if u_pred is None:  # Skip invalid points.
                     errors.extend([100000.0, 100000.0,100000.0])
                 else:
                     errors.extend([u_obs - u_pred, v_obs - v_pred,d_pix_pred-d_obs])
@@ -376,7 +376,7 @@ class MonoPixelFitter3D:
         vy = params['vy']
         vz = params['vz']
         print(x0, y0, z0, vx, vy, vz)
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -395,23 +395,23 @@ class MonoFitter3DRansac:
         world_coords = pixel_to_world(self.data, self.camera_params, self.rotation_matrix_back)
         timesteps = self.data[:, 3]
 
-        # 提取 X 和 Y 方向数据
+        # Extract X and Y components.
         X = world_coords[:, 0]
         Y = world_coords[:, 1]
         Z = world_coords[:, 2]
 
-        # 使用 RANSAC 拟合 X, Y, Z
+        # Fit X, Y, Z with RANSAC.
         ransac_X = RANSACRegressor().fit(timesteps.reshape(-1, 1), X)
         ransac_Y = RANSACRegressor().fit(timesteps.reshape(-1, 1), Y)
         ransac_Z = RANSACRegressor().fit(timesteps.reshape(-1, 1), Z)
 
-        # 获取拟合的初始值
+        # Get initial estimates for fitting.
         X0, Vx = ransac_X.estimator_.intercept_, ransac_X.estimator_.coef_[0]
         Y0, Vy = ransac_Y.estimator_.intercept_, ransac_Y.estimator_.coef_[0]
         Z0, Vz = ransac_Z.estimator_.intercept_, ransac_Z.estimator_.coef_[0]
 
-        # # 由于 Z 方向受重力影响，我们调整初始 Vz
-        # Vz -= 0.5 * 9.81 * np.mean(timesteps)  # 估算初始速度
+        # # Adjust initial Vz to account for gravity along Z.
+        # Vz -= 0.5 * 9.81 * np.mean(timesteps)  # Estimate initial velocity.
 
         initial_guess = [X0, Y0, Z0, Vx, Vy, Vz]
         print(initial_guess)
@@ -477,16 +477,16 @@ class MonoEKF:
         k1, k2, p1, p2, k3 = dist_coeffs if len(dist_coeffs) == 5 else np.append(dist_coeffs,
                                                                                  [0] * (5 - len(dist_coeffs)))
         g = 9.81
-        cov_P = np.eye(6)  # 初始协方差矩阵
-        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # 过程噪声协方差
-        cov_O = np.diag([1, 1])  # 观测噪声协方差
+        cov_P = np.eye(6)  # Initial covariance matrix
+        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # Process noise covariance
+        cov_O = np.diag([1, 1])  # Measurement noise covariance
         initial_z=6
 
         def h_rotation(x, R, T=np.zeros(3)):
-            """将三维位置投影到二维像素坐标系"""
-            # 提取状态变量
+            """Project a 3D position into 2D pixel coordinates."""
+            # Extract state variables.
             x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
-            # 转换到相机坐标系
+            # Transform to camera coordinates.
             world_point = np.array([x_w, y_w, z_w])
             cam_point = R @ world_point + T
             x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
@@ -540,18 +540,18 @@ class MonoEKF:
             x = F @ x
             cov_P = F @ cov_P @ F.T + cov_Q
             z = ball_memory[step, :2].reshape(-1, 1)
-            # 计算观测模型的雅可比矩阵和预测的观测值
+            # Compute the observation Jacobian and predicted observation.
             H = compute_jacobian(x, self.rotation_matrix_to)
             z_pred = h_rotation(x, self.rotation_matrix_to)
             # print(z,z_pred)
 
-            # 更新步骤
-            S = H @ cov_P @ H.T + cov_O  # 创新协方差
-            K = cov_P @ H.T @ np.linalg.inv(S)  # 卡尔曼增益
+            # Update step
+            S = H @ cov_P @ H.T + cov_O  # Innovation covariance
+            K = cov_P @ H.T @ np.linalg.inv(S)  # Kalman gain
             # print(z, z_pred, x)
-            y = z - z_pred  # 创新
-            x = x + K @ y  # 更新状态
-            cov_P = (np.eye(6) - K @ H) @ cov_P  # 更新协方差
+            y = z - z_pred  # Innovation
+            x = x + K @ y  # Update the state.
+            cov_P = (np.eye(6) - K @ H) @ cov_P  # Update covariance.
 
             estimated_trajectory.append(x[:3].flatten())
 
@@ -578,7 +578,7 @@ class MonoEKF:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2
@@ -594,28 +594,28 @@ class MonoEKF3D:
     def set_data(self,data):
         self.data = data
     def get_params(self):
-        # 内部测量模型：预测像素坐标和球体直径
+        # Internal measurement model: predict pixel coordinates and ball diameter.
         def h_measurement(x, R, ball_diameter, T=np.zeros(3)):
             """
-            将状态向量投影到测量空间 [u, v, d]
-            :param x: 状态向量 [x, y, z, vx, vy, vz] (6x1向量)
-            :param R: 旋转矩阵
-            :param ball_diameter: 球体真实直径
-            :param T: 平移向量（默认0）
-            :return: 预测测量向量 [u, v, d] (3x1向量)
+            Project the state vector into measurement space [u, v, d].
+            :param x: State vector [x, y, z, vx, vy, vz] (6x1).
+            :param R: Rotation matrix
+            :param ball_diameter: Physical ball diameter
+            :param T: Translation vector (default: 0)
+            :return: Predicted measurement vector [u, v, d] (3x1)
             """
-            # 提取世界坐标
+            # Extract world coordinates.
             x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
             world_point = np.array([x_w, y_w, z_w])
             cam_point = R @ world_point + T
             x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
             u = fx * x_c / z_c + cx
             v = fy * y_c / z_c + cy
-            # 根据透视投影计算直径预测 d_pred = fx * D_real / z_c
+            # Predict the diameter by perspective projection: d_pred = fx * D_real / z_c.
             d_pred = fx * ball_diameter / z_c
             return np.array([u, v, d_pred]).reshape(-1, 1)
 
-        # 内部函数：利用像素信息和深度，估计初始状态
+        # Estimate the initial state from pixel measurements and depth.
         def estimate_state(u, v, z_c, vu, vv, vz, R_back, T=np.zeros(3)):
             # print(u, v, z_c, vu, vv, vz)
             x_c = (u - cx) * z_c / fx
@@ -626,12 +626,12 @@ class MonoEKF3D:
             # print(vx_c,vy_c,vz_c)
             camera_point = np.array([x_c, y_c, z_c])
             world_point = R_back @ camera_point - T
-            # 这里对速度进行了一个简单处理，可以根据需要调整
+            # Use a simple velocity estimate; adjust as needed.
             camera_velocity = np.array([vx_c, vy_c, vz_c])
             world_velocity = R_back @ camera_velocity - T
             return world_point, world_velocity
 
-        # 内部函数：计算观测模型的雅可比矩阵（3x6），对应 [u, v, d]
+        # Compute the observation Jacobian (3x6) for [u, v, d].
         def compute_jacobian_full(x, R, ball_diameter, T=np.zeros(3)):
             x_w, y_w, z_w = x[0, 0], x[1, 0], x[2, 0]
             world_point = np.array([x_w, y_w, z_w])
@@ -639,49 +639,49 @@ class MonoEKF3D:
             x_c, y_c, z_c = cam_point[0], cam_point[1], cam_point[2]
 
             H = np.zeros((3, 6))
-            # 对 u 的偏导数
+            # Partial derivatives of u.
             H[0, 0] = (fx / z_c) * R[0, 0] - (fx * x_c / (z_c ** 2)) * R[2, 0]
             H[0, 1] = (fx / z_c) * R[0, 1] - (fx * x_c / (z_c ** 2)) * R[2, 1]
             H[0, 2] = (fx / z_c) * R[0, 2] - (fx * x_c / (z_c ** 2)) * R[2, 2]
-            # 对 v 的偏导数
+            # Partial derivatives of v.
             H[1, 0] = (fy / z_c) * R[1, 0] - (fy * y_c / (z_c ** 2)) * R[2, 0]
             H[1, 1] = (fy / z_c) * R[1, 1] - (fy * y_c / (z_c ** 2)) * R[2, 1]
             H[1, 2] = (fy / z_c) * R[1, 2] - (fy * y_c / (z_c ** 2)) * R[2, 2]
-            # 第三行：直径 d 的偏导数，仅依赖于位置分量
+            # Third row: derivatives of diameter d depend only on position.
             factor = -fx * ball_diameter / (z_c ** 2)
             H[2, 0] = factor * R[2, 0]
             H[2, 1] = factor * R[2, 1]
             H[2, 2] = factor * R[2, 2]
-            # 速度部分对测量没有影响，保持为0
+            # Velocity does not affect the measurement; keep these entries zero.
             return H
-        # 提取相机参数
+        # Extract camera parameters.
         fx, fy = self.camera_params['fx'], self.camera_params['fy']
         cx, cy = self.camera_params['cx'], self.camera_params['cy']
         dist_coeffs = self.camera_params.get('dist_coeffs', np.zeros(5))
         if len(dist_coeffs) != 5:
             dist_coeffs = np.append(dist_coeffs, [0] * (5 - len(dist_coeffs)))
-        # 重力加速度
+        # Gravitational acceleration
         g = 9.81
 
-        # 初始化滤波器协方差
-        cov_P = np.eye(6)  # 状态协方差矩阵，状态为 [x, y, z, vx, vy, vz]
-        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # 过程噪声协方差
-        # 观测噪声协方差，3x3矩阵，这里需要根据实际情况设置标准差
-        sigma_u, sigma_v, sigma_d = 1, 1, 1  # 示例数值，可根据实际情况调整
+        # Initialize filter covariance.
+        cov_P = np.eye(6)  # State covariance for [x, y, z, vx, vy, vz].
+        cov_Q = np.diag([1, 1, 1, 1, 1, 1])  # Process noise covariance
+        # Measurement noise covariance (3x3); choose standard deviations for the actual setup.
+        sigma_u, sigma_v, sigma_d = 1, 1, 1  # Example values; adjust for the actual setup.
         cov_O = np.diag([sigma_u ** 2, sigma_v ** 2, sigma_d ** 2])
 
         ball_memory = self.data
 
-        # 根据第一帧观测的球体直径 d 估计初始深度
-        # 透视投影公式: d_image = fx * D_real / z  =>  z = fx * D_real / d_image
+        # Estimate initial depth from the first observed ball diameter d.
+        # Perspective projection: d_image = fx * D_real / z  =>  z = fx * D_real / d_image
         # print(ball_memory[0][2])
-        observed_diameter = ball_memory[0][2]  # 第一帧图像中球体的直径（像素）
+        observed_diameter = ball_memory[0][2]  # Ball diameter in the first frame, in pixels.
         initial_z = (fx * self.ball_diameter) / observed_diameter
 
-        # 估计轨迹列表，用于记录每个时间步的状态位置
+        # Estimated trajectory storing the position at each time step.
         estimated_trajectory = []
 
-        # 利用第一帧和第二帧数据初始化状态
+        # Initialize the state from the first two frames.
         initial_dt = ball_memory[1][3] - ball_memory[0][3]
         initial_u, initial_v = ball_memory[1][0], ball_memory[1][1]
         initial_vu = (ball_memory[1][0] - ball_memory[0][0]) / initial_dt
@@ -691,10 +691,10 @@ class MonoEKF3D:
         x = np.array([world_point[0], world_point[1], world_point[2],
                       world_velocity[0], world_velocity[1], world_velocity[2]]).reshape(-1, 1)
         # print(x)
-        # 迭代更新：利用 EKF 更新状态
+        # Iteratively update the state using the EKF.
         for step in range(1, ball_memory.shape[0]):
             dt = ball_memory[step][3] - ball_memory[step - 1][3]
-            # 状态转移矩阵 F（考虑重力对 z 轴的影响）
+            # State transition matrix F, accounting for gravity along z.
             F = np.array([
                 [1, 0, 0, dt, 0, 0],
                 [0, 1, 0, 0, dt, 0],
@@ -703,28 +703,28 @@ class MonoEKF3D:
                 [0, 0, 0, 0, 1, 0],
                 [0, 0, -g * dt, 0, 0, 1]
             ])
-            # 预测步骤
+            # Prediction step
             x = F @ x
             cov_P = F @ cov_P @ F.T + cov_Q
 
-            # 观测向量 z = [u, v, d] (3x1)
+            # Observation vector z = [u, v, d] (3x1)
             z = ball_memory[step, :3].reshape(-1, 1)
-            # 计算测量雅可比矩阵 H (3x6)
+            # Compute the measurement Jacobian H (3x6).
             H = compute_jacobian_full(x, self.rotation_matrix_to, self.ball_diameter)
-            # 预测测量值
+            # Predict the measurement.
             z_pred = h_measurement(x, self.rotation_matrix_to, self.ball_diameter)
-            # 创新协方差
+            # Innovation covariance
             S = H @ cov_P @ H.T + cov_O
-            # 卡尔曼增益
+            # Kalman gain
             K = cov_P @ H.T @ np.linalg.inv(S)
-            # 创新（残差）
+            # Innovation (residual)
             y = z - z_pred
-            # 更新状态
+            # Update the state.
             x = x + K @ y
-            # 更新状态协方差
+            # Update state covariance.
             cov_P = (np.eye(6) - K @ H) @ cov_P
 
-            # 保存当前时刻预测的三维位置
+            # Store the predicted 3D position at the current time.
             estimated_trajectory.append(x[:3].flatten())
         estimated_trajectory = np.array(estimated_trajectory)
         predeicted_params = {
@@ -750,7 +750,7 @@ class MonoEKF3D:
         vx = params['vx']
         vy = params['vy']
         vz = params['vz']
-        # 碰撞时间：假设球体以 vx 匀速运动到 x=0
+        # Impact time assuming constant velocity vx toward x=0.
         impact_t = abs(x0 / vx)
         impact_y = y0 + vy * impact_t
         impact_z = z0 + vz * impact_t - 0.5 * 9.81 * impact_t ** 2

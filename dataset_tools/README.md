@@ -1,19 +1,19 @@
-# 数据采集与处理
+# Data capture and processing
 
-先按 [路径配置](../config/README.md#paths) 设置 data_root。以下命令从项目根目录执行，`--task` 选择 normal/clutter/dark_clutter/dark。
+Set data_root using the [path configuration](../config/README.md#paths). Run commands from the project root; `--task` selects normal/clutter/dark_clutter/dark.
 
-## 两条独立流程
+## Two independent flows
 
-| 流程 | 输入 → 输出 | 事件变换 |
+| Stage | Input → output | Event transformation |
 | --- | --- | --- |
-| `collect_data.py` | 相机 → `saved_data_raw/saved_data_<场景>` | 设备 RAW 日志不旋转；事件预览与保存分开；RGB 旋转后保存 |
-| `time_align_rewrite.py` | 原始目录 → `processed_data/saved_data_<场景>` | 旋转、时间裁剪；保存前不做 RGB 空间对齐 |
-| 文件回放 | processed 目录 → 跟踪/落点结果 | 只做 RGB 对齐，不重复旋转 |
-| `prepare_dataset.py` | 原始目录 → `saved_data/dataset_<场景>` | 自行旋转并对齐 RGB，生成训练帧/体素/标签 |
+| `collect_data.py` | Cameras → `saved_data_raw/saved_data_<scene>` | Device RAW logs are not rotated; event preview is separate from storage; RGB is rotated before saving |
+| `time_align_rewrite.py` | Raw directory → `processed_data/saved_data_<scene>` | Rotation and time trimming; no RGB spatial alignment in saved events |
+| File replay | Processed directory → tracking/impact results | RGB alignment only, without additional rotation |
+| `prepare_dataset.py` | Raw directory → `saved_data/dataset_<scene>` | Performs its own rotation and RGB alignment to generate training frames/voxels/labels |
 
-**prepare_dataset 不接在 time_align_rewrite 后面**，两者都读取原始采集。
+**Do not feed time_align_rewrite output into prepare_dataset.** Both read raw capture data.
 
-## 采集与回放预处理
+## Capture and replay preprocessing
 
 ```bash
 python3 dataset_tools/collect_data.py --task normal
@@ -21,23 +21,23 @@ python3 dataset_tools/time_align_rewrite.py --task normal --index 0 --count 1 --
 ./run_record.sh --task normal --test_mode Event --record_index 0 --no-gui
 ```
 
-采集按键：`r` 开始、`f` 完成保存、`q` 退出。事件与 RGB 共用固定编号，等待 `Saved pair` 后再开始下一次；
-录制/保存时重复开始请求会被忽略。q、Ctrl+C、SIGTERM 都先请求保存，最多等待 60 秒；未完成配对、空视频或超时返回失败。
+Capture keys: `r` starts, `f` finishes and saves, `q` exits. Event and RGB share a fixed recording index; wait for `Saved pair` before starting again.
+Repeated start requests during recording/saving are ignored. q, Ctrl+C, and SIGTERM request saving before exit and wait up to 60 seconds. Incomplete pairs, empty videos, and timeouts return failure.
 
-预处理新输出是 `event/<id>.dat` 与 `rgb/<id>.mp4`，事件坐标为 `(raw_y, raw_width−1−raw_x)`，
-头部高×宽从 720×1280 变为 1280×720，保留时间戳和极性。预览的 RGB 空间对齐不写入事件文件。
-历史 processed `.raw`（包含旧 DAT 内容/尺寸信息）仍可回放；同编号 `.dat` 优先，旧文件不删除。
+New preprocessing outputs `event/<id>.dat` and `rgb/<id>.mp4`. Event coordinates become `(raw_y, raw_width−1−raw_x)`;
+header height×width changes from 720×1280 to 1280×720, preserving timestamps and polarity. Preview RGB alignment is not written to the event file.
+Legacy processed `.raw` files (including old DAT contents/dimensions) remain replayable. `.dat` takes precedence for the same index; old files are not deleted.
 
-| 路径选项 | 用途 |
+| Path option | Purpose |
 | --- | --- |
-| 采集 `--save-dir`（别名 `--output-dir`） | 指定原始保存目录 |
-| 预处理 `--record-dir / --save-dir` | 指定原始输入与 processed 输出 |
-| 训练生成 `--record-dir / --output-dir` | 指定原始输入与训练集输出 |
+| Capture `--save-dir` (alias `--output-dir`) | Raw output directory |
+| Preprocessing `--record-dir / --save-dir` | Raw input and processed output |
+| Training generation `--record-dir / --output-dir` | Raw input and training dataset output |
 
-预处理默认 `index=0,count=20,ratio=10`，`--auto` 从起始编号处理到首个缺失配对；`--no-view` 关闭预览。
-`--no-spatial-align` 只关闭预览对齐。预处理和训练生成拒绝相同或相互包含的输入/输出目录。
+Preprocessing defaults to `index=0,count=20,ratio=10`. `--auto` processes from the starting index until the first missing pair; `--no-view` disables preview.
+`--no-spatial-align` disables preview alignment only. Preprocessing and training generation reject identical or nested input/output directories.
 
-## 训练集与标注
+## Training datasets and labels
 
 ```bash
 python3 dataset_tools/prepare_dataset.py --task normal --index 0 --count 1
@@ -45,18 +45,18 @@ python3 dataset_tools/pick_positive.py
 python3 dataset_tools/dataset_viewer.py
 ```
 
-训练生成保留预览行为；不传编号时默认处理 13–99（index=13,count=87）。
-`pick_positive.py` 默认合并四个场景到 `saved_data/selected_dataset`，可用重复的 `--source-dir` 选择输入、`--output-dir` 选择输出。
+Training generation retains its preview behavior and defaults to indices 13–99 (`index=13,count=87`).
+`pick_positive.py` merges all four scenes into `saved_data/selected_dataset` by default. Repeat `--source-dir` to select inputs and use `--output-dir` for output.
 
-| 工具 | 用途 |
+| Tool | Purpose |
 | --- | --- |
-| `dataset_viewer.py` | 查看 RGB/Event/Combined/Voxel 并记录标记 |
-| `update_absent_by_flags.py` | 按 frame_flags.txt 更新 absent.txt |
-| `adjust_groundtruth_y.py` | 调整 groundtruth.txt 的 y 坐标 |
+| `dataset_viewer.py` | View RGB/Event/Combined/Voxel data and record flags |
+| `update_absent_by_flags.py` | Update absent.txt from frame_flags.txt |
+| `adjust_groundtruth_y.py` | Adjust y coordinates in groundtruth.txt |
 
-以上三个工具用 `--dataset-dir` 指定目录。标注更新工具会修改所选数据，应先核对路径与提示。
+These three tools accept `--dataset-dir`. Label-update tools modify the selected dataset; check paths and prompts first.
 
-## 计数
+## Counting
 
 ```bash
 python3 dataset_tools/count_saved_data.py --task normal --index 5
@@ -65,5 +65,5 @@ python3 dataset_tools/count_saved_data.py --task normal --index 5 --auto
 python3 dataset_tools/count_saved_data.py --task normal --all
 ```
 
-默认只统计第 0 组；`--record-dir` 可指定目录。`--all/--auto/--count` 互斥，`--all` 不能同时指定 index。
-`--auto` 遇首个缺失配对停止；count/all 报告缺失后继续。RGB 统计实际帧数，不乘 ratio；事件包数依赖 delta-t（默认 2000 μs）。
+Only index 0 is counted by default; `--record-dir` selects a directory. `--all/--auto/--count` are mutually exclusive, and `--all` cannot be combined with an explicit index.
+`--auto` stops at the first missing pair; count/all report missing inputs and continue. RGB counts actual frames without multiplying by ratio; event packet counts depend on delta-t (default 2000 μs).

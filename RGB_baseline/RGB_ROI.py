@@ -77,7 +77,7 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,event
 
                     print(f"RGB_ROI: HSV range - lower: {lower_hsv}, upper: {upper_hsv}")
 
-                    # 直接在 BGR 上 inRange
+                    # Apply inRange directly to BGR data.
                     mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
 
                     # Debug: Check mask
@@ -120,7 +120,7 @@ def pure_RGB(shared_event_data, shared_flir_data,shared_ROI_data,num_event,event
 
                     combined = rgb_image
                     scale = processing['display_scale']
-                    # 获取新的尺寸
+                    # Calculate the resized dimensions.
                     width = int(combined.shape[1] * scale)
                     height = int(combined.shape[0] * scale)
                     new_size = (width, height)

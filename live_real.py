@@ -150,7 +150,7 @@ if __name__ == '__main__':
     
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
-    print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
+    print(f"Test mode: {args.test_mode}, task: {args.task}")
     from config.config_loader import get_current_config_name
     print(f"Active config overlay: {get_current_config_name()}")
     

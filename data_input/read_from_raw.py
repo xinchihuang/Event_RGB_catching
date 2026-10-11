@@ -42,19 +42,19 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
                   raw_count, record_index, start_ts, stop_event,event_broadcasting,
                   record_dir='', event_frame_offset=0, playback_speed=1.0, current_event_frame=None, is_paused=None):
     """
-    播放已预处理的事件文件（.dat 或历史 .raw）：
-    1.  先把整段已旋转事件读入 event_buffer（按 2 ms 一块）
-    2.  播放阶段：每 2 ms
-        - shm[:] = 0            # 必须整块清零（下游依赖）
-        - shm[:n] = event_data  # 写本块 n 个事件
-    3.  绝对时钟 = start_ts + k*period，保证与 RGB 线程同步
+    Replay preprocessed event files (.dat or legacy .raw):
+    1.  Preload all rotated events into event_buffer in 2 ms packets.
+    2.  Playback phase: every 2 ms
+        - shm[:] = 0            # Clear the entire buffer; downstream consumers rely on this.
+        - shm[:n] = event_data  # Write the n events in this packet.
+    3.  Absolute clock = start_ts + k*period, keeping playback synchronized with RGB.
     """
 
     import os, time, numpy as np
     from multiprocessing import shared_memory
-    # align_to_rgb 必须在其他文件 import
+    # Import align_to_rgb from its defining module.
 
-    # ---------- 共享内存句柄 ----------
+    # ---------- Shared-memory handles ----------
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     shm = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
@@ -69,23 +69,23 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
         if system_state.value == 'e':
             break
 
-        # ---------- 预读取已处理事件；公共读取器只做 RGB 对齐 ----------
+        # ---------- Preload processed events; the shared reader only aligns them to RGB. ----------
         if system_state.value == 'w' and not initialized:
             from data_input.read_from_aligned_buffers import _load_event_buffer
             event_buffer = _load_event_buffer(record_dir, record_index.value, data_reading)
-            raw_count.value = len(event_buffer) # 让 RGB 线程计算 ratio
+            raw_count.value = len(event_buffer) # Allow the RGB worker to calculate ratio.
             print(f"Event chunks: {raw_count.value}")
 
             event_count = 0
             initialized = True
             print("Event data ready")
         # print(system_state.value)
-        # ---------- 播放 ----------
+        # ---------- Playback ----------
         if system_state.value == 't' and initialized:
-            if start_ts.value == 0.0:              # 第一次进入播放态
+            if start_ts.value == 0.0:              # First entry into playback state.
                 start_ts.value = time.perf_counter()
 
-            # 应用事件帧偏移量
+            # Apply the event-frame offset.
             adjusted_event_count = event_count + event_frame_offset
             adjusted_event_count = max(0, min(adjusted_event_count, len(event_buffer) - 1))
             
@@ -93,7 +93,7 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
             target_time = start_ts.value + loop_idx * period
 
             if loop_idx >= len(event_buffer):
-                # 播完
+                # Playback complete.
                 event_broadcasting.value='f'
                 initialized = False
                 print("End of event data.")
@@ -101,17 +101,17 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
 
             ev = event_buffer[adjusted_event_count]
             if ev.shape[0] == 0:
-                # 没有事件，跳过
+                # Skip empty event packets.
                 event_count += 1
                 continue
-            # print(ev['t'][0])  # 打印最后一个事件的时间戳
+            # print(ev['t'][0])  # Print the timestamp of the last event.
             n = ev.shape[0]
             num_event.value = n
             # # print(n)
-            # # === 必须整块清零 ===
-            # shm.fill(0)            # 与 shm[:] = 0 等价，但 fill() 略快
-            # === 写本块事件 ===
-            shm[:min(n, 100000)] = ev[:min(n, 100000)] # 只写入 shm 的前 n 个事件
+            # # === Clear the entire buffer. ===
+            # shm.fill(0)            # Equivalent to shm[:] = 0; fill() is slightly faster.
+            # === Write this packet's events. ===
+            shm[:min(n, 100000)] = ev[:min(n, 100000)] # Write only the first n events into shm.
             # Increment version to signal new data is available
             event_data_version.value += 1
             if event_count % 100 == 0:  # Print every 100 frames
@@ -122,7 +122,7 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
             if current_event_frame is not None:
                 current_event_frame.value = adjusted_event_count
 
-            # === 到下一个周期刻度 ===
+            # === Wait until the next period boundary. ===
             sleep_time = target_time + period - time.perf_counter()
             if sleep_time > 0:
                 time.sleep(sleep_time)

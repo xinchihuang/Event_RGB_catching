@@ -31,7 +31,7 @@ def _get_display_mode():
 
 
 def save_cached_data_to_files(data_cache, save_dir):
-    """将缓存的数据保存到文件"""
+    """Save buffered data to files."""
     if not data_cache or not save_dir:
         return
     
@@ -74,11 +74,11 @@ def save_cached_data_to_files(data_cache, save_dir):
 
 
 def create_csv_save_directory(base_dir="bbox_detections"):
-    """创建保存CSV文件的文件夹，并确定本次运行的CSV文件名"""
+    """Create the CSV output directory and choose a filename for this run."""
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
     
-    # 查找现有的数字命名CSV文件
+    # Find existing CSV files with numeric names.
     existing_files = [f for f in os.listdir(base_dir) if f.endswith('.csv') and f[:-4].isdigit()]
     if existing_files:
         max_num = max([int(f[:-4]) for f in existing_files])
@@ -91,36 +91,36 @@ def create_csv_save_directory(base_dir="bbox_detections"):
 
 
 def save_bbox_to_csv(bbox_data, csv_filename):
-    """保存bounding box数据到指定CSV文件，追加写入（检查重复数据）"""
+    """Append bounding boxes to the CSV file, skipping duplicate data."""
     if not bbox_data or not csv_filename:
         return
     
-    # 检查文件是否存在，如果存在则读取最后一行进行比较
+    # If the file exists, read its last row for comparison.
     last_row = None
     if os.path.exists(csv_filename):
         try:
             with open(csv_filename, 'r', newline='') as csvfile:
                 reader = csv.reader(csvfile)
                 rows = list(reader)
-                if rows:  # 如果文件不为空
+                if rows:  # If the file is not empty.
                     last_row = rows[-1]
         except Exception as e:
             print(f"GUI Process: Error reading CSV file {csv_filename}: {e}")
             sys.stdout.flush()
     
-    # 将bbox_data转换为字符串列表进行比较
+    # Convert bbox_data to a list of strings for comparison.
     bbox_str = [str(x) for x in bbox_data]
     
-    # 如果当前数据与最后一行相同，则跳过保存
+    # Skip writing if the data matches the last row.
     if last_row and last_row == bbox_str:
         print(f"GUI Process: Skipping duplicate bbox data {bbox_data}")
         sys.stdout.flush()
         return
     
-    # 保存数据
+    # Save data.
     with open(csv_filename, 'a', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        # 只写入bounding box数据：x1, y1, x2, y2
+        # Write only bounding box fields: x1, y1, x2, y2.
         writer.writerow(bbox_data)
     
     print(f"GUI Process: Saved bbox {bbox_data} to {csv_filename}")
@@ -143,15 +143,15 @@ def gui_display_process(
     ball_pixel_3D_version=None
 ):
     """
-    专职GUI显示进程
+    Dedicated GUI display process.
 
-    功能:
-    1. 读取event数据并生成可视化帧
-    2. 读取FLIR图像
-    3. 读取ball_pixel_3D数据并在图像上绘制检测框
-    4. 显示两个窗口: 'Event Tracking' 和 'RGB Tracking'
+    Responsibilities:
+    1. Read event data and generate visualization frames.
+    2. Read FLIR images.
+    3. Read ball_pixel_3D data and draw detection boxes.
+    4. Show two windows: 'Event Tracking' and 'RGB Tracking'.
 
-    注意: 这是唯一调用OpenCV GUI函数的进程
+    This is the only process that calls OpenCV GUI functions.
     """
     print("GUI Process: Starting...")
     sys.stdout.flush()

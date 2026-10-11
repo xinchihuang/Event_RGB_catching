@@ -7,4 +7,4 @@ data_root: /path/to/your/event_rgb_data
 # comparison_root: ${data_root}/demo
 # legacy_source_root: /path/to/historical/Event_RGB_catching
 # legacy_tracks: /path/to/historical/old/test
-# ground_truth_xlsx: /path/to/12162025丢球400次.xlsx
+# ground_truth_xlsx: /path/to/ground_truth.xlsx

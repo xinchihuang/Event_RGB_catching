@@ -1,125 +1,125 @@
 # Event RGB Catching
 
-事件相机与 RGB 相机的球体跟踪、轨迹拟合和接球系统，支持原始数据采集、离线回放及实时控制。
+Ball tracking, trajectory fitting, and catching with event and RGB cameras. Supports raw data capture, offline replay, and live control.
 
 ## Demo video
 
-<!-- 发布前替换为公开视频链接或 GitHub 可访问的视频资源；检查画面与音频中的个人信息。 -->
-**演示视频：待补充。**
+<!-- Replace with a public video link or a GitHub-accessible asset; check visual and audio content for personal information before publication. -->
+**Demo video: coming soon.**
 
-## 快速开始
+## Quick start
 
-在项目根目录运行。新机器先完成 [Ubuntu 安装指南](UBUNTU22_INSTALL.md)，再配置数据路径：
+Run from the project root. On a new machine, follow the [Ubuntu installation guide](UBUNTU22_INSTALL.md), then configure the data path:
 
 ```bash
 cp -n config/paths.local.example.yaml config/paths.local.yaml
-# 编辑 paths.local.yaml 中的 data_root，指向本机数据根目录。
+# Set data_root in paths.local.yaml to this machine's data directory.
 ./run_record.sh --task normal --test_mode Event --record_index 0 --no-gui
 ```
 
-`paths.local.yaml` 不提交 Git。也可用 `EVENT_RGB_DATA_ROOT=/path/to/data` 临时覆盖。
-回放需要已预处理的 `processed_data/saved_data_l/{event,rgb}`；缺少目录会明确报错，不自动寻找其他数据。
+`paths.local.yaml` is excluded from Git. Use `EVENT_RGB_DATA_ROOT=/path/to/data` for a temporary override.
+Replay requires preprocessed input in `processed_data/saved_data_l/{event,rgb}`; missing directories produce an error without searching for other data.
 
-`run_record.sh` 默认使用 PATH 中的 `python3`，可用 `--python /path/to/python` 或 `PYTHON_BIN` 指定环境。
-[requirement.txt](requirement.txt) 是依赖清单，不是版本锁；Metavision、PySpin 需单独安装，Model 模式需要 CUDA、AMTTrack 和匹配的 spconv。
+`run_record.sh` uses `python3` from PATH by default; select an environment with `--python /path/to/python` or `PYTHON_BIN`.
+[requirement.txt](requirement.txt) lists dependencies but is not a lockfile. Install Metavision and PySpin separately; Model mode requires CUDA, AMTTrack, and a compatible spconv installation.
 
-## 运行入口
+## Entrypoints
 
-| 入口 | 用途 | 默认 mode / task / index |
+| Entrypoint | Purpose | Default mode / task / index |
 | --- | --- | --- |
-| `run_record.sh` | 单组文件回放，运行完退出 | Event / normal / 0 |
-| `record.py` | 回放底层入口，支持精确输入/输出路径 | Model / dark / 0 |
-| `tracking.py` | 相机跟踪与落点预测，无电机 | Model / dark_clutter / 0 |
-| `live_real.py` | 相机跟踪、预测并控制电机 | Model / dark_clutter / 0 |
-| `record_compare.py` | 三种方法的轨迹导出与叠加回放 | Playback / clutter / 9 |
-| `start_evaluation.sh` | 固定组合批量评估，默认无 GUI | 见下文 |
-| `run_record.py` | 旧 JSON 配置驱动的批量回放 | `batch_config.json` |
+| `run_record.sh` | Replay one recording, then exit | Event / normal / 0 |
+| `record.py` | Python replay entrypoint with explicit input/output paths | Model / dark / 0 |
+| `tracking.py` | Camera tracking and impact prediction, without motors | Model / dark_clutter / 0 |
+| `live_real.py` | Camera tracking, prediction, and motor control | Model / dark_clutter / 0 |
+| `record_compare.py` | Export and overlay trajectories from three methods | Playback / clutter / 9 |
+| `start_evaluation.sh` | Evaluate a fixed batch of combinations, without GUI by default | See below |
+| `run_record.py` | Legacy JSON-driven batch replay | `batch_config.json` |
 
-场景：`normal=l`、`clutter=c`、`dark_clutter=dc`、`dark=d`。
-方法：`Model` 使用模型 ROI 与事件跟踪，`Event` 使用事件跟踪，`RGB` 使用 RGB 跟踪；单次回放还支持 `Show`。
+Scenes: `normal=l`, `clutter=c`, `dark_clutter=dc`, `dark=d`.
+Methods: `Model` combines model ROI and event tracking, `Event` uses event tracking, and `RGB` uses RGB tracking. Single replay also supports `Show`.
 
 ```bash
-# 单组 Model 回放；删除 --no-gui 可显示窗口。
+# Replay one recording with Model; omit --no-gui to show windows.
 ./run_record.sh --task dark --test_mode Model --record_index 0 --no-gui
-# 仅相机跟踪；t 开始、w 等待、e 退出。
+# Camera tracking only: t starts, w waits, e exits.
 python3 tracking.py --task normal --test_mode Event
-# 实时接球：此命令会启动相机及电机。
+# Live catching: this starts the cameras and motors.
 python3 live_real.py --task dark_clutter --test_mode Model
-# 依次导出 Model/RGB/Event 轨迹，再叠加回放。
+# Export Model/RGB/Event trajectories, then replay their overlays.
 python3 record_compare.py --task normal --record_index 0 --test_mode Save --output-root evaluation_tools/comparison_run
 python3 record_compare.py --task normal --record_index 0 --test_mode Playback --output-root evaluation_tools/comparison_run
 ```
 
-`ENABLE_GUI=0` 关闭 Python 入口的 GUI；`run_record.sh` 使用 `--no-gui`。
-对比入口 `All` 等于依次执行 Save 和 Playback，`--playback_speed` 控制播放速度。
-回放 `--ratio` 是每帧 RGB 对应的事件包数，默认 `10`、必须为正整数；它不控制采集或播放速度。
+Use `ENABLE_GUI=0` with Python entrypoints, or `--no-gui` with `run_record.sh`.
+Comparison mode `All` runs Save followed by Playback; `--playback_speed` controls playback speed.
+Replay `--ratio` is the number of event packets per RGB frame: a positive integer, default `10`. It does not control capture or playback speed.
 
-## 批量评估
+## Batch evaluation
 
 ```bash
-bash start_evaluation.sh --dry-run       # 只检查配置与数据覆盖
-bash start_evaluation.sh --limit 1       # 每个组合跑第 0 组，需要 CUDA
-bash start_evaluation.sh                 # 完整批量，无 GUI
-./run_record.sh --batch                  # 同一批量，有 GUI
-python3 run_record.py --batch_config batch_config.json  # 自定义 JSON 组合
+bash start_evaluation.sh --dry-run       # Check configuration and input coverage only.
+bash start_evaluation.sh --limit 1       # Run index 0 for each combination; requires CUDA.
+bash start_evaluation.sh                 # Full batch without GUI.
+./run_record.sh --batch                  # Same batch with GUI.
+python3 run_record.py --batch_config batch_config.json  # Custom JSON combinations.
 ```
 
-新批量固定为 Model 四场景、RGB normal/clutter、Event normal/dark：每组合 0–99，共 800 次。
-默认每组超时 180 秒；缺失数据跳过，失败/超时记录后继续，Ctrl+C 停止当前批次及其子进程。
-`--limit N` 限制每组合前 N 个编号；`--timeout`、`--ratio`、`--data-root` 可覆盖相应参数。
+The new batch runner uses Model in all four scenes, RGB in normal/clutter, and Event in normal/dark: indices 0–99 per combination, 800 runs total.
+Each run has a default timeout of 180 seconds. Missing inputs are skipped; errors/timeouts are recorded before continuing. Ctrl+C stops the batch and its child processes.
+`--limit N` selects the first N indices per combination; `--timeout`, `--ratio`, and `--data-root` override their respective settings.
 
-新旧批量**每次创建独立目录**，默认在 `evaluation_tools/batch_runs/`，所有结果进入该批 `results/`。
-`--output-root` 必须指向尚不存在的目录。新批量另存 `configs/`、`logs/`、`summary.csv`、`status.json`；
-`latest.json` 指向最新批次。退出码：0 完成、2 有进程/输出错误、130 中断。
-旧 JSON 批量保存 `batch_config.json`；可逐项设置 `ratio`、`record_dir`，CLI `--ratio` 优先。
-同一批内重复方法/场景/编号仍使用同名结果文件。
+Both batch runners **create a new directory for each invocation**, under `evaluation_tools/batch_runs/` by default, with all results in that batch's `results/`.
+`--output-root` must name a directory that does not yet exist. The new runner also saves `configs/`, `logs/`, `summary.csv`, and `status.json`;
+`latest.json` points to the latest batch. Exit codes: 0 completed, 2 process/output errors, 130 interrupted.
+The legacy JSON runner saves `batch_config.json`; entries may set `ratio` and `record_dir`, with CLI `--ratio` taking precedence.
+Repeated method/scene/index combinations within one batch still use the same result filenames.
 
-绘图与历史评估见 [工具文档](tools/README.md#evaluation)。
+See the [tool documentation](tools/README.md#evaluation) for plotting and historical evaluation.
 
-## 数据与结果
+## Data and results
 
-两条数据流程独立，详见 [采集和数据工具](dataset_tools/README.md)：
+The two data flows are independent; see [capture and data tools](dataset_tools/README.md):
 
 ```text
-原始采集 ──→ 旋转、时间裁剪 ──→ processed_data ──→ 文件回放
-        └─→ 训练集生成（自行旋转、对齐） ──→ 合并与标注
+Raw capture --> rotation and time trimming --> processed_data --> file replay
+            --> training dataset generation (rotation/alignment) --> merging and labeling
 ```
 
-新预处理输出 `.dat`，回放兼容历史 processed `.raw`；同编号两种文件并存时优先 `.dat`。
-回放只做 RGB 对齐；不能用扩展名判断事件是否已旋转，也不能直接回放原始相机 RAW。
+New preprocessing outputs `.dat`; replay also accepts legacy processed `.raw`. If both exist for an index, `.dat` takes precedence.
+Replay only aligns to RGB. The extension does not establish whether events have been rotated; raw camera recordings cannot be replayed directly.
 
-| 输出 | 内容与位置 |
+| Output | Contents and location |
 | --- | --- |
-| 单次 shell 回放 | `evaluation_tools/batch_runs/manual/<方法>_<场景>/`；重复编号可能覆盖，可用 `EVALUATION_RESULTS_DIR` 分开保存 |
-| Python 回放/无电机跟踪 | 默认 `${data_root}/test_data/evaluation_results/<方法>_<场景>/` |
-| `ball_pixel_3D_records_ball/<id>.csv` | 无表头像素观测 `(u, v, size, event_time_s)` |
-| `ball_pixel_3D_records/<id>.csv` | 无表头预测落点 `(X, Y, Z)`，米，接球平面 X=0 |
-| `--save_csv` | 仅控制 GUI 检测框 CSV，写到工作目录 `bbox_detections/`；无 GUI 时不生成，不影响上述轨迹和落点输出 |
-| 对比回放 | 默认 `${data_root}/demo`，或 `--output-root` 指定的轨迹目录 |
+| Single shell replay | `evaluation_tools/batch_runs/manual/<method>_<scene>/`; repeated indices may overwrite results. Use `EVALUATION_RESULTS_DIR` to separate runs. |
+| Python replay/tracking without motors | `${data_root}/test_data/evaluation_results/<method>_<scene>/` by default |
+| `ball_pixel_3D_records_ball/<id>.csv` | Pixel observations `(u, v, size, event_time_s)`, without a header |
+| `ball_pixel_3D_records/<id>.csv` | Predicted impact `(X, Y, Z)` in meters, without a header; catching plane X=0 |
+| `--save_csv` | Controls only GUI bounding-box CSV output in the working directory's `bbox_detections/`; unavailable without GUI and independent of trajectory/impact output |
+| Comparison replay | `${data_root}/demo` by default, or the trajectory directory selected by `--output-root` |
 
-`live_real.py` 用预测触发电机，不保存拟合 worker 的上述轨迹/落点 CSV。
-全零预测不能单独证明未检测到球，也可能来自拟合或边界筛选。
+`live_real.py` uses predictions to trigger motors and does not save the fitting worker's trajectory/impact CSVs described above.
+An all-zero prediction alone does not prove that no ball was detected; fitting or bounds filtering may also produce it.
 
-在线/对比入口收到退出请求或 worker 故障后统一停止，先等待 5 秒，再终止/杀死未退出进程并清理共享内存；
-正常退出为 0，故障或强制停止为 1。对比 worker 失败时不导出最终 CSV。采集保存使用独立的 60 秒等待规则。
+Live/comparison entrypoints coordinate shutdown on exit requests or worker failures: wait 5 seconds, terminate/kill remaining processes, then release shared memory.
+Normal exit returns 0; failure or forced shutdown returns 1. Comparison worker failure prevents final CSV export. Capture uses a separate 60-second save timeout.
 
-## 文档与验证
+## Documentation and validation
 
-| 文档 | 负责内容 |
+| Document | Scope |
 | --- | --- |
-| [配置说明](config/README.md) | 路径、优先级、参数、旋转和坐标定义 |
-| [实时配置](config_live/README.md) | 如何选择独立实时调参配置 |
-| [数据工具](dataset_tools/README.md) | 采集、预处理、训练集、计数 |
-| [调参与评估工具](tools/README.md) | HSV、DBSCAN、绘图及标签映射 |
-| [安装指南](UBUNTU22_INSTALL.md) | Ubuntu 部署记录、SDK 与依赖排错 |
-| [修改台账](REVIEW_TRACKER.md) | P1/P2 状态、验证范围和完整历史 |
-| [维护约定](AGENTS.md) | 修改后如何记录与验证 |
-| [公开前检查](OPEN_SOURCE_REVIEW.md) | 敏感信息、跟踪文件和历史内容的发布建议 |
+| [Configuration](config/README.md) | Paths, precedence, parameters, rotation, and coordinates |
+| [Live configuration](config_live/README.md) | Selecting independent live tuning settings |
+| [Data tools](dataset_tools/README.md) | Capture, preprocessing, training data, and counting |
+| [Tuning and evaluation](tools/README.md) | HSV, DBSCAN, plotting, and label mapping |
+| [Installation guide](UBUNTU22_INSTALL.md) | Ubuntu deployment record and SDK/dependency troubleshooting |
+| [Review ledger](REVIEW_TRACKER.md) | P1/P2 status, validation scope, and full history |
+| [Maintenance instructions](AGENTS.md) | Recording and verifying changes |
+| [Public release review](OPEN_SOURCE_REVIEW.md) | Sensitive information, tracked files, and historical content |
 
-2026-10-11：P2 已完成，78 项测试通过；真实单样本“原始录制→DAT/MP4→Event 无界面回放”通过。
-采集保存、在线故障退出和 GUI 仍有实机待验证项；上述验证不代表预测精度或全部场景通过。
+2026-10-11: P2 is complete, with 78 tests passing. One real sample passed raw recording → DAT/MP4 → headless Event replay.
+Capture saving, live fault shutdown, and GUI behavior still require hardware validation; these checks do not establish prediction accuracy or coverage of all scenes.
 
 ## Citation
 
-<!-- 发布后填写论文标题、作者、会议/期刊、年份、DOI/arXiv 和正式 BibTeX；不要提交虚构引用。 -->
-**论文链接与 BibTeX：待补充。**
+<!-- Add the actual paper title, authors, venue, year, DOI/arXiv link, and BibTeX after publication. Do not add a fabricated citation. -->
+**Paper link and BibTeX: coming soon.**

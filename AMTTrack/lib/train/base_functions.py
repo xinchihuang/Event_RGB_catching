@@ -53,7 +53,7 @@ def names2datasets(name_list: list, settings, image_loader):
 
 def collate_fn(batch):
     """
-    将批次中的样本按照 seq_id 进行分组
+    Group samples in the batch by seq_id.
     """
     seq_id_to_samples = {}
     for data in batch:
@@ -63,10 +63,10 @@ def collate_fn(batch):
         else:
             seq_id_to_samples[seq_id] = [data]
 
-    # 随机选择一个视频的所有样本
+    # Randomly select all samples from one video.
     selected_seq_id = torch.randint(0, len(seq_id_to_samples), (1,))
     
-    # 额外检查，确保 selected_seq_id 在 batch 中
+    # Also check that selected_seq_id exists in the batch.
     selected_seq_id = selected_seq_id.item()
     print("Selected seq_id:", selected_seq_id)
     print("All seq_ids in batch:", [data['seq_id'] for data in batch])

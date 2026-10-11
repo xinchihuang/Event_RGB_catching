@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-独立测试脚本：测试 motor 归位功能
-测试步骤：
-1. 启动 motor 进程
-2. 设置状态为 'c' (catch)
-3. 提供预定位置 [0, 1, 1]
-4. 观察 motor 是否执行动作并归位到 0
-5. 检查 motor 是否正确 disable 和 bus shutdown
+Standalone test script for motor homing.
+Test steps:
+1. Start the motor process.
+2. Set the state to 'c' (catch).
+3. Provide the target position [0, 1, 1].
+4. Check that the motor moves and returns to zero.
+5. Check that the motor is disabled and the bus shuts down correctly.
 """
 
 import multiprocessing

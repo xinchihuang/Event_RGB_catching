@@ -1,12 +1,12 @@
-来源：12162025丢球400次.xlsx（本机路径通过 ground_truth_xlsx 或 --xlsx 指定），Sheet1
-原始列：image_id,x_m,y_m；坐标单位：米。
-输出CSV无表头，两列依次为原始x_m,y_m；不做偏移、缩放或坐标变换。
-normal.csv：l，原始编号0–99
-clutter.csv：c，原始编号100–199
-dark.csv：d，原始编号300–399
-dark_clutter.csv：dc，原始编号200–299
-每个文件固定100行，第1行对应组内编号0，第100行对应组内编号99。
-Excel共399条记录，缺少image_id=12；normal.csv第13行为nan,nan，绘图脚本会跳过。
-原有label_l/d/c/dc.csv为旧网格编号标签，本次保留。
-当前plot_landing_prediction_multi/simple.py将两列解释为落点平面的y,z，并额外加偏移(-0.05,+0.95)米。使用前需确认Excel坐标轴与该约定一致。
-这些CSV位于evaluation_tools内；绘图时可通过--label-file normal=文件路径等参数指定标签。
+Source: the 2025-12-16 workbook containing 400 ball throws, Sheet1. Select its local path with ground_truth_xlsx or --xlsx; no workbook is bundled here.
+Original columns: image_id,x_m,y_m; coordinates are in meters.
+Output CSVs have no header and contain original x_m,y_m, without offsets, scaling, or coordinate transforms.
+normal.csv: l, original IDs 0–99
+clutter.csv: c, original IDs 100–199
+dark.csv: d, original IDs 300–399
+dark_clutter.csv: dc, original IDs 200–299
+Each file has 100 rows: row 1 maps to local ID 0, row 100 to local ID 99.
+Excel has 399 records and is missing image_id=12; row 13 of normal.csv is nan,nan and is skipped by plotting scripts.
+Existing label_l/d/c/dc.csv files contain legacy grid-index labels and are retained.
+Current plot_landing_prediction_multi/simple.py interprets the columns as impact-plane y,z and adds (-0.05,+0.95) meters. Confirm that the workbook axes match this convention before use.
+These CSVs are located in evaluation_tools when available locally; plotting accepts labels through options such as --label-file normal=/path/to/labels.csv.

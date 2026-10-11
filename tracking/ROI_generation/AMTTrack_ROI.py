@@ -13,11 +13,11 @@ if project_root not in sys.path:
 from config.config_loader import Config
 
 
-# 注释掉自动配置检测，避免干扰不同的运行模式
+# Automatic configuration detection is disabled to avoid interfering with runtime modes.
 # def ensure_correct_config():
-#     """确保加载了正确的配置文件"""
+#     """Ensure the correct configuration file is loaded."""
 #     current_bbox = Config.get_roi()['default_bbox']
-#     # 如果是默认配置的bbox，尝试切换到config_l.yaml
+#     # If the bbox matches the default configuration, try config_l.yaml.
 #     if current_bbox == [430, 1180, 40, 40]:
 #         try:
 #             switch_global_config('config/config_l.yaml')
@@ -25,11 +25,11 @@ from config.config_loader import Config
 #         except:
 #             pass
 
-# # 自动配置检测 - 注释掉以避免干扰
+# # Automatic configuration detection, commented out to avoid interference.
 # ensure_correct_config()
 def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.device("cuda")):
     """
-    将点云转换为voxel,调用spconv的VoxelGeneratorV2
+    Convert the point cloud to voxels using spconv's voxel generator.
     """
     save_voxel = 5000
     x = event_data['x']  # Shape: (N,)
@@ -50,26 +50,26 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
     # print(current_events)
     voxel_output = voxel_generator(current_events)
 
-    # 假设一份点云数据是N*4，那么经过pillar生成后会得到三份数据
-    # voxels代表了每个生成的voxel数据，维度是[M, 5, 4]
-    # coordinates代表了每个生成的voxel所在的zyx轴坐标，维度是[M,3]
-    # num_points代表了每个生成的voxel中有多少个有效的点维度是[m,]，因为不满5会被0填充
+    # For an N*4 point cloud, pillar generation returns three arrays.
+    # voxels has shape [M, max_num_points_per_voxel, 4] for (t, x, y, p).
+    # coordinates contains zyx voxel coordinates, with shape [M, 3].
+    # num_points has shape [M] and counts valid points before padding.
     voxels, coordinates, num_points = voxel_output
     voxels = voxels.to(device)
     coordinates = coordinates.to(device)
     num_points = num_points.to(device)
-    # 选event数量在前5000的voxel  8000 from(4k+,6k+)
+    # Keep at most save_voxel voxels, ranked by event count.
     # print(torch.where(num_points>=16)[0].shape)
     if num_points.shape[0] < save_voxel:
         features = voxels[:, :, 3]
         coor = coordinates[:, :]
     else:
         _, voxels_idx = torch.topk(num_points, save_voxel)
-        # 将每个voxel的1024个p拼接作为voxel初始特征   16
+        # Use each voxel's point polarities as its feature vector.
         features = voxels[voxels_idx][:, :, 3]
-        # 前5000个voxel的三维坐标
+        # Coordinates of the selected voxels.
         coor = coordinates[voxels_idx]
-    # 将y.x.t改为t,x,y
+    # Reorder y,x,t to t,x,y.
     coor[:, [0, 1, 2]] = coor[:, [2, 1, 0]]
 
     return coor, features
@@ -88,8 +88,8 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
 
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
-    # 确保在子进程中加载正确的配置文件
-    # 检查环境变量来确定应该使用哪个配置
+    # Load the correct configuration in the child process.
+    # Check the environment to select the configuration.
     active_config = os.environ.get('ACTIVE_CONFIG_FILE')
     active_task = os.environ.get('ACTIVE_TASK')
 
@@ -118,47 +118,47 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     def detect_initial_bbox(image, event_data):
 
         """
-        自动检测球的初始位置
+        Automatically detect the initial ball position.
         """
-        # 导入球检测器
+        # Import the ball detector.
         import sys
         import os
         current_dir = os.path.dirname(__file__)
         sys.path.append(current_dir)
 
-        # 生成事件图像用于辅助检测和叠加显示
+        # Generate an event image for detection and overlay display.
         # Note: This is called once during initialization, so creating a local buffer is acceptable
         event_frame_local = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
         event_frame_gen.generate_frame(event_data, event_frame_local,
                                        accumulation_time_us=processing['accumulation_time_us'])
         event_image_gray = cv2.cvtColor(event_frame_local, cv2.COLOR_BGR2GRAY)
 
-        # 将事件图像转换为二值图像以便更好的可视化
+        # Binarize the event image for visualization.
         _, binary = cv2.threshold(event_image_gray, processing['binary_threshold'], processing['binary_max_value'],
                                   cv2.THRESH_BINARY)
         event_image_viz = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
 
-        # 尝试自动检测球
+        # Attempt automatic ball detection.
         # detected_bbox = ball_detector.detect_ball(image, event_image_gray)
         # print(detected_bbox)
         detected_bbox = Config.get_roi()['default_bbox']
         print(detected_bbox)
         if detected_bbox is not None:
             x, y, w, h = detected_bbox
-            print(f"自动检测到球的位置: x={x}, y={y}, w={w}, h={h}")
+            print(f"Automatically detected ball position: x={x}, y={y}, w={w}, h={h}")
 
-            # 可视化检测结果 - 在RGB图像上绘制bbox
+            # Draw the detected bbox on the RGB image.
             vis_image = image.copy()
             cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.putText(vis_image, "Auto Detected Ball", (x, y - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # 在事件图像上也绘制bbox
+            # Draw the bbox on the event image too.
             cv2.rectangle(event_image_viz, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.putText(event_image_viz, "Event View", (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-            # 叠加显示RGB图像和事件图像
+            # Overlay the RGB and event images.
             combined = np.hstack((vis_image, event_image_viz))
 
             # The preview is shown by the parent process before child processes
@@ -166,27 +166,27 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
 
             return x, y, w, h
         else:
-            # 如果自动检测失败，使用默认位置
-            print("自动检测失败，使用默认位置")
+            # Use the default position if automatic detection fails.
+            print("Automatic detection failed; using the default position")
             roi_config = Config.get_roi()
             if 'backup_bbox' in roi_config:
                 x, y, w, h = roi_config['backup_bbox']
             else:
-                # 如果没有backup_bbox，使用default_bbox
+                # Use default_bbox if backup_bbox is unavailable.
                 x, y, w, h = roi_config['default_bbox']
             return x, y, w, h
 
     device = torch.device("cuda")
     voxel_generator = PointToVoxel(
-        # 给定每个voxel的长宽高  [0.05, 0.05, 0.1]
-        vsize_xyz=[1000, 10, 10],  # [0.2, 0.25, 0.16]  # [50, 10, 10]  [50, 35, 26] 因此坐标范围（20,20,20）  (20, 34/35, 26)
-        # 给定点云的范围 [  0.  -40.   -3.   70.4  40.    1. ]
+        # Voxel dimensions along normalized time, x, and y.
+        vsize_xyz=[1000, 10, 10],
+        # Lower and upper bounds for (t, x, y).
         coors_range_xyz=[0., 0, 0, 100000, event_width, event_height],
-        # 给定每个点云的特征维度，这里是x，y，z，r 其中r是激光雷达反射强度       # 346x260  t,x,y
+        # Each point contains (t, x, y, polarity).
         num_point_features=4,
-        # 最多选取多少个voxel，训练16000，推理40000
+        # Maximum number of generated voxels.
         max_num_voxels=16000,  # 16000
-        # 给定每个pillar中有采样多少个点，不够则补0  因此我将neg voxel改为-1;
+        # Maximum number of sampled points per voxel.
         max_num_points_per_voxel=16,  # 1024
         device=device
     )
@@ -204,7 +204,7 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     ROI_shm = shared_memory.SharedMemory(name=ROI_memory.name)
     ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
 
-    # 使用绝对路径确保在多进程环境中能找到文件 (模板路径相对 tracking 目录)
+    # Resolve an absolute path for child processes (templates are relative to tracking/).
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     npy_path = os.path.join(project_root, Config.get_paths()['template_npy'])
     first_event_data = np.load(npy_path, allow_pickle=True)
@@ -215,7 +215,7 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
 
     # event_template = torch.zeros([1024, 19])
 
-    # 使用绝对路径确保在多进程环境中能找到文件
+    # Resolve an absolute path so child processes can find the file.
     jpg_path = os.path.join(project_root, Config.get_paths()['template_jpg'])
     first_flir_image = cv2.imread(jpg_path)
 
@@ -239,7 +239,7 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     roi_params = Config.get_roi()
     roi_range = roi_params['roi_range']
     initialized = False
-    system_state.value = 'w'  # 设置初始状态为等待
+    system_state.value = 'w'  # Initialize the state to waiting.
 
     # Pre-allocate event_frame buffer to avoid repeated allocation in loop
     event_frame_buffer = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
@@ -380,7 +380,7 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
 
             combined = np.hstack((rgb_image, event_image))
             scale = processing['display_scale']
-            # 获取新的尺寸
+            # Calculate the resized dimensions.
             width = int(combined.shape[1] * scale)
             height = int(combined.shape[0] * scale)
             new_size = (width, height)

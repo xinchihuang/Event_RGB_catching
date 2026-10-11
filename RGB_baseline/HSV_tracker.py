@@ -17,7 +17,7 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
     from sklearn.cluster import DBSCAN
 
     # GUI operations moved to dedicated gui_process.py
-    # cv2.startWindowThread() - REMOVED (阶段1修改)
+    # cv2.startWindowThread() - REMOVED (phase 1 change)
 
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
@@ -102,15 +102,15 @@ def RGB_tracking_3D(shared_event_data,shared_flir_data,shared_ROI_data,shared_ba
                     combined = rgb_image
                     scale = tracking['hsv_display_scale']
 
-                    # 获取新的尺寸
+                    # Calculate the resized dimensions.
                     width = int(combined.shape[1] * scale)
                     height = int(combined.shape[0] * scale)
                     new_size = (width, height)
 
-                    # 缩放图像（使用 INTER_AREA 插值更适合缩小）
+                    # Resize the image; INTER_AREA is suitable for downsampling.
                     resized_img = cv2.resize(combined, new_size, interpolation=cv2.INTER_AREA)
 
-                    # GUI display moved to dedicated gui_process.py (阶段1修改)
+                    # GUI display moved to dedicated gui_process.py (phase 1 change)
                     # cv2.imshow('RGB Tracking', resized_img) - REMOVED
                     # cv2.waitKey(1) - REMOVED
 

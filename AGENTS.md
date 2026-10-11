@@ -1,17 +1,18 @@
 # Repository working instructions
 
-## 修改台账
+## Review ledger
 
-- 修改本仓库前，阅读根目录 [REVIEW_TRACKER.md](REVIEW_TRACKER.md)，确认对应问题编号、当前状态及所属数据阶段。
-- 用户要求：每次修改完成后都要记录。在同一轮工作中更新台账的状态、已完成内容、剩余事项、验证结果和最近更新日期，并追加修改记录。
-- 超出台账范围的独立修改也要登记；保留既有编号，不重排、不复用，不覆盖历史记录。
-- 部分入口修复只标记“部分完成”；必要验证未完成时标记“已修改待验证”。不得把未执行的测试记为通过，不得把提交状态当作完成状态。
-- 首次登记已有修复必须注明“基线登记”，不要声称它是本次修改。
+- Before modifying this repository, read [REVIEW_TRACKER.md](REVIEW_TRACKER.md) and identify the issue ID, current status, and data stage.
+- The user requires a record after every change. In the same turn, update the issue status, completed work, remaining work, verification results, and last-updated date, and append a change-history entry.
+- Record independent changes outside the existing table as well. Preserve issue IDs and history; do not renumber, reuse IDs, or overwrite historical records.
+- Mark fixes covering only some entrypoints as partial. Use "Changed; verification pending" when required validation remains. Never report unrun tests as passing or treat a Git commit as proof of completion.
+- Label the first registration of an existing fix as a baseline entry; do not claim it was implemented in the current turn.
+- Use English for repository documentation, comments, and docstrings. Keep existing identifiers, data formats, and external resource names compatible.
 
-## 采集和回放边界
+## Capture and replay boundaries
 
-- 区分采集保存、在线相机处理、离线预处理、文件回放及训练数据集生成。
-- processed_data 回放取消重复旋转已完成：公共读取器只做 RGB 对齐。不要把在线或原始数据处理中的旋转视为该修复未完成。
-- collect_data 的事件预览数组与设备 RAW 日志写入是不同路径；RGB 在旋转后保存。
-- time_align_rewrite 处理原始事件并旋转；prepare_dataset 当前也按原始事件输入设计。不能未经核对直接串接两者或统一删除旋转。
-- 在线 apply_rotation 的文档与实现需要单独核对；不得直接套用 False 默认值而无意改变实际相机方向。
+- Distinguish capture storage, live camera processing, offline preprocessing, file replay, and training dataset generation.
+- Duplicate rotation has already been removed from processed_data replay: the shared reader only aligns events to RGB. Do not treat rotation in live or raw-data processing as an unfinished replay fix.
+- The event preview array in collect_data and the device RAW logger are separate paths; RGB is rotated before saving.
+- time_align_rewrite rotates raw events; prepare_dataset also expects raw events. Do not chain these stages or remove all rotation without checking their input contracts.
+- Review live apply_rotation documentation separately from its implementation. Do not apply a False default in a way that changes the physical camera orientation.

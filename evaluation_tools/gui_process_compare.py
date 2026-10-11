@@ -16,7 +16,7 @@ from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
 
 def save_cached_data_to_files(data_cache, save_dir):
-    """将缓存的数据保存到文件 - 保存RGB图片（带框）、Event图片（无框）和检测结果txt文件"""
+    """Save buffered RGB images with boxes, event images without boxes, and detection text files."""
     if not data_cache or not save_dir:
         return
     
@@ -112,15 +112,15 @@ def gui_display_process_compare(
     save_images=True
 ):
     """
-    专职GUI显示进程 - 比较三种跟踪方法
+    Dedicated GUI process comparing three tracking methods.
 
-    功能:
-    1. 读取event数据并生成可视化帧
-    2. 读取FLIR图像
-    3. 读取三种不同的ball_pixel_3D数据并在图像上绘制检测框
-    4. 显示比较窗口: RGB Tracking, Event Tracking, Pure Event Tracking
+    Responsibilities:
+    1. Read event data and generate visualization frames.
+    2. Read FLIR images.
+    3. Read three ball_pixel_3D buffers and draw their detection boxes.
+    4. Show comparison windows: RGB Tracking, Event Tracking, Pure Event Tracking.
 
-    注意: 这是唯一调用OpenCV GUI函数的进程
+    This is the only process that calls OpenCV GUI functions.
     """
     print("GUI Comparison Process: Starting...")
     sys.stdout.flush()
@@ -266,7 +266,7 @@ def gui_display_process_compare(
             }
 
             def draw_detection_from_buffer(rgb_image, combined_save_image, buffer, shape, color, method_name, info_dict):
-                """绘制来自指定buffer的检测结果"""
+                """Draw detections from the specified buffer."""
                 try:
                     if ball_observations.value > 0:
                         latest_idx = ball_observations.value - 1

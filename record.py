@@ -140,40 +140,40 @@ def reseter_for_multi_record(shared_event_data,shared_flir_data,shared_ROI_data,
             print("Set to Waiting")
             time.sleep(2)
             print("Cleaning memory...")
-            # 清空 event memory
+            # Clear event memory.
             event_array = np.ndarray(event_shape, dtype=np.dtype(event_dtype), buffer=event_shm.buf)
             event_array[:] = np.zeros(event_shape, dtype=np.dtype(event_dtype))
 
-            # 清空 flir image
+            # Clear the FLIR image.
             flir_array = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
             flir_array[:] = 0
 
-            # 清空 3D ball pixel
+            # Clear ball pixel observations.
             ball_pixel_3D_array = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype,
                                              buffer=ball_pixel_3D_shm.buf)
             ball_pixel_3D_array[:] = 0
 
-            # 清空 ROI
+            # Clear the ROI.
             ROI_array = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
             ROI_array[:] = 0
 
-            # 清空 impact point
+            # Clear the impact point.
             impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
             impact_point_array[:] = 0
 
-            # 重置 ball_observations
+            # Reset ball_observations.
             ball_observations.value = 0
 
             raw_count.value=0
-            # 重置 num_event
+            # Reset num_event.
             num_event.value = 0
-            # 下一个record
+            # Advance to the next record.
 
             start_ts.value = 0.0
             video_broadcasting.value='s'
             event_broadcasting.value='s'
 
-            # 重置数据版本计数器
+            # Reset data version counters.
             event_data_version.value = 0
             flir_data_version.value = 0
 
@@ -227,7 +227,7 @@ def check_align(shared_event_data,shared_flir_data,num_event,event_data_version,
         event_frame_gen.generate_frame(event_data, event_frame,accumulation_time_us=1000)
         image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
-        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+        points = np.column_stack(np.where(binary > 0))  # Get coordinates of all nonzero pixels.
         dbscan.fit(points)
         labels = dbscan.labels_
         event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
@@ -243,7 +243,7 @@ def check_align(shared_event_data,shared_flir_data,num_event,event_data_version,
         rgb_image = cv2.convertScaleAbs(rgb_image, alpha=0.5, beta=30)
         combined = cv2.addWeighted(event_image, 0.3, rgb_image, 0.2, 0)
         scale = 0.8
-        # 获取新的尺寸
+        # Calculate the resized dimensions.
         width = int(combined.shape[1] * scale)
         height = int(combined.shape[0] * scale)
         new_size = (width, height)
@@ -259,11 +259,11 @@ def check_align(shared_event_data,shared_flir_data,num_event,event_data_version,
 
 def shutdown_processes(processes, timeout=5):
     """
-    安全地关闭进程列表
+    Shut down a list of processes safely.
     
     Args:
-        processes: 要关闭的进程列表
-        timeout: 等待进程正常退出的超时时间（秒）
+        processes: Processes to shut down.
+        timeout: Timeout in seconds for graceful shutdown.
     """
     if not processes:
         print("No processes to shutdown.")
@@ -271,7 +271,7 @@ def shutdown_processes(processes, timeout=5):
     
     print(f"Shutting down {len(processes)} processes...")
     
-    # 第一阶段：等待进程正常退出
+    # Phase 1: wait for graceful shutdown.
     print("Phase 1: Waiting for graceful shutdown...")
     start_time = time.time()
     
@@ -284,7 +284,7 @@ def shutdown_processes(processes, timeout=5):
         print(f"Waiting for {len(alive_processes)} processes to exit...")
         time.sleep(0.5)
     
-    # 第二阶段：强制终止仍在运行的进程
+    # Phase 2: terminate processes that are still running.
     alive_processes = [p for p in processes if p.is_alive()]
     if alive_processes:
         print(f"Phase 2: Force terminating {len(alive_processes)} remaining processes...")
@@ -296,10 +296,10 @@ def shutdown_processes(processes, timeout=5):
             except Exception as e:
                 print(f"Error terminating process {process.pid}: {e}")
         
-        # 等待terminate生效
+        # Wait for terminate to take effect.
         time.sleep(1)
         
-        # 第三阶段：如果还有进程，使用kill
+        # Phase 3: kill any remaining processes.
         still_alive = [p for p in alive_processes if p.is_alive()]
         if still_alive:
             print(f"Phase 3: Force killing {len(still_alive)} stubborn processes...")
@@ -311,7 +311,7 @@ def shutdown_processes(processes, timeout=5):
                 except Exception as e:
                     print(f"Error killing process {process.pid}: {e}")
         
-        # 最终检查
+        # Final check.
         time.sleep(0.5)
         final_alive = [p for p in processes if p.is_alive()]
         if final_alive:
@@ -365,8 +365,8 @@ if __name__ == '__main__':
     
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
-    print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
-    print(f"GUI 检测框 CSV: {'请求启用（需 GUI）' if args.save_csv else '禁用'}；轨迹与落点另行保存")
+    print(f"Test mode: {args.test_mode}, task: {args.task}")
+    print(f"GUI bounding-box CSV: {'requested (requires GUI)' if args.save_csv else 'disabled'}; trajectories and impact points are saved separately")
     
     device = torch.device("cuda")
 

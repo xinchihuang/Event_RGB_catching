@@ -191,50 +191,50 @@ def reseter_for_multi_record(shared_event_data, shared_flir_data, shared_ROI_dat
             print("Set to Waiting")
             time.sleep(2)
             print("Cleaning memory...")
-            # 清空 event memory
+            # Clear event memory.
             event_array = np.ndarray(event_shape, dtype=np.dtype(event_dtype), buffer=event_shm.buf)
             event_array[:] = np.zeros(event_shape, dtype=np.dtype(event_dtype))
 
-            # 清空 flir image
+            # Clear the FLIR image.
             flir_array = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
             flir_array[:] = 0
 
-            # 清空 3D ball pixel
+            # Clear ball pixel observations.
             ball_pixel_3D_array = np.ndarray(ball_pixel_3D_shape, dtype=ball_pixel_3D_dtype,
                                              buffer=ball_pixel_3D_shm.buf)
             ball_pixel_3D_array[:] = 0
             
-            # 清空 3D ball pixel raw
+            # Clear raw-event ball observations.
             ball_pixel_3D_raw_array = np.ndarray(ball_pixel_3D_raw_shape, dtype=ball_pixel_3D_raw_dtype,
                                                  buffer=ball_pixel_3D_raw_shm.buf)
             ball_pixel_3D_raw_array[:] = 0
             
-            # 清空 3D ball pixel rgb
+            # Clear RGB ball observations.
             ball_pixel_3D_rgb_array = np.ndarray(ball_pixel_3D_rgb_shape, dtype=ball_pixel_3D_rgb_dtype,
                                                  buffer=ball_pixel_3D_rgb_shm.buf)
             ball_pixel_3D_rgb_array[:] = 0
 
-            # 清空 ROI
+            # Clear the ROI.
             ROI_array = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
             ROI_array[:] = 0
 
-            # 清空 impact point
+            # Clear the impact point.
             impact_point_array = np.ndarray(impact_point_shape, dtype=impact_point_dtype, buffer=impact_point_shm.buf)
             impact_point_array[:] = 0
 
-            # 重置 ball_observations
+            # Reset ball_observations.
             ball_observations.value = 0
 
             raw_count.value = 0
-            # 重置 num_event
+            # Reset num_event.
             num_event.value = 0
-            # 下一个record
+            # Advance to the next record.
 
             start_ts.value = 0.0
             video_broadcasting.value = 's'
             event_broadcasting.value = 's'
 
-            # 重置数据版本计数器
+            # Reset data version counters.
             event_data_version.value = 0
             flir_data_version.value = 0
 
@@ -289,7 +289,7 @@ def check_align(shared_event_data, shared_flir_data, num_event, event_data_versi
         event_frame_gen.generate_frame(event_data, event_frame, accumulation_time_us=1000)
         image = cv2.cvtColor(event_frame, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(image, 40, 255, cv2.THRESH_BINARY)
-        points = np.column_stack(np.where(binary > 0))  # 取所有非零像素点的坐标
+        points = np.column_stack(np.where(binary > 0))  # Get coordinates of all nonzero pixels.
         dbscan.fit(points)
         labels = dbscan.labels_
         event_image = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
@@ -306,7 +306,7 @@ def check_align(shared_event_data, shared_flir_data, num_event, event_data_versi
         rgb_image = cv2.convertScaleAbs(rgb_image, alpha=0.5, beta=30)
         combined = cv2.addWeighted(event_image, 0.3, rgb_image, 0.2, 0)
         scale = 0.8
-        # 获取新的尺寸
+        # Calculate the resized dimensions.
         width = int(combined.shape[1] * scale)
         height = int(combined.shape[0] * scale)
         new_size = (width, height)
@@ -478,13 +478,13 @@ if __name__ == '__main__':
     # Set environment variables for subprocess config loading
     config_file = set_active_config(args.task, args.test_mode)
     if config_file:
-        print(f"使用任务配置 {args.task}: {config_file}")
+        print(f"Using task configuration {args.task}: {config_file}")
     else:
-        print(f"未知任务类型: {args.task}, 使用默认配置")
+        print(f"Unknown task: {args.task}, using the default configuration")
 
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
-    print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
+    print(f"Test mode: {args.test_mode}, task: {args.task}")
 
     device = torch.device("cuda")
 

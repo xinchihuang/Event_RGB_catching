@@ -46,11 +46,11 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
     delta_t       = data_reading['delta_t']
     n_events      = data_reading['n_events']
     send_interval = float(data_reading['send_interval'])
-    # ASAP 模式（send_interval<=0）：每次循环都立即发布
+    # ASAP mode (send_interval<=0): publish immediately on each iteration.
     asap_mode = not (send_interval > 0.0)
     hz = (1.0 / send_interval) if not asap_mode else 0.0
 
-    # 预取对齐/尺寸配置，避免循环内重复取
+    # Cache alignment and dimensions outside the loop.
     dims = Config.get_image_dimensions()
     alignment = Config.get_alignment()
     y_offset = float(alignment['y_coordinate_offset'])
@@ -76,15 +76,15 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
     t0 = time.perf_counter()
     next_deadline = (t0 + send_interval) if not asap_mode else None
 
-    # -------- 方法A：时间预算式 drain，直到追上实时或耗尽预算 --------
+    # -------- Method A: drain until caught up or the time budget expires. --------
     def drain_events_time_budget():
         """
-        反复 next(iterator) 在有限时间预算内尽可能消费到“最新一批”。
-        仅返回最新那一批（用于发布），以清空 backlog、避免延迟累积。
+        Call next(iterator) repeatedly within a time budget to reach the latest packet.
+        Return only the latest packet for publication, draining backlog to limit latency.
         """
         nonlocal latest_events, have_latest, stream_ended
 
-        # 时间预算：ASAP 模式给个小预算（2ms），定频模式用 75% 周期
+        # Budget: 2 ms in ASAP mode; 75% of the period in fixed-rate mode.
         if asap_mode:
             budget_ms = 100.0
         else:
@@ -94,22 +94,22 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
         got_any = False
 
         while True:
-            # 时间到则停止（留点时间给发布/写共享内存）
+            # Stop at the deadline, leaving time to publish to shared memory.
             now = time.perf_counter()
             if (now - start) * 1000.0 >= budget_ms:
                 break
 
             try:
-                ev = next(event_iterator)   # 取一批事件
+                ev = next(event_iterator)   # Read one event packet.
             except StopIteration:
                 stream_ended = True
                 break
             except Exception as e:
-                # 采集异常：跳出本轮，等待下次循环再试
+                # On acquisition failure, leave this iteration and retry on the next one.
                 print(f"Event acquisition error: {e}")
                 break
 
-            # 坐标变换（在 float 域处理，最终在 align_to_rgb 中裁剪）
+            # Transform coordinates as floats; align_to_rgb performs final clipping.
             try:
                 x = ev['x'].astype(np.float32, copy=False)
                 y = ev['y'].astype(np.float32, copy=False)
@@ -129,13 +129,13 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
                 ev2['x'] = xa
                 ev2['y'] = ya
 
-                latest_events = ev2   # 只保留“最后一批”=最新
+                latest_events = ev2   # Keep only the latest packet.
                 have_latest   = True
                 got_any       = True
             except Exception as e:
                 print(f"Event processing error: {e}")
                 have_latest = False
-                # 出错不立即退出，继续尝试 drain 下一批
+                # On error, continue trying to drain the next packet.
                 continue
 
         return got_any
@@ -144,19 +144,19 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
         while not stop_event.is_set() and not stream_ended:
             now = time.perf_counter()
 
-            # ---------- 关键：先 drain 内部缓冲到“最新” ----------
+            # ---------- Drain the internal buffer to the latest packet first. ----------
             got_any = drain_events_time_budget()
             if stream_ended:
                 break
 
-            # 读取运行状态（Value('c') 可能是 bytes）
+            # Read the state (Value('c') may contain bytes).
             is_running = getattr(system_state, "value", None)
             if isinstance(is_running, (bytes, bytearray)):
                 is_running = is_running.decode('ascii', errors='ignore') if is_running else ''
             elif not isinstance(is_running, str):
                 is_running = str(is_running) if is_running is not None else ''
 
-            # 发布判定（ASAP 模式：每轮都发；定频：到点才发）
+            # Publish each iteration in ASAP mode, or at the deadline in fixed-rate mode.
             should_publish = asap_mode or (now >= next_deadline)
 
             if should_publish:
@@ -177,12 +177,12 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
 
                         proc_ms = (time.perf_counter() - process_start) * 1000.0
 
-                        # 定频模式推进无漂移的下一次截止时间
+                        # Advance the fixed-rate deadline without accumulating drift.
                         if not asap_mode:
                             missed = max(1, int((now - next_deadline) // send_interval) + 1)
                             next_deadline += missed * send_interval
 
-                        # 节流日志
+                        # Throttle log output.
                         if now - last_log >= 10.0:
                             print(f"Event: {hz:.0f} Hz target | sent {n_copy} evts | proc {proc_ms:.2f} ms")
                             last_log = now
@@ -192,19 +192,19 @@ def read_from_event(shared_event_data, system_state, num_event, event_data_versi
                     except Exception as e:
                         print(f"Event shared-memory write error: {e}")
                 else:
-                    # 暂停：快速安排下次发布时间（定频）
+                    # When paused, promptly reschedule the next fixed-rate publication.
                     if not asap_mode:
                         next_deadline = now + send_interval
 
-            # 轻量休眠避免空转
+            # Sleep briefly to avoid busy waiting.
             if asap_mode:
-                time.sleep(0.0002)  # ASAP 模式给一个很小的让步
+                time.sleep(0.0002)  # Yield briefly in ASAP mode.
             else:
-                # 睡到下一个发布点的一小部分，避免长时间忙等
+                # Sleep for part of the remaining interval to avoid extended busy waiting.
                 slack = (next_deadline - time.perf_counter()) if next_deadline else 0.0
                 if slack > 0:
                     time.sleep(min(slack * 0.25, 0.005))
 
     finally:
         print("Event Camera: Cleaning up...")
-        # 共享内存由主进程统一清理，这里不关闭
+        # The parent owns shared-memory cleanup; do not close it here.

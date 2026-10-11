@@ -11,38 +11,38 @@ from utils import pixel_to_world
 
 def fit_3d_trajectory_with_distortion_old(observations, camera_params, rotation_matrix, initial_guess, max_iter=200):
     """
-    考虑镜头畸变的3D抛体运动轨迹拟合
+    Fit a 3D projectile trajectory with lens distortion.
 
-    参数：
-    observations : list of tuples - (u像素, v像素, 时间t)
-    camera_params : dict - 必须包含:
-        'fx', 'fy' : 焦距
-        'cx', 'cy' : 主点
-        'dist_coeffs' : 畸变系数 [k1, k2, p1, p2, k3]
-    rotation_matrix : np.array - 3x3旋转矩阵
-    initial_guess : list - 初始猜测参数 [X0, Y0, Z0, Vx, Vy, Vz, g]
-    max_iter : int - 最大迭代次数
+    Args:
+    observations : list of tuples - (u_px, v_px, time_t)
+    camera_params : dict - Must contain:
+        'fx', 'fy' : Focal lengths
+        'cx', 'cy' : Principal point
+        'dist_coeffs' : Distortion coefficients [k1, k2, p1, p2, k3]
+    rotation_matrix : np.array - 3x3 rotation matrix
+    initial_guess : list - Initial parameter estimates [X0, Y0, Z0, Vx, Vy, Vz, g]
+    max_iter : int - Maximum iteration count
 
-    返回：
+    Returns:
     {
         'success': bool,
-        'params': 优化后的运动参数,
+        'params': Optimized motion parameters,
         'cost': float,
         'reprojection_error': float,
         'iterations': int
     }
     """
-    # 预处理观测数据
+    # Preprocess observations.
     obs_array = np.array(observations)
     timesteps = obs_array[:, 2]
     uv_obs = obs_array[:, :2]
     # print(obs_array)
-    # 提取畸变系数 (兼容无畸变情况)
+    # Extract distortion coefficients, also supporting no distortion.
     dist = camera_params.get('dist_coeffs', np.zeros(5))
     k1, k2, p1, p2, k3 = dist if len(dist) == 5 else np.append(dist, [0] * (5 - len(dist)))
 
     def apply_distortion(x, y):
-        """应用Brown-Conrady畸变模型"""
+        """Apply the Brown-Conrady distortion model."""
         r2 = x ** 2 + y ** 2
         radial = 1 + k1 * r2 + k2 * r2 ** 2 + k3 * r2 ** 3
         x_dist = x * radial + 2 * p1 * x * y + p2 * (r2 + 2 * x ** 2)
@@ -50,28 +50,28 @@ def fit_3d_trajectory_with_distortion_old(observations, camera_params, rotation_
         return x_dist, y_dist
 
     def world_to_pixel(params, t):
-        """完整投影流程：世界坐标系->相机坐标系->像素坐标"""
-        # 计算世界坐标系中的3D位置
+        """Full projection: world coordinates -> camera coordinates -> pixels."""
+        # Compute the 3D position in world coordinates.
         X0, Y0, Z0, Vx, Vy, Vz= params
         Xw = X0 + Vx * t
         Yw = Y0 + Vy * t
         Zw = Z0 + Vz * t - 0.5 * 9.81 * t ** 2
 
-        # 转换到相机坐标系
+        # Transform to camera coordinates.
         Xc, Yc, Zc = rotation_matrix @ np.array([Xw, Yw, Zw])
 
-        # 避免除零错误
+        # Avoid division by zero.
         if Zw < 1. or Zw>2.2 or Xw<0.4 or Xw>4 or Yw<-0.5 or Yw>0.5:
             return None, None
 
-        # 归一化坐标
+        # Normalize coordinates.
         x = Xc / Zc
         y = Yc / Zc
 
-        # 应用畸变
+        # Apply distortion.
         x_dist, y_dist = apply_distortion(x, y)
 
-        # 转换为像素坐标
+        # Convert to pixel coordinates.
         u = camera_params['fx'] * x_dist + camera_params['cx']
         v = camera_params['fy'] * y_dist + camera_params['cy']
         # print(u,v)
@@ -82,14 +82,14 @@ def fit_3d_trajectory_with_distortion_old(observations, camera_params, rotation_
         for t, (u_obs, v_obs) in zip(timesteps, uv_obs):
             # print(t)
             u_pred, v_pred = world_to_pixel(params, t)
-            if u_pred is None:  # 无效点跳过
+            if u_pred is None:  # Skip invalid points.
                 errors.extend([100000.0, 100000.0])
             else:
                 errors.extend([u_obs - u_pred, v_obs - v_pred])
             # print(errors)
         return np.array(errors)
 
-    # 执行优化（增加参数缩放）
+    # Optimize with parameter scaling.
     opt_result = least_squares(
         residual,
         initial_guess,
@@ -101,7 +101,7 @@ def fit_3d_trajectory_with_distortion_old(observations, camera_params, rotation_
         verbose=0
     )
 
-    # 结果整理
+    # Assemble the results.
     success = opt_result.success
     params = opt_result.x.tolist() if success else None
     avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
@@ -131,7 +131,7 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
     timesteps=observations[:,3]
     print(timesteps)
     def trajectory_model(params, t):
-        """计算给定参数下的预测轨迹"""
+        """Compute the predicted trajectory for the given parameters."""
         X0, Y0, Z0, Vx, Vy, Vz = params
         X_pred = X0 + Vx * t
         Y_pred = Y0 + Vy * t
@@ -139,11 +139,11 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
         return np.column_stack([X_pred, Y_pred, Z_pred])
 
     def residuals(params):
-        """计算观测数据和预测轨迹之间的误差"""
+        """Compute errors between observed and predicted trajectories."""
         predicted_coords = trajectory_model(params, timesteps)
-        return (world_coords - predicted_coords).ravel()  # 展平成1D数组
+        return (world_coords - predicted_coords).ravel()  # Flatten to a 1D array.
 
-    # 使用非线性最小二乘法优化
+    # Optimize using nonlinear least squares.
     opt_result = least_squares(
         residuals,
         initial_guess,
@@ -153,7 +153,7 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
         verbose=0
     )
 
-    # 解析优化结果
+    # Extract optimization results.
     success = opt_result.success
     params = opt_result.x.tolist() if success else None
     avg_error = np.mean(np.abs(opt_result.fun)) if success else np.inf
@@ -174,9 +174,9 @@ def fit_3d_trajectory_with_distortion(observations, camera_params, rotation_matr
         'iterations': opt_result.nfev
     }
 
-# 示例调用
+# Example usage
 if __name__ == "__main__":
-    # 定义输入参数
+    # Define input parameters.
     camera_config= {
         'fx': 800,
         'fy': 800,
@@ -185,10 +185,10 @@ if __name__ == "__main__":
         'dist_coeffs': [-0.2, 0.1, 0.001, -0.002, 0.05]  # k1, k2, p1, p2, k3
     }
 
-    # 单位矩阵表示世界坐标系与相机坐标系对齐
+    # The identity matrix aligns world and camera coordinate systems.
     rotation_mat = np.eye(3)
 
-    # 初始猜测参数（需要根据实际情况调整）
+    # Initial parameter estimates (adjust for the actual setup)
     init_guess = [0.5, 1.0, 4.5, 1.3, 3.5, 0.3]
     ball_memory = [
         [100, 100, 0.1],
@@ -200,7 +200,7 @@ if __name__ == "__main__":
         [160, 160, 0.7],
     ]
 
-    # 执行拟合
+    # Run the fit.
     result = fit_3d_trajectory_with_distortion(
         observations=ball_memory,
         camera_params=camera_config,
@@ -208,10 +208,10 @@ if __name__ == "__main__":
         initial_guess=init_guess
     )
 
-    # 输出结果
+    # Print results.
     if result['success']:
-        print("拟合成功的运动参数：")
+        print("Fitted motion parameters:")
         for k, v in result['params'].items():
             print(f"{k}: {v:.3f}")
     else:
-        print(f"拟合失败")
+        print(f"Fit failed")
