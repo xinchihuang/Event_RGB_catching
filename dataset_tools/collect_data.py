@@ -1,43 +1,45 @@
 #!/usr/bin/env python3
 """
 Synchronized capture of FLIR RGB frames (.mp4) and event‑camera data (.raw).
-This revision fixes two regressions in the version you pasted back:
-1. **Event shared‑memory copy was commented out** – restored so the viewer actually
-   sees live events.
-2. **Viewer double‑processing** – now uses only `generate_frame()` for CD frames.
-Other minor clean‑ups are annotated inline.
+Each recording keeps one index until both files are saved. Quit requests finish
+the current recording before workers exit; stalled workers have a bounded grace
+period. Event preview rotation does not change the device's RAW log.
 
 Usage:
   python3 dataset_tools/collect_data.py
-  Controls: r=start, f=finish/save, q=quit.
+  Controls: r=start, f=finish/save, q=save and quit (also Ctrl+C).
 """
 
 
-import os
 import sys
 import time
 import signal
+import argparse
 from pathlib import Path
-from multiprocessing import Process, Event, Value, shared_memory, set_start_method
+from multiprocessing import Process, shared_memory, set_start_method
 
 import numpy as np
 import cv2
-import pyttsx3
-import torch
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import SCENES, stage_path
+
+if __package__:
+    from .recording_session import RecordingSession, wait_for_shutdown
+else:
+    from recording_session import RecordingSession, wait_for_shutdown
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Config
 # ──────────────────────────────────────────────────────────────────────────────
-SAVE_DIR = Path("/home/xinchi/Event_RGB_catching_data/saved_data")
-EVENT_DIR = SAVE_DIR / "event"
-RGB_DIR = SAVE_DIR / "rgb"
-RGB_DIR.mkdir(parents=True, exist_ok=True)
-EVENT_DIR.mkdir(parents=True, exist_ok=True)
 
 RGB_SIZE = (1080, 1440)  # (w, h) after 90° rotate
 
-TARGET_FPS = 50                              # ← 100 fps everywhere
+TARGET_FPS = 50
 FRAME_PERIOD = 1.0 / TARGET_FPS
+SHUTDOWN_TIMEOUT = 60.0  # Seconds allowed for both camera workers to save and exit.
 
 EVENT_SHAPE = (1_000_000,)  # buffer for ~500k events per render cycle
 EVENT_DTYPE = {
@@ -54,9 +56,10 @@ FLIR_DTYPE = np.uint8
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def next_record_index() -> int:
+def next_record_index(save_dir=None) -> int:
     """Return the next integer index so that event/idx.raw and rgb/idx.mp4 match."""
-    existing = [p.stem for p in EVENT_DIR.glob("*.raw")] + [p.stem for p in RGB_DIR.glob("*.mp4")]
+    save_dir = stage_path("raw", explicit=save_dir)
+    existing = [p.stem for p in (save_dir / "event").glob("*.raw")] + [p.stem for p in (save_dir / "rgb").glob("*.mp4")]
     nums = [int(s) for s in existing if s.isdigit()]
     return 0 if not nums else max(nums) + 1
 
@@ -65,8 +68,9 @@ def next_record_index() -> int:
 # Keyboard listener
 # ──────────────────────────────────────────────────────────────────────────────
 
-def keyboard_listener(evt_start: Event, evt_stop: Event, stop_evt: Event, idx_val: Value):
+def keyboard_listener(session):
     from pynput import keyboard as kb
+    import pyttsx3
 
     tts = pyttsx3.init()
     tts.say("System ready. Press r to record, f to finish, q to quit.")
@@ -75,27 +79,46 @@ def keyboard_listener(evt_start: Event, evt_stop: Event, stop_evt: Event, idx_va
     def on_press(key):
         try:
             if key.char == "r":
-                evt_start.set(); evt_stop.clear()
-                tts.say(f"Recording {idx_val.value}. Throw the ball now."); tts.runAndWait()
+                index = session.start()
+                if index is None:
+                    print("[RECORD] Still recording or saving; finish and wait before starting again.")
+                    return
+                tts.say(f"Recording {index}. Throw the ball now."); tts.runAndWait()
             elif key.char == "f":
-                evt_stop.set(); evt_start.clear()
-                tts.say("Finish recording."); tts.runAndWait()
-                with idx_val.get_lock():
-                    idx_val.value += 1  # next index
+                if session.finish():
+                    tts.say("Finish recording."); tts.runAndWait()
             elif key.char == "q":
-                stop_evt.set(); return False  # exit listener
+                session.request_shutdown()
+                return False
         except AttributeError:
             pass  # non‑char key
 
     with kb.Listener(on_press=on_press) as listener:
-        listener.join()
+        while listener.is_alive() and not session.shutdown_requested.wait(0.1):
+            pass
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FLIR capture & record
 # ──────────────────────────────────────────────────────────────────────────────
 
-def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Value, stop_evt: Event):
+def save_rgb_frames(index, frames, save_dir=None):
+    """Close the video before the worker acknowledges a saved recording."""
+    if not frames:
+        raise RuntimeError(f"RGB recording {index} has no frames; pair was not saved completely")
+    out_path = stage_path("raw", explicit=save_dir) / "rgb" / f"{index}.mp4"
+    writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"), TARGET_FPS, RGB_SIZE)
+    try:
+        if not writer.isOpened():
+            raise RuntimeError(f"Cannot open video writer: {out_path}")
+        for frame in frames:
+            writer.write(frame)
+    finally:
+        writer.release()
+    print(f"[FLIR] Saved {out_path} – {len(frames)} frames", flush=True)
+
+
+def record_flir(shared_flir_meta, session, save_dir=None):
     import PySpin
 
     shm_mem, shm_dtype, shm_shape = shared_flir_meta
@@ -105,7 +128,10 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
     system   = PySpin.System.GetInstance()
     cam_list = system.GetCameras()
     if cam_list.GetSize() == 0:
-        print("[FLIR] No camera detected."); return
+        cam_list.Clear()
+        system.ReleaseInstance()
+        shm.close()
+        raise RuntimeError("No FLIR camera detected")
 
     cam = cam_list[0]
     cam.Init()
@@ -135,52 +161,43 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
     cam.BeginAcquisition()
 
     frame_buffer = []
-    recording    = False
-    clip_start_time  = None
+    current_index = None
+    last_index = None
     next_frame_time  = time.perf_counter()
 
+    def finish_recording():
+        nonlocal current_index, last_index, frame_buffer
+        index = current_index
+        current_index = None  # Do not retry a failed save from the finally block.
+        save_rgb_frames(index, frame_buffer, save_dir)
+        frame_buffer = []
+        last_index = index
+        session.saved("rgb", index)
+
     try:
-        while not stop_evt.is_set():
+        while True:
+            if current_index is None:
+                current_index = session.pending_index(last_index)
+                if current_index is not None:
+                    frame_buffer = []
+                    print(f"[FLIR] Recording started (index {current_index})", flush=True)
+
+            if current_index is not None and session.finish_requested.is_set():
+                finish_recording()
+            if session.shutdown_requested.is_set():
+                break
+
             image_result = cam.GetNextImage(1000)
-            if image_result.IsIncomplete():
-                continue
-
-            frame = cv2.cvtColor(image_result.GetNDArray(), cv2.COLOR_BAYER_RG2RGB)
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-            shm_np[:] = frame
-
-            # Handle recording start
-            if evt_start.is_set() and not recording:
-                frame_buffer = []
-                recording = True
-                clip_start_time = time.perf_counter()
-                print(f"[FLIR] ▶ Recording started (index {idx_val.value})...")
-
-            # Buffer frame when recording
-            if recording and not evt_stop.is_set():
-                frame_buffer.append(frame.copy())
-
-            # Stop recording and save buffer to file
-            if evt_stop.is_set() and recording:
-                recording = False
-                duration = time.perf_counter() - clip_start_time if clip_start_time else len(frame_buffer) / TARGET_FPS
-
-                # Write buffer to file
-                out_path = RGB_DIR / f"{idx_val.value}.mp4"
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(str(out_path), fourcc, TARGET_FPS, RGB_SIZE)
-
-                save_start = time.perf_counter()
-                for buffered_frame in frame_buffer:
-                    writer.write(buffered_frame)
-                writer.release()
-
-                save_duration = time.perf_counter() - save_start
-                avg_fps = len(frame_buffer) / duration if duration > 0 else 0
-                print(f"[FLIR] ■ Recording stopped - Duration: {duration:.3f}s")
-                print(f"[FLIR]   Saved {out_path} – {len(frame_buffer)} frames "
-                      f"(≈{avg_fps:.2f} fps), write took {save_duration:.2f}s")
-                frame_buffer = []
+            try:
+                if image_result.IsIncomplete():
+                    continue
+                frame = cv2.cvtColor(image_result.GetNDArray(), cv2.COLOR_BAYER_RG2RGB)
+                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                shm_np[:] = frame
+                if current_index is not None:
+                    frame_buffer.append(frame.copy())
+            finally:
+                image_result.Release()
 
             # Maintain pacing
             next_frame_time += FRAME_PERIOD
@@ -190,16 +207,19 @@ def record_flir(shared_flir_meta, evt_start: Event, evt_stop: Event, idx_val: Va
             else:
                 next_frame_time = time.perf_counter()
 
-            image_result.Release()
     finally:
-        cam.EndAcquisition(); cam.DeInit(); cam_list.Clear(); system.ReleaseInstance(); shm.close()
+        try:
+            if current_index is not None:
+                finish_recording()
+        finally:
+            cam.EndAcquisition(); cam.DeInit(); cam_list.Clear(); system.ReleaseInstance(); shm.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Event‑camera capture & record
 # ──────────────────────────────────────────────────────────────────────────────
 
-def record_event(shared_event_meta, evt_start: Event, evt_stop: Event, idx_val: Value, stop_evt: Event):
+def record_event(shared_event_meta, session, save_dir=None):
     from metavision_core.event_io.raw_reader import initiate_device
     from metavision_core.event_io import EventsIterator
 
@@ -208,10 +228,33 @@ def record_event(shared_event_meta, evt_start: Event, evt_stop: Event, idx_val: 
     shm_np = np.ndarray(ev_shape, dtype=np.dtype(ev_dtype_desc), buffer=shm.buf)
 
     dev = initiate_device(""); iterator = iter(EventsIterator.from_device(device=dev))
-    recording = False; start_ts = None; frame_count = 0
+    current_index = None
+    last_index = None
+
+    def finish_recording():
+        nonlocal current_index, last_index
+        index = current_index
+        current_index = None
+        dev.get_i_events_stream().stop_log_raw_data()
+        last_index = index
+        session.saved("event", index)
+        print(f"[EVENT] Saved recording {index}", flush=True)
 
     try:
-        while not stop_evt.is_set():
+        while True:
+            if current_index is None:
+                index = session.pending_index(last_index)
+                if index is not None:
+                    out_path = stage_path("raw", explicit=save_dir) / "event" / f"{index}.raw"
+                    dev.get_i_events_stream().log_raw_data(str(out_path))
+                    current_index = index
+                    print(f"[EVENT] Recording started: {out_path}", flush=True)
+
+            if current_index is not None and session.finish_requested.is_set():
+                finish_recording()
+            if session.shutdown_requested.is_set():
+                break
+
             ev = next(iterator)
             ev["x"], ev["y"] = ev["y"].copy(), -ev["x"].copy(); ev["y"] += 1279
 
@@ -221,35 +264,19 @@ def record_event(shared_event_meta, evt_start: Event, evt_stop: Event, idx_val: 
             shm_np[:n] = event
             shm_np[n:] = 0  # keep buffer clean for viewer
 
-            if evt_start.is_set() and not recording:
-                out_path = EVENT_DIR / f"{idx_val.value}.raw"
-                dev.get_i_events_stream().log_raw_data(str(out_path))
-                recording = True
-                start_ts = time.time()
-                frame_count = 0
-                print(f"[EVENT] ▶ Recording started")
-                print(f"[EVENT]   Output: {out_path}")
-
-            # Count frames during recording
-            if recording and not evt_stop.is_set():
-                frame_count += 1
-
-            if evt_stop.is_set() and recording:
-                dev.get_i_events_stream().stop_log_raw_data()
-                recording = False
-                duration = time.time() - start_ts
-                print(f"[EVENT] ■ Recording stopped - Duration: {duration:.3f}s")
-                print(f"[EVENT]   Event frames: {frame_count}")
     finally:
-        if recording: dev.get_i_events_stream().stop_log_raw_data()
-        shm.close()
+        try:
+            if current_index is not None:
+                finish_recording()
+        finally:
+            shm.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Simple visualizer (optional)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def show_streams(shared_event_meta, shared_flir_meta, stop_evt: Event):
+def show_streams(shared_event_meta, shared_flir_meta, session):
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
 
     ev_mem, ev_dtype_desc, ev_shape = shared_event_meta
@@ -264,7 +291,7 @@ def show_streams(shared_event_meta, shared_flir_meta, stop_evt: Event):
     gen = PeriodicFrameGenerationAlgorithm(sensor_width=720, sensor_height=1280, fps=100, palette=ColorPalette.Dark)
     cd_frame = np.zeros((1280, 720, 3), dtype=np.uint8)
 
-    while not stop_evt.is_set():
+    while not session.shutdown_requested.is_set():
         gen.generate_frame(ev_np, cd_frame, accumulation_time_us=1000)
 
         # Resize both frames to the same size for overlay
@@ -295,7 +322,8 @@ def show_streams(shared_event_meta, shared_flir_meta, stop_evt: Event):
 
         cv2.imshow("RGB + Event Overlay", overlay)
         if cv2.waitKey(1) & 0xFF == ord("q"):
-            stop_evt.set(); break
+            session.request_shutdown()
+            break
 
     ev_shm.close(); flir_shm.close(); cv2.destroyAllWindows()
 
@@ -303,9 +331,31 @@ def show_streams(shared_event_meta, shared_flir_meta, stop_evt: Event):
 # ──────────────────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    set_start_method("spawn")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # unused but kept
+def run_worker(target, args):
+    # The parent handles terminal Ctrl+C and gives camera writers time to close.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    target(*args)
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--task', choices=SCENES, default='normal')
+    parser.add_argument('--save-dir', '--output-dir', dest='save_dir',
+                        help='Raw recording output (default: machine data_root/saved_data_raw/saved_data_<scene>)')
+    args = parser.parse_args(argv)
+    try:
+        args.save_dir = stage_path('raw', args.task, args.save_dir)
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    return args
+
+
+def main():
+    args = parse_args()
+    save_dir = args.save_dir
+    print(f"Capture output: {save_dir}", flush=True)
+    (save_dir / 'rgb').mkdir(parents=True, exist_ok=True)
+    (save_dir / 'event').mkdir(parents=True, exist_ok=True)
 
     # Shared memory
     event_mem = shared_memory.SharedMemory(create=True, size=np.dtype(EVENT_DTYPE).itemsize * EVENT_SHAPE[0])
@@ -314,20 +364,48 @@ if __name__ == "__main__":
     shared_flir_meta = (flir_mem, FLIR_DTYPE, FLIR_SHAPE)
 
     # Sync primitives
-    stop_evt = Event(); start_evt = Event(); stop_rec_evt = Event()
-    idx_val = Value("i", next_record_index())
+    session = RecordingSession(next_record_index(save_dir))
 
-    signal.signal(signal.SIGINT, lambda sig, fr: (print("\n[MAIN] Ctrl‑C"), stop_evt.set()))
+    def request_exit(sig, frame):
+        print("\n[MAIN] Finishing current recording before exit...", flush=True)
+        session.request_shutdown()
 
-    procs = [
-        Process(target=keyboard_listener, args=(start_evt, stop_rec_evt, stop_evt, idx_val)),
-        Process(target=record_flir, args=(shared_flir_meta, start_evt, stop_rec_evt, idx_val, stop_evt)),
-        Process(target=record_event, args=(shared_event_meta, start_evt, stop_rec_evt, idx_val, stop_evt)),
-        Process(target=show_streams, args=(shared_event_meta, shared_flir_meta, stop_evt)),
+    signal.signal(signal.SIGINT, request_exit)
+    signal.signal(signal.SIGTERM, request_exit)
+
+    workers = [
+        ("rgb", record_flir, (shared_flir_meta, session, save_dir)),
+        ("event", record_event, (shared_event_meta, session, save_dir)),
+        ("keyboard", keyboard_listener, (session,)),
+        ("viewer", show_streams, (shared_event_meta, shared_flir_meta, session)),
     ]
-    for p in procs: p.start()
-    while not stop_evt.is_set(): time.sleep(0.2)
-    for p in procs: p.terminate(); p.join()
+    procs = []
+    failed = False
+    try:
+        for name, target, args in workers:
+            process = Process(name=name, target=run_worker, args=(target, args))
+            process.start()
+            procs.append(process)
+        while not session.shutdown_requested.wait(0.2):
+            exited = [p for p in procs if p.exitcode is not None]
+            if exited:
+                print(f"[MAIN] Worker exited unexpectedly: {[(p.name, p.exitcode) for p in exited]}", flush=True)
+                failed = True
+                break
+    finally:
+        session.request_shutdown()
+        forced = wait_for_shutdown(procs, SHUTDOWN_TIMEOUT)
+        failed = failed or bool(forced) or any(p.exitcode != 0 for p in procs)
+        unfinished = session.unfinished_index()
+        if unfinished is not None:
+            print(f"[MAIN] Recording {unfinished} was not confirmed saved by both cameras.", flush=True)
+            failed = True
+        event_mem.close(); event_mem.unlink(); flir_mem.close(); flir_mem.unlink()
 
-    event_mem.close(); event_mem.unlink(); flir_mem.close(); flir_mem.unlink()
-    print("[MAIN] Shutdown complete.")
+    print("[MAIN] Shutdown incomplete; check recordings." if failed else "[MAIN] Shutdown complete.")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    set_start_method("spawn")
+    sys.exit(main())

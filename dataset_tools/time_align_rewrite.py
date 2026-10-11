@@ -8,15 +8,16 @@ Usage:
 import argparse
 import os
 import tempfile
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import SCENES, stage_path, resolve_path, require_recordings, distinct_output
 
 import cv2
 import numpy as np
-from metavision_core.event_io import EventsIterator, DatWriter
-from metavision_sdk_core import ColorPalette, PeriodicFrameGenerationAlgorithm
-# ---- Edit defaults here ----
-RECORD_DIR_DEFAULT = "/media/xinchi/data/saved_data_raw/saved_data_sakib"
-SAVE_DIR_DEFAULT = "/media/xinchi/data/processed_data/saved_data_sakib"
-# RECORD_DIR_DEFAULT = "/media/xinchi/data/processed_data/saved_data_dc"
 IMAGE_DIMS = {
     "rgb_width": 1080,
     "rgb_height": 1440,
@@ -52,6 +53,7 @@ def _is_dat_event_file(file_path):
 
 
 def _build_events_iterator(input_path, **kwargs):
+    from metavision_core.event_io import EventsIterator
     if not _is_dat_event_file(input_path):
         return EventsIterator(input_path=input_path, **kwargs), None
 
@@ -120,15 +122,17 @@ def load_event_buffer(event_path, delta_t, n_events):
     if iterator is None:
         raise RuntimeError(f"Failed to build EventsIterator for {event_path}")
 
-    event_size = iterator.get_size()
+    raw_height, raw_width = map(int, iterator.get_size())
+    # A quarter turn swaps height and width; persist the processed dimensions.
+    event_size = (raw_width, raw_height)
     event_buffer = []
     try:
         for ev in iter(iterator):
             if ev is None:
                 continue
             if ev.size > 0:
-                ev["x"], ev["y"] = ev["y"].copy(), -ev["x"].copy()
-                ev["y"] += ALIGNMENT["y_coordinate_offset"]
+                ev = ev.copy()
+                ev["x"], ev["y"] = ev["y"].copy(), raw_width - 1 - ev["x"].copy()
 
             event_buffer.append(ev.copy())
     finally:
@@ -202,6 +206,8 @@ def apply_spatial_align_buffer(event_buffer):
 
 
 def save_event_buffer(event_buffer, output_path, event_size=None):
+    if Path(output_path).suffix.lower() != ".dat":
+        raise ValueError("Processed event output must use the .dat extension")
     if not event_buffer:
         print("No event data to save.")
         return False
@@ -211,7 +217,8 @@ def save_event_buffer(event_buffer, output_path, event_size=None):
     else:
         height, width = IMAGE_DIMS["event_height"], IMAGE_DIMS["event_width"]
     print(event_size)
-    writer = DatWriter(output_path, height=height, width=width)
+    from metavision_core.event_io import DatWriter
+    writer = DatWriter(str(output_path), height=height, width=width)
     try:
         for ev in event_buffer:
             writer.write(ev)
@@ -255,6 +262,7 @@ def visualize_alignment(rgb_buffer, event_buffer, apply_spatial_align=True):
     else:
         event_w, event_h = IMAGE_DIMS["event_width"], IMAGE_DIMS["event_height"]
 
+    from metavision_sdk_core import ColorPalette, PeriodicFrameGenerationAlgorithm
     frame_gen = PeriodicFrameGenerationAlgorithm(
         sensor_width=event_w,
         sensor_height=event_h,
@@ -311,9 +319,10 @@ def visualize_alignment(rgb_buffer, event_buffer, apply_spatial_align=True):
     cv2.destroyAllWindows()
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Load and align event/RGB buffers.")
-    parser.add_argument("--record-dir", default=RECORD_DIR_DEFAULT)
+    parser.add_argument("--task", choices=SCENES, default="normal")
+    parser.add_argument("--record-dir", help="Raw recording input")
     parser.add_argument("--index", type=int, default=0)
     parser.add_argument("--count", type=int, default=20)
     parser.add_argument("--auto", action="store_true")
@@ -322,8 +331,16 @@ def parse_args():
     parser.add_argument("--n-events", type=int, default=DATA_READING["n_events"])
     parser.add_argument("--no-spatial-align", action="store_true")
     parser.add_argument("--no-view", action="store_true")
-    parser.add_argument("--save-dir", default=SAVE_DIR_DEFAULT)
-    return parser.parse_args()
+    parser.add_argument("--save-dir", help="Processed recording output")
+    args = parser.parse_args(argv)
+    try:
+        args.record_dir = str(stage_path('raw', args.task, args.record_dir))
+        args.save_dir = str(distinct_output(args.record_dir,
+            stage_path('processed') / f'saved_data_{SCENES[args.task]}'
+            if args.save_dir is None else args.save_dir))
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    return args
 
 
 def run_index(args, index):
@@ -359,7 +376,7 @@ def run_index(args, index):
     os.makedirs(event_out_dir, exist_ok=True)
     os.makedirs(rgb_out_dir, exist_ok=True)
 
-    event_out_path = os.path.join(event_out_dir, f"{index}.raw")
+    event_out_path = os.path.join(event_out_dir, f"{index}.dat")
     rgb_out_path = os.path.join(rgb_out_dir, f"{index}.mp4")
     # Save the trimmed event buffer; aligned buffer is only for visualization.
     save_event_buffer(event_buffer, event_out_path, event_size=event_size)
@@ -380,6 +397,8 @@ def run_index(args, index):
 
 def main():
     args = parse_args()
+    require_recordings(args.record_dir)
+    print(f"Raw input: {args.record_dir}\nProcessed output: {args.save_dir}", flush=True)
 
     if args.auto:
         index = args.index

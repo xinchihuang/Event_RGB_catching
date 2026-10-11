@@ -8,11 +8,16 @@ Usage:
 import argparse
 import os
 import tempfile
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import SCENES, stage_path, resolve_path, require_recordings, distinct_output
 
 import cv2
-from metavision_core.event_io import EventsIterator
 
-DEFAULT_RECORD_DIR = "/media/xinchi/data/processed_data/saved_data_l"
 DEFAULT_DELTA_T = 2000
 DEFAULT_N_EVENTS = 10000
 
@@ -27,6 +32,8 @@ def _is_dat_event_file(file_path):
 
 
 def _build_events_iterator(input_path, **kwargs):
+    from metavision_core.event_io import EventsIterator
+
     if not _is_dat_event_file(input_path):
         return EventsIterator(input_path=input_path, **kwargs), None
 
@@ -157,20 +164,41 @@ def run_index(args, index):
     return True, event_count, rgb_count
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Count event packets and RGB frames.")
-    parser.add_argument("--record-dir", default=DEFAULT_RECORD_DIR)
-    parser.add_argument("--index", type=int, default=0)
-    parser.add_argument("--count", type=int, default=1)
-    parser.add_argument("--auto", action="store_true")
-    parser.add_argument("--all", action="store_true",default=True)
+    parser.add_argument("--task", choices=SCENES, default="normal")
+    parser.add_argument("--record-dir")
+    parser.add_argument("--index", type=int, default=None,
+                        help="Starting recording ID (default: 0); not used with --all")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--count", type=int, default=None,
+                           help="Number of consecutive IDs to check (default: 1); skip missing pairs")
+    selection.add_argument("--auto", action="store_true",
+                           help="Count from --index until the first missing pair")
+    selection.add_argument("--all", action="store_true",
+                           help="Scan all IDs found in event/ or rgb/; report and skip missing pairs")
     parser.add_argument("--delta-t", type=int, default=DEFAULT_DELTA_T)
     parser.add_argument("--n-events", type=int, default=DEFAULT_N_EVENTS)
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.all and args.index is not None:
+        parser.error('--all cannot be combined with --index')
+    if args.index is not None and args.index < 0:
+        parser.error('--index must be non-negative')
+    if args.count is not None and args.count <= 0:
+        parser.error('--count must be positive')
+    try:
+        args.record_dir = str(stage_path("replay", args.task, args.record_dir))
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    args.index = 0 if args.index is None else args.index
+    args.count = 1 if args.count is None else args.count
+    return args
 
 
 def main():
     args = parse_args()
+    require_recordings(args.record_dir)
+    print(f"Counting input: {args.record_dir}", flush=True)
     total_events = 0
     total_frames = 0
     total_indices = 0
@@ -190,7 +218,7 @@ def main():
             if not ok:
                 break
             total_events += ev_count
-            total_frames += rgb_count*10
+            total_frames += rgb_count
             total_indices += 1
             index += 1
     else:
@@ -198,9 +226,9 @@ def main():
             index = args.index + offset
             ok, ev_count, rgb_count = run_index(args, index)
             if not ok:
-                break
+                continue
             total_events += ev_count
-            total_frames += rgb_count*10
+            total_frames += rgb_count
             total_indices += 1
 
     if total_indices > 1:

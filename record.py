@@ -8,6 +8,7 @@ import signal
 import numpy as np
 import time
 import argparse
+import threading
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
@@ -198,17 +199,6 @@ def check_align(shared_event_data,shared_flir_data,num_event,event_data_version,
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     dbscan = DBSCAN(eps=9, min_samples=70)
     count=0
-    # time.sleep(1)
-    # root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-    # index=len([f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f))])
-    # if not os.path.exists(f"{root_dir}/{index}"):
-    #     os.makedirs(f"{root_dir}/{index}")
-    #     os.makedirs(f"{root_dir}/{index}/combined")
-    #     os.makedirs(f"{root_dir}/{index}/rgb")
-    #     os.makedirs(f"{root_dir}/{index}/event")
-    # time.sleep(10)
-    # print("start tracking")
-    # system_state.value='t'
     buffered_frame=np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
 
     # Track last processed data version to skip stale data
@@ -333,22 +323,50 @@ def shutdown_processes(processes, timeout=5):
 
 if __name__ == '__main__':
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Event RGB Catching System')
+    from replay_options import positive_ratio
+    from project_paths import resolve_path, require_recordings
+    parser = argparse.ArgumentParser(
+        description='Event RGB Catching System',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--record_index', type=int, default=0,
-                       help='Initial record index (default: 40)')
+                       help='Play this recording only')
     parser.add_argument('--test_mode', type=str, default="Model",
-                        help='Test mode (default: Model). Options: Model, Event, RGB, Show')
+                        help='Test mode. Options: Model, Event, RGB, Show')
     parser.add_argument('--task', type=str, default="dark",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
-                                help='Task configuration to use (default: normal)')
+                                help='Task configuration to use')
     parser.add_argument('--save_csv', action='store_true', default=False,
-                        help='Enable CSV saving for ball detections (default: disabled)')
+                        help='Save GUI bounding-box CSVs (requires ENABLE_GUI=1); trajectory and impact CSVs are independent')
+    parser.add_argument('--ratio', type=positive_ratio, default=10,
+                        help='Event packets per RGB frame (positive integer)')
+    parser.add_argument('--record-dir', help='Exact processed recording directory')
+    parser.add_argument('--evaluation-root', help='Prediction/trajectory output root')
     args = parser.parse_args()
+
+    if args.record_dir is not None:
+        os.environ['RECORD_DIR'] = str(resolve_path(args.record_dir))
+    if args.evaluation_root is not None:
+        os.environ['EVALUATION_RESULTS_DIR'] = str(resolve_path(args.evaluation_root))
+
+    # Fail before shared-memory allocation or worker startup.
+    from config.config_loader import initialize_config
+    try:
+        active_config = initialize_config(args.task, args.test_mode)
+    except (OSError, ValueError) as exc:
+        parser.error(f"Configuration error: {exc}")
+    from config.config_loader import Config
+    try:
+        startup_paths = Config.get_paths()
+        require_recordings(startup_paths['record_dir'])
+    except (OSError, ValueError) as exc:
+        parser.error(f"Data path error: {exc}")
+    print(f"Processed input: {startup_paths['record_dir']}\nEvaluation output: {startup_paths['evaluation_root']}", flush=True)
+
     
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
     print(f"设置测试模式: {args.test_mode}, 任务: {args.task}")
-    print(f"CSV保存: {'启用' if args.save_csv else '禁用'}")
+    print(f"GUI 检测框 CSV: {'请求启用（需 GUI）' if args.save_csv else '禁用'}；轨迹与落点另行保存")
     
     device = torch.device("cuda")
 
@@ -445,6 +463,7 @@ if __name__ == '__main__':
             args=(shared_event_data, shared_flir_data, event_data_version, flir_data_version,
                   system_state, num_event, raw_count, record_index, start_ts, stop_event,
                   event_broadcasting, video_broadcasting, record_dir),
+            kwargs={'ratio': args.ratio},
         ),
         'model_ROI_process': Process(target=model, args=(shared_event_data,shared_flir_data,shared_ROI_data,num_event,event_data_version,flir_data_version,system_state, stop_event)),
         'RGB_ROI_process': Process(target=pure_RGB,args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,event_data_version,flir_data_version,system_state, stop_event)),
@@ -496,29 +515,46 @@ if __name__ == '__main__':
         else:
             print(f"Warning: Process '{process_name}' not found!")
 
-    # Qt/OpenCV windows must run on the main process's main thread. Running
-    # namedWindow() in a multiprocessing child can block indefinitely.
-    if USE_GUI and 'gui_process' in processes_to_start:
-        print("Started: gui_process (main process)")
-        gui_display_process(
-            shared_event_data,
-            shared_flir_data,
-            shared_ROI_data,
-            shared_ball_pixel_3D_data,
-            ball_observations,
-            num_event,
-            event_data_version,
-            flir_data_version,
-            system_state,
-            stop_event,
-            False,
-            args.save_csv,
-            ball_pixel_3D_version=ball_pixel_3D_version,
-        )
+    # Watch workers while the main thread is inside OpenCV's display loop.
+    def watch_workers():
+        while not stop_event.wait(0.1):
+            failed = [p for p in started_processes if p.exitcode not in (None, 0)]
+            if failed:
+                print(f"Worker failure during replay: {[(p.name, p.exitcode) for p in failed]}", flush=True)
+                stop_event.set()
+                return
 
-    # Wait for processes to finish or system_state becomes 'e'
+    watcher = threading.Thread(target=watch_workers, daemon=True)
+    watcher.start()
+    worker_failed = False
     try:
+        # Qt/OpenCV windows must run on the main process's main thread. Running
+        # namedWindow() in a multiprocessing child can block indefinitely.
+        if USE_GUI and 'gui_process' in processes_to_start:
+            print("Started: gui_process (main process)")
+            gui_display_process(
+                shared_event_data,
+                shared_flir_data,
+                shared_ROI_data,
+                shared_ball_pixel_3D_data,
+                ball_observations,
+                num_event,
+                event_data_version,
+                flir_data_version,
+                system_state,
+                stop_event,
+                False,
+                args.save_csv,
+                ball_pixel_3D_version=ball_pixel_3D_version,
+            )
+
         while True:
+            failed = [p for p in started_processes if p.exitcode not in (None, 0)]
+            if failed:
+                print(f"Worker failure: {[(p.name, p.exitcode) for p in failed]}")
+                worker_failed = True
+                stop_event.set()
+                break
             # Check if system should exit
             if system_state.value == 'e':
                 print("System exit requested, terminating processes...")
@@ -532,15 +568,15 @@ if __name__ == '__main__':
             
             time.sleep(0.1)  # Check every 100ms
         
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
-        
     except KeyboardInterrupt:
         print("Keyboard interrupt received, shutting down...")
         stop_event.set()
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
     finally:
+        stop_event.set()
+        watcher.join(timeout=1)
+        shutdown_processes(started_processes)
+        if USE_GUI:
+            cv2.destroyAllWindows()
         print("Cleaning up shared memory...")
         for shm in [event_memory, flir_memory, ROI_memory, ball_pixel_memory,
                     ball_pixel_3D_memory, impact_point_memory]:
@@ -550,3 +586,5 @@ if __name__ == '__main__':
             except FileNotFoundError:
                 # Already unlinked
                 pass
+    if worker_failed:
+        sys.exit(1)

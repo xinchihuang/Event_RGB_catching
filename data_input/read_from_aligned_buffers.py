@@ -11,6 +11,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
+from replay_options import positive_ratio
 
 
 def align_to_rgb(event_data, rgb_width=None, rgb_height=None, event_width=None, event_height=None):
@@ -85,14 +86,16 @@ def _build_events_iterator(input_path, **kwargs):
 def resolve_event_path(record_dir, index):
     raw_path = os.path.join(record_dir, f"event/{index}.raw")
     dat_path = os.path.join(record_dir, f"event/{index}.dat")
-    if os.path.exists(raw_path):
-        return raw_path
-    if os.path.exists(dat_path):
+    # Newly generated DAT takes precedence over a legacy same-index RAW.
+    if os.path.isfile(dat_path):
         return dat_path
+    if os.path.isfile(raw_path):
+        return raw_path
     raise FileNotFoundError(f"No event file found for index {index} in {record_dir}")
 
 
 def trim_buffers(event_buffer, rgb_buffer, ratio):
+    ratio = positive_ratio(ratio)
     event_count = len(event_buffer)
     rgb_count = len(rgb_buffer)
     print("Before trim: RGB frames =", rgb_count, ", Event packets =", event_count)
@@ -117,34 +120,44 @@ def trim_buffers(event_buffer, rgb_buffer, ratio):
     return event_buffer, rgb_buffer
 
 
-def _load_event_buffer(record_dir, record_index, data_reading):
-    event_path = resolve_event_path(record_dir, record_index)
-    event_buffer = []
+def load_processed_event_file(event_path, data_reading):
+    """Read already rotated events and align them to RGB; never rotate at replay.
 
+    File extensions and sensor headers do not reliably indicate orientation:
+    historical DAT files can have a .raw suffix and retain the original header.
+    The caller must supply processed data from the offline preprocessing step.
+    """
+    if Config.get_alignment().get('replay_apply_rotation', False) is not False:
+        raise ValueError(
+            "Replay requires already rotated recordings and "
+            "alignment.replay_apply_rotation: false. Preprocess raw data offline."
+        )
     iterator, cleanup = _build_events_iterator(
-        input_path=event_path,
+        input_path=str(event_path),
         mode="delta_t",
         delta_t=data_reading['delta_t'],
         n_events=data_reading['n_events'],
     )
     if iterator is None:
         raise RuntimeError(f"Failed to open event file: {event_path}")
-
-    alignment = Config.get_alignment()
-    apply_rotation = alignment.get('apply_rotation', False)
-    y_offset = alignment['y_coordinate_offset']
+    event_buffer = []
     try:
+        print(f"Replay: processed input, no rotation; header HxW: {iterator.get_size()}", flush=True)
         for ev in iterator:
-            if apply_rotation:
-                ev['x'], ev['y'] = ev['y'].copy(), -ev['x'].copy()
-                ev['y'] += y_offset
-            ev['x'], ev['y'] = align_to_rgb(ev)
-            event_buffer.append(ev.copy())
+            # Keep SDK-owned packets intact and retain polarity and timestamps.
+            aligned = ev.copy()
+            aligned['x'], aligned['y'] = align_to_rgb(aligned)
+            event_buffer.append(aligned)
     finally:
         if cleanup:
             cleanup()
-
     return event_buffer
+
+
+def _load_event_buffer(record_dir, record_index, data_reading):
+    return load_processed_event_file(
+        resolve_event_path(record_dir, record_index), data_reading
+    )
 
 
 def _load_rgb_buffer(video_path):
@@ -170,6 +183,8 @@ def read_from_aligned_buffers(shared_event_data, shared_flir_data, event_data_ve
                               playback_speed=1.0, ratio=10,
                               current_event_frame=None, current_rgb_frame=None, is_paused=None,
                               event_frame_offset=0):
+    # Validate before attaching shared memory or opening recordings.
+    ratio = positive_ratio(ratio)
     event_memory, event_dtype, event_shape = shared_event_data
     event_shm = shared_memory.SharedMemory(name=event_memory.name)
     event_array = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
@@ -195,8 +210,6 @@ def read_from_aligned_buffers(shared_event_data, shared_flir_data, event_data_ve
 
             event_buffer = _load_event_buffer(record_dir, record_index.value, data_reading)
             rgb_buffer = _load_rgb_buffer(video_path)
-            # ratio=len(event_buffer) // len(rgb_buffer) if len(rgb_buffer) > 0 else 10
-            ratio=10
 
             event_buffer, rgb_buffer = trim_buffers(event_buffer, rgb_buffer, ratio)
             raw_count.value = len(event_buffer)

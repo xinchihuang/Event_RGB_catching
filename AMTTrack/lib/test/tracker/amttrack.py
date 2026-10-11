@@ -1,4 +1,5 @@
 import math
+import inspect
 
 from lib.models.amttrack import build_amttrack
 from lib.test.tracker.basetracker import BaseTracker
@@ -24,7 +25,10 @@ class AMTTrack(BaseTracker):
         # This project checkpoint contains training metadata in addition to tensors.
         # PyTorch 2.6+ defaults to weights_only=True, unlike the PyTorch version
         # used to create the checkpoint.
-        checkpoint = torch.load(self.params.checkpoint, map_location='cpu', weights_only=False)
+        load_options = {'map_location': 'cpu'}
+        if 'weights_only' in inspect.signature(torch.load).parameters:
+            load_options['weights_only'] = False
+        checkpoint = torch.load(self.params.checkpoint, **load_options)
         _, missing_key = network.load_state_dict(checkpoint['net'], strict=False)
         print("missing_key:", missing_key)
         

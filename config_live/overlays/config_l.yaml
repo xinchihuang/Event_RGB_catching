@@ -2,7 +2,7 @@ image_processing:
   brightness_multiplier: 1.0
   display_scale: 0.8
 paths:
-  record_dir: /media/xinchi/data/Event_RGB_catching_data/saved_data_l
+  record_dir: ${data_root}/processed_data/saved_data_l
   template_npy: 78.npy
   template_jpg: 78.jpg
 rgb_param:

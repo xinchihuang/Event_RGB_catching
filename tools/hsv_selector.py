@@ -2,6 +2,9 @@ import cv2
 import numpy as np
 import argparse
 import os
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # ----------------------------
 # Utils
@@ -20,8 +23,8 @@ def hsv_range_around(hsv, dh=10, ds=40, dv=40):
 # ----------------------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", type=str, default="l.jpg",
-                        help="Image path or camera index (default: l.jpg)")
+    parser.add_argument("--source", type=str, default="tracking/l.jpg",
+                        help="Image path or camera index (project-relative; default: tracking/l.jpg)")
     parser.add_argument("--x", type=int, default=None, help="Optional pixel x")
     parser.add_argument("--y", type=int, default=None, help="Optional pixel y")
     parser.add_argument("--dh", type=int, default=10)
@@ -29,7 +32,7 @@ def main():
     parser.add_argument("--dv", type=int, default=40)
     args = parser.parse_args()
 
-    # Default to l.jpg if no source is provided
+    # Resolve image paths relative to the project; numeric sources select a camera.
     source = args.source
 
     cap = None
@@ -43,6 +46,7 @@ def main():
             raise RuntimeError("Failed to read camera frame")
         mode = "video"
     else:
+        source = str((PROJECT_ROOT / Path(source).expanduser()).resolve())
         if not os.path.exists(source):
             raise FileNotFoundError(f"File not found: {source}")
         frame = cv2.imread(source)

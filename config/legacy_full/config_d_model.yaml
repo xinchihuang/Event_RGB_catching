@@ -28,9 +28,9 @@ image_processing:
   display_scale: 0.8
 # Data paths
 paths:
-  record_dir: "/media/xinchi/data/processed_data/saved_data_d"
-  evaluation_root: "/media/xinchi/data/test_data/evaluation_results"
-#  record_dir: "/media/xinchi/data/evaluation_data/saved_data_d"
+  record_dir: "${data_root}/processed_data/saved_data_d"
+  evaluation_root: "${data_root}/test_data/evaluation_results"
+#  record_dir: "${data_root}/evaluation_data/saved_data_d"
   template_npy: "d.npy"
   template_jpg: "d.jpg"
 # Camera alignment

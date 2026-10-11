@@ -1,7 +1,7 @@
 # Camera config shared by all variants.
 # This file only includes keys that are identical across all config overlays.
 
-# Image dimensions.
+# Image dimensions after the fixed mounting rotation (not raw sensor H/W).
 image:
   rgb_width: 1080
   rgb_height: 1440
@@ -18,7 +18,7 @@ image_processing:
   display_scale: 0.8
 # Output and evaluation paths.
 paths:
-  evaluation_root: /media/xinchi/data/test_data/evaluation_results
+  evaluation_root: ${data_root}/test_data/evaluation_results
 # Event/RGB alignment parameters.
 alignment:
   event_pixel_size: 3.45
@@ -26,7 +26,10 @@ alignment:
   offset_x: 30
   offset_y: 29
   y_coordinate_offset: 1279
+  # Deprecated compatibility key; live mounting rotation is always applied.
   apply_rotation: false
+  # Replay accepts already rotated recordings. True is rejected by the reader.
+  replay_apply_rotation: false
 # Data reading parameters.
 data_reading:
   delta_t: 2000

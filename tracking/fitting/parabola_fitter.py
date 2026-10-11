@@ -1,3 +1,9 @@
+"""Trajectory fitters in world XYZ (meters), with time in seconds.
+
+MonoRansacDrag is the active pipeline fitter and receives YAML gravity/inlier
+settings. Earlier classes are retained experimental alternatives with their own
+constants; they are not selected by the runtime entrypoints.
+"""
 import numpy as np
 import sys
 import os
@@ -5,6 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import pixel_to_world,world_to_pixel
 from scipy.optimize import least_squares
 from sklearn.linear_model import RANSACRegressor
+from tracking.fitting.ransac_fit import gravity_vector, adaptive_ransac_parabola_3d
 
 
 class MonoFitter:
@@ -794,14 +801,22 @@ class MonoRansac:
         return impact_point
 
 class MonoRansacDrag:
+    """Fit and predict using signed world-Z gravity and a 3D inlier radius."""
+
     def __init__(self, camera_params, rotation_matrix_to, rotation_matrix_back, ball_diameter=0.104,
-                 drag_k_init=0.05, drag_k_bounds=(1e-4, 5.0)):
+                 drag_k_init=0.05, drag_k_bounds=(1e-4, 5.0), gravity=-9.81,
+                 inlier_threshold=0.35):
         self.camera_params = camera_params
         self.rotation_matrix_to = rotation_matrix_to
         self.rotation_matrix_back = rotation_matrix_back
         self.ball_diameter = ball_diameter
         self.drag_k_init = drag_k_init
         self.drag_k_bounds = drag_k_bounds
+        self.gravity = float(gravity)
+        self.gravity_vector = gravity_vector(self.gravity)
+        self.inlier_threshold = float(inlier_threshold)
+        if not np.isfinite(self.inlier_threshold) or self.inlier_threshold <= 0:
+            raise ValueError("trajectory.inlier_threshold must be finite and greater than 0")
 
     def set_data(self, data):
         self.data = data
@@ -811,7 +826,7 @@ class MonoRansacDrag:
         t = np.asarray(t, dtype=float).reshape(-1, 1)
         p0 = np.array([x0, y0, z0], dtype=float).reshape(1, -1)
         v0 = np.array([vx, vy, vz], dtype=float).reshape(1, -1)
-        g = GRAVITY.reshape(1, -1)
+        g = self.gravity_vector.reshape(1, -1)
         if k < 1e-6:
             return p0 + v0 * t + 0.5 * g * t ** 2
         exp_term = np.exp(-k * t)
@@ -840,6 +855,8 @@ class MonoRansacDrag:
             timesteps,
             use_drag=True,
             drag_k=self.drag_k_init,
+            gravity=self.gravity,
+            inlier_threshold=self.inlier_threshold,
         )
         fit_points = world_coords[inliers] if inliers is not None else world_coords
         fit_times = timesteps[inliers] if inliers is not None else timesteps

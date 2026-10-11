@@ -25,8 +25,8 @@ image_processing:
   display_scale: 0.6
 # Data paths
 paths:
-  record_dir: "/media/xinchi/data/evaluation_data/saved_data_dc"
-  evaluation_root: "/media/xinchi/data/test_data/evaluation_results"
+  record_dir: "${data_root}/processed_data/saved_data_dc"
+  evaluation_root: "${data_root}/test_data/evaluation_results"
   template_npy: "dc.npy"
   template_jpg: "dc.jpg"
 

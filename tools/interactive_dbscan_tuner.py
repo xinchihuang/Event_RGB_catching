@@ -2,7 +2,7 @@
 """
 Interactive DBSCAN parameter tuner.
 Features:
-- Read events from a .raw file
+- Read already rotated events from a .raw or .dat file
 - Cluster with DBSCAN
 - Visualize clusters on an image
 - Adjust parameters via keyboard
@@ -18,13 +18,14 @@ import argparse
 import time
 
 # Add project path
-project_root = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from metavision_core.event_io import EventsIterator
 from config.config_loader import Config, get_config
-from data_input.read_from_raw import align_to_rgb
+from data_input.read_from_aligned_buffers import resolve_event_path
+from project_paths import stage_path, resolve_path
+from data_input.read_from_aligned_buffers import load_processed_event_file
 
 
 class InteractiveDBSCANTuner:
@@ -33,7 +34,7 @@ class InteractiveDBSCANTuner:
     def __init__(self, raw_file, display_scale=0.6):
         """
         Args:
-            raw_file: Path to a .raw event file.
+            raw_file: Path to an already rotated .dat or legacy .raw event file.
             display_scale: Display scale for the window.
         """
         self.raw_file = raw_file
@@ -81,52 +82,15 @@ class InteractiveDBSCANTuner:
         self._load_event_data()
 
     def _load_event_data(self):
-        """Load event chunks from a .raw file."""
-        print(f"Loading .raw file: {self.raw_file}")
+        """Load processed event chunks without rotating them."""
+        print(f"Loading processed event file: {self.raw_file}")
 
-        # Read events with EventsIterator
-        iterator = EventsIterator(
-            input_path=self.raw_file,
-            mode="delta_t",
-            delta_t=self.delta_t,
-            n_events=self.n_events
+        # Share the replay reader, including DAT files historically named .raw.
+        chunks = load_processed_event_file(
+            self.raw_file, dict(delta_t=self.delta_t, n_events=self.n_events)
         )
-
-        chunk_count = 0
-        total_events = 0
-
-        for ev in iterator:
-            if len(ev) == 0:
-                continue
-
-            # Apply the same coordinate transform as read_from_raw.py
-            x = ev['x'].copy()
-            y = ev['y'].copy()
-
-            # Step 1: swap x/y and negate x
-            x_new = y.copy()
-            y_new = -x.copy()
-
-            # Step 2: apply y offset
-            alignment = Config.get_alignment()
-            y_new = y_new + alignment['y_coordinate_offset']
-
-            # Step 3: align to RGB resolution
-            x_aligned, y_aligned = align_to_rgb({'x': x_new, 'y': y_new})
-
-            # Build transformed event array
-            ev_transformed = np.zeros(ev.shape, dtype=ev.dtype)
-            ev_transformed['x'] = x_aligned
-            ev_transformed['y'] = y_aligned
-            ev_transformed['p'] = ev['p'].copy()
-            ev_transformed['t'] = ev['t'].copy()
-
-            self.event_chunks.append(ev_transformed)
-            total_events += len(ev_transformed)
-            chunk_count += 1
-
-            if chunk_count % 100 == 0:
-                print(f"  Loaded {chunk_count} chunks, {total_events} events...")
+        self.event_chunks.extend(chunk for chunk in chunks if len(chunk))
+        total_events = sum(len(chunk) for chunk in self.event_chunks)
 
         self.total_frames = len(self.event_chunks)
         print(f"Loading complete: {self.total_frames} frames, total {total_events} events")
@@ -454,7 +418,7 @@ class InteractiveDBSCANTuner:
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Interactive DBSCAN tuner: read events from a .raw file and adjust parameters live."
+            "Interactive DBSCAN tuner: read processed events from a .dat or legacy .raw file and adjust parameters live."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
@@ -471,7 +435,7 @@ Examples:
     )
 
     parser.add_argument('raw_file', type=str, nargs='?',
-                        default='/home/xinchi/Event_RGB_catching_data/saved_data/event/0.raw',
+                        default=None,
                         )
     parser.add_argument('--task', type=str, default='clutter',
                         choices=['normal', 'dark', 'clutter', 'dark_clutter'],
@@ -481,34 +445,23 @@ Examples:
 
     args = parser.parse_args()
 
+    try:
+        args.raw_file = str(resolve_path(args.raw_file) if args.raw_file is not None
+                            else resolve_event_path(stage_path('replay', args.task), 0))
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+
     # Validate input file
     if not os.path.exists(args.raw_file):
         print(f"Error: File not found: {args.raw_file}")
         return 1
 
-    # Load overlay for the selected task
-    test_mode_key = os.environ.get("TEST_MODE", "").strip().lower()
-    mode_suffix = {"model": "model", "rgb": "rgb", "event": "event"}.get(test_mode_key)
-    task_key = (args.task or "").lower()
-    task_base = {
-        "normal": "config_l",
-        "dark": "config_d",
-        "clutter": "config_c",
-        "dark_clutter": "config_dc"
-    }
-
-    config_file = None
-    base = task_base.get(task_key)
-    if base:
-        if mode_suffix:
-            config_file = f"config/overlays/{base}_{mode_suffix}.yaml"
-        else:
-            config_file = f"config/overlays/{base}.yaml"
-    if config_file:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_file
-        config = get_config()
-        config.switch_config(config_file)
-        print(f"Loading config file: {config_file} (task: {args.task})")
+    from config.config_loader import initialize_config
+    try:
+        config = initialize_config(args.task, os.environ.get("TEST_MODE", ""))
+    except (OSError, ValueError) as exc:
+        parser.error(f"Configuration error: {exc}")
+    print(f"Loading config file: {config.config_path} (task: {args.task})")
 
     # Create and run the tuner
     try:

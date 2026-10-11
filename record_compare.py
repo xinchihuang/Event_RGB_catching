@@ -8,53 +8,94 @@ import signal
 import numpy as np
 import time
 import argparse
+from process_lifecycle import run_workers
+from pathlib import Path
+import subprocess
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
 if prj_path not in sys.path:
     sys.path.append(prj_path)
 
+
+def resolve_config_file(task, test_mode):
+    from config.config_loader import config_file_for
+    mode = "Event" if (test_mode or "").lower() == "playback" else test_mode
+    return config_file_for(task, mode)
+
+
+def set_active_config(task, test_mode):
+    from config.config_loader import initialize_config
+    mode = "Event" if (test_mode or "").lower() == "playback" else test_mode
+    return str(initialize_config(task, mode).config_path)
+
+
+def save_tracking_results(mode, task, record_index, ball_pixels, count, output_root):
+    mode_name = (mode or "").strip()
+    if mode_name not in {"Model", "RGB", "Event"}:
+        return None
+    if count <= 0:
+        print(f"No tracking results to save for {mode_name}.")
+        return None
+    base_dir = os.path.join(output_root, f"{mode_name}_{task}")
+    save_dir = os.path.join(base_dir, "ball_pixel_3D_records_ball")
+    os.makedirs(save_dir, exist_ok=True)
+    data = ball_pixels[:count].copy()
+    x = data[:, 0]
+    y = data[:, 1]
+    size = data[:, 2]
+    t = data[:, 3]
+    half = size / 2.0
+    x1 = x - half
+    y1 = y - half
+    x2 = x + half
+    y2 = y + half
+    out = np.column_stack([x, y, size, t, x1, y1, x2, y2])
+    filename = os.path.join(save_dir, f"{record_index}.csv")
+    header = "center_x,center_y,size,t,x1,y1,x2,y2"
+    np.savetxt(filename, out, delimiter=',', fmt='%.6f', header=header, comments='')
+    print(f"Saved tracking results to {filename}")
+    return filename
+
 # Import custom modules
-from data_input.read_from_raw import read_from_raw
-from data_input.read_from_video import read_from_video
+from data_input.read_from_aligned_buffers import read_from_aligned_buffers
 # from data_input.read_from_files_simple import read_from_raw_files as read_from_raw
 # from data_input.read_from_files_simple import read_from_video_files as read_from_video
 from tracking.ROI_generation.AMTTrack_ROI import model
 from RGB_baseline.RGB_ROI import pure_RGB
 from RGB_baseline.HSV_tracker import RGB_tracking_3D
 from tracking.Event_tracker import event_tracking_3D_direct_compare
-from gui_process_compare import gui_display_process_compare
+from evaluation_tools.gui_process_compare import (
+    gui_display_process_compare,
+    gui_display_process_compare_from_files,
+)
 
 # Import configuration
 
 
 def starter(system_state, stop_event):
-    system_state.value = 'w'
-    time.sleep(3)
+    if stop_event.wait(3) or system_state.value == 'e':
+        return
     print("Starting system...")
     system_state.value = 't'
     print("system started")
 
-    # Keep system_state = 't' alive like model_ROI_process does
+    # Remain alive until the parent requests shutdown.
     while not stop_event.is_set():
         if system_state.value == 'e':
             break
-        system_state.value = 't'  # Continuously maintain tracking state
         time.sleep(0.01)  # Small delay to avoid excessive CPU usage
 
 
-# Global variables for signal handler
-started_processes = []
+# Shared stop request used by the parent signal handler
 stop_event = None
 
 
 def signal_handler(sig, frame):
     print("\nSignal received, initiating safe shutdown...")
-    global stop_event, started_processes
+    # The main loop performs shutdown and cleanup exactly once.
     if stop_event:
         stop_event.set()
-    shutdown_processes(started_processes)
-    sys.exit(0)
 
 
 def keyboard(shared_value, system_state):
@@ -220,17 +261,6 @@ def check_align(shared_event_data, shared_flir_data, num_event, event_data_versi
     flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
     dbscan = DBSCAN(eps=9, min_samples=70)
     count = 0
-    # time.sleep(1)
-    # root_dir = "/home/xinchi/Event_RGB_catching_data/dataset"
-    # index=len([f for f in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, f))])
-    # if not os.path.exists(f"{root_dir}/{index}"):
-    #     os.makedirs(f"{root_dir}/{index}")
-    #     os.makedirs(f"{root_dir}/{index}/combined")
-    #     os.makedirs(f"{root_dir}/{index}/rgb")
-    #     os.makedirs(f"{root_dir}/{index}/event")
-    # time.sleep(10)
-    # print("start tracking")
-    # system_state.value='t'
     buffered_frame = np.zeros((rgb_height, rgb_width, 3), dtype=np.uint8)
 
     # Track last processed data version to skip stale data
@@ -269,8 +299,9 @@ def check_align(shared_event_data, shared_flir_data, num_event, event_data_versi
             x = min(cluster_points[:, 1])
             w = max(cluster_points[:, 0]) - y
             h = max(cluster_points[:, 1]) - x
-            # cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
-            # cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), 2)
+            box_thickness = 20
+            cv2.rectangle(event_image, (x, y), (x + h, y + w), (0, 255, 0), box_thickness)
+            cv2.rectangle(rgb_image, (x, y), (x + h, y + w), (0, 255, 0), box_thickness)
         # combined = np.hstack((rgb_image, event_image))
         rgb_image = cv2.convertScaleAbs(rgb_image, alpha=0.5, beta=30)
         combined = cv2.addWeighted(event_image, 0.3, rgb_image, 0.2, 0)
@@ -290,122 +321,163 @@ def check_align(shared_event_data, shared_flir_data, num_event, event_data_versi
         count += 1
 
 
-def shutdown_processes(processes, timeout=5):
-    """
-    安全地关闭进程列表
+def model_tracking_writer(shared_event_data, shared_ROI_data, shared_ball_pixel_3D_data,
+                          ball_observations, num_event, event_data_version, system_state, stop_event):
+    event_memory, event_dtype, event_shape = shared_event_data
+    event_shm = shared_memory.SharedMemory(name=event_memory.name)
+    event_array_view = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
 
-    Args:
-        processes: 要关闭的进程列表
-        timeout: 等待进程正常退出的超时时间（秒）
-    """
-    if not processes:
-        print("No processes to shutdown.")
-        return
+    ROI_memory, ROI_dtype, ROI_shape = shared_ROI_data
+    ROI_shm = shared_memory.SharedMemory(name=ROI_memory.name)
+    ROI_array_view = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
 
-    print(f"Shutting down {len(processes)} processes...")
+    ball_memory, ball_dtype, ball_shape = shared_ball_pixel_3D_data
+    ball_shm = shared_memory.SharedMemory(name=ball_memory.name)
+    ball_array = np.ndarray(ball_shape, dtype=ball_dtype, buffer=ball_shm.buf)
 
-    # 第一阶段：等待进程正常退出
-    print("Phase 1: Waiting for graceful shutdown...")
-    start_time = time.time()
+    last_event_version = -1
+    try:
+        while not stop_event.is_set():
+            if system_state.value != 't':
+                time.sleep(0.001)
+                continue
 
-    while processes and (time.time() - start_time) < timeout:
-        alive_processes = [p for p in processes if p.is_alive()]
-        if not alive_processes:
-            print("All processes exited gracefully.")
-            return
+            current_event_version = event_data_version.value
+            if current_event_version == last_event_version:
+                time.sleep(0.001)
+                continue
+            last_event_version = current_event_version
 
-        print(f"Waiting for {len(alive_processes)} processes to exit...")
-        time.sleep(0.5)
+            current_num_events = num_event.value
+            if current_num_events <= 0 or current_num_events > event_shape[0]:
+                continue
 
-    # 第二阶段：强制终止仍在运行的进程
-    alive_processes = [p for p in processes if p.is_alive()]
-    if alive_processes:
-        print(f"Phase 2: Force terminating {len(alive_processes)} remaining processes...")
+            event_data = event_array_view[:current_num_events]
+            if event_data.shape[0] == 0:
+                continue
 
-        for process in alive_processes:
-            try:
-                print(f"Terminating process {process.pid}...")
-                process.terminate()
-            except Exception as e:
-                print(f"Error terminating process {process.pid}: {e}")
+            x_r, y_r, w_r, h_r = ROI_array_view.copy()
+            if w_r <= 0 or h_r <= 0:
+                continue
 
-        # 等待terminate生效
-        time.sleep(1)
+            t = event_data['t'][-1] / 1000000.0
+            center_x = float(x_r + w_r / 2.0)
+            center_y = float(y_r + h_r / 2.0)
+            size = float(max(w_r, h_r))
 
-        # 第三阶段：如果还有进程，使用kill
-        still_alive = [p for p in alive_processes if p.is_alive()]
-        if still_alive:
-            print(f"Phase 3: Force killing {len(still_alive)} stubborn processes...")
+            idx = ball_observations.value
+            if idx < ball_shape[0] - 1:
+                ball_array[idx][0] = center_x
+                ball_array[idx][1] = center_y
+                ball_array[idx][2] = size
+                ball_array[idx][3] = t
+                ball_observations.value = idx + 1
+    finally:
+        print("Model tracking writer: Cleaning up...")
 
-            for process in still_alive:
-                try:
-                    print(f"Killing process {process.pid}...")
-                    process.kill()
-                except Exception as e:
-                    print(f"Error killing process {process.pid}: {e}")
 
-        # 最终检查
-        time.sleep(0.5)
-        final_alive = [p for p in processes if p.is_alive()]
-        if final_alive:
-            print(f"Warning: {len(final_alive)} processes still running after shutdown!")
-        else:
-            print("All processes successfully terminated.")
-
-    print("Process shutdown complete.")
 
 
 if __name__ == '__main__':
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Event RGB Catching System')
-    parser.add_argument('--record_index', type=int, default=0,
-                        help='Initial record index (default: 40)')
-    parser.add_argument('--test_mode', type=str, default="All",
-                        help='Test mode all')
-    parser.add_argument('--task', type=str, default="dark",
+    from replay_options import positive_ratio
+    from project_paths import config_paths, stage_path, resolve_path, require_recordings
+    parser = argparse.ArgumentParser(
+        description='Event RGB Catching System',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--record_index', type=int, default=9,
+                        help='Initial record/output index')
+    parser.add_argument('--test_mode', type=str, default="Playback",
+                        help='Test mode: All (sequential+playback), Save (sequential only), Model, RGB, Event, Playback')
+    parser.add_argument('--task', type=str, default="clutter",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
-                        help='Task configuration to use (default: normal)')
+                        help='Task configuration to use')
+    parser.add_argument('--playback_speed', type=float, default=1.0,
+                        help='Playback speed for aligned event/RGB streams (1.0 = real-time)')
+    parser.add_argument('--output_root', '--output-root', type=str, default=None,
+                        help='Output root for saved tracking CSVs')
+    parser.add_argument('--ratio', type=positive_ratio, default=10,
+                        help='Event packets per RGB frame (positive integer)')
+    parser.add_argument('--record-dir', help='Exact processed recording directory')
     args = parser.parse_args()
 
-    # Set environment variables for config selection
-    config_mapping = {
-        "model": {
-            "normal": "config/config_l_model.yaml",
-            "dark": "config/config_d_model.yaml",
-            "clutter": "config/config_c_model.yaml",
-            "dark_clutter": "config/config_dc_model.yaml"
-        },
-        "rgb": {
-            "normal": "config/config_l_rgb.yaml",
-            "dark": "config/config_d_rgb.yaml",
-            "clutter": "config/config_c_rgb.yaml",
-            "dark_clutter": "config/config_dc_rgb.yaml"
-        },
-        "event": {
-            "normal": "config/config_l_event.yaml",
-            "dark": "config/config_d_event.yaml",
-            "clutter": "config/config_c_event.yaml",
-            "dark_clutter": "config/config_dc_event.yaml"
-        }
-    }
-    legacy_mapping = {
-        "normal": "config/config_l.yaml",
-        "dark": "config/config_d.yaml",
-        "clutter": "config/config_c.yaml",
-        "dark_clutter": "config/config_dc.yaml"
-    }
-    mode_key = (args.test_mode or "").strip().lower()
-    task_key = (args.task or "").lower()
-    config_file = None
-    if mode_key in config_mapping:
-        config_file = config_mapping[mode_key].get(task_key)
-    if config_file is None:
-        config_file = legacy_mapping.get(task_key)
+    # Validate every planned mode before launching sequential subprocesses.
+    from config.config_loader import ConfigLoader
+    modes_to_check = (["Model", "RGB", "Event", "Playback"]
+                      if args.test_mode.lower() == "all" else
+                      ["Model", "RGB", "Event"] if args.test_mode.lower() == "save"
+                      else [args.test_mode])
+    try:
+        for mode in modes_to_check:
+            requested = (os.environ["ACTIVE_CONFIG_FILE"] if "ACTIVE_CONFIG_FILE" in os.environ
+                         else resolve_config_file(args.task, mode))
+            loaded_config = ConfigLoader(requested)
+    except (OSError, ValueError) as exc:
+        parser.error(f"Configuration error: {exc}")
+    try:
+        if args.record_dir is not None:
+            os.environ['RECORD_DIR'] = str(resolve_path(args.record_dir))
+        paths = config_paths(loaded_config)
+        os.environ['RECORD_DIR'] = str(require_recordings(paths['record_dir']))
+        args.output_root = str(stage_path('demo', explicit=args.output_root))
+    except (OSError, ValueError) as exc:
+        parser.error(f"Data path error: {exc}")
+    print(f"Processed input: {os.environ['RECORD_DIR']}\nComparison output: {args.output_root}", flush=True)
+
+
+    if (args.test_mode or "").strip().lower() in {"all", "save"}:
+        modes = ["Model", "RGB", "Event"]
+        for mode in modes:
+            print(f"=== Sequential run: {mode} ===")
+            env = os.environ.copy()
+            env["ENABLE_GUI"] = "0"
+            cmd = [
+                sys.executable,
+                os.path.abspath(__file__),
+                "--record_index",
+                str(args.record_index),
+                "--test_mode",
+                mode,
+                "--task",
+                args.task,
+                "--playback_speed",
+                str(args.playback_speed),
+                "--ratio", str(args.ratio),
+                "--output_root",
+                args.output_root,
+            ]
+            result = subprocess.run(cmd, cwd=os.path.dirname(os.path.abspath(__file__)), env=env)
+            if result.returncode != 0:
+                print(f"Run failed for mode {mode} with code {result.returncode}")
+                sys.exit(result.returncode)
+
+        if (args.test_mode or "").strip().lower() == "save":
+            sys.exit(0)
+
+        print("=== Playback comparison ===")
+        env = os.environ.copy()
+        env["ENABLE_GUI"] = "1"
+        cmd = [
+            sys.executable,
+            os.path.abspath(__file__),
+            "--record_index",
+            str(args.record_index),
+            "--test_mode",
+            "Playback",
+            "--task",
+            args.task,
+            "--playback_speed",
+            str(args.playback_speed),
+            "--ratio", str(args.ratio),
+            "--output_root",
+            args.output_root,
+        ]
+        result = subprocess.run(cmd, cwd=os.path.dirname(os.path.abspath(__file__)), env=env)
+        sys.exit(result.returncode)
 
     # Set environment variables for subprocess config loading
+    config_file = set_active_config(args.task, args.test_mode)
     if config_file:
-        os.environ['ACTIVE_CONFIG_FILE'] = config_file
-        os.environ['ACTIVE_TASK'] = args.task
         print(f"使用任务配置 {args.task}: {config_file}")
     else:
         print(f"未知任务类型: {args.task}, 使用默认配置")
@@ -424,7 +496,6 @@ if __name__ == '__main__':
 
     # Initialize stop_event for signal handler
     stop_event = multiprocessing.Event()
-    started_processes.clear()  # Reset the list
 
     signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C gracefully
     signal.signal(signal.SIGTERM, signal_handler)  # Handle termination signal
@@ -529,19 +600,30 @@ if __name__ == '__main__':
 
     paths = Config.get_paths()
     record_dir = paths['record_dir']
+    output_root = args.output_root
     print(f"Record directory: {record_dir}")
 
     # Define all available processes
+    results_paths = {
+        "model": os.path.join(output_root, f"Model_{args.task}", "ball_pixel_3D_records_ball", f"{record_index.value}.csv"),
+        "rgb": os.path.join(output_root, f"RGB_{args.task}", "ball_pixel_3D_records_ball", f"{record_index.value}.csv"),
+        "event": os.path.join(output_root, f"Event_{args.task}", "ball_pixel_3D_records_ball", f"{record_index.value}.csv"),
+    }
+
     all_processes = {
-        'event_process': Process(target=read_from_raw,
-                                 args=(shared_event_data, event_data_version, system_state, num_event, raw_count,
-                                       record_index, start_ts, stop_event, event_broadcasting, record_dir)),
-        'flir_process': Process(target=read_from_video,
-                                args=(shared_flir_data, flir_data_version, system_state, raw_count, record_index,
-                                      start_ts, stop_event, video_broadcasting, record_dir)),
+        'aligned_process': Process(
+            target=read_from_aligned_buffers,
+            args=(shared_event_data, shared_flir_data, event_data_version, flir_data_version,
+                  system_state, num_event, raw_count, record_index, start_ts, stop_event,
+                  event_broadcasting, video_broadcasting, record_dir, args.playback_speed),
+            kwargs={'ratio': args.ratio},
+        ),
         'model_ROI_process': Process(target=model,
                                      args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,
                                            event_data_version, flir_data_version, system_state, stop_event)),
+        'model_tracking_process': Process(target=model_tracking_writer,
+                                          args=(shared_event_data, shared_ROI_data, shared_ball_pixel_3D_data,
+                                                ball_observations, num_event, event_data_version, system_state, stop_event)),
         'RGB_ROI_process': Process(target=pure_RGB,
                                    args=(shared_event_data, shared_flir_data, shared_ROI_data, num_event,
                                          event_data_version, flir_data_version, system_state, stop_event)),
@@ -556,6 +638,10 @@ if __name__ == '__main__':
         'gui_process': Process(target=gui_display_process_compare,
                                args=(shared_event_data, shared_flir_data, shared_ROI_data,
                                      shared_ball_pixel_3D_data, shared_ball_pixel_3D_data_rgb, shared_ball_pixel_3D_data_raw, ball_observations, num_event, event_data_version, flir_data_version, system_state, stop_event)),
+        'gui_playback_process': Process(target=gui_display_process_compare_from_files,
+                               args=(shared_event_data, shared_flir_data, num_event,
+                                     event_data_version, flir_data_version, system_state, stop_event, results_paths)),
+        'starter_process': Process(target=starter, args=(system_state, stop_event)),
         'reseter_process': Process(target=reseter_for_multi_record,
                                   args=(shared_event_data, shared_flir_data, shared_ROI_data, shared_ball_pixel_3D_data, shared_ball_pixel_3D_data_raw,shared_ball_pixel_3D_data_rgb,
                                         ball_observations, shared_impact_point_data, raw_count, num_event, record_index, start_ts,
@@ -565,53 +651,39 @@ if __name__ == '__main__':
     # Define process groups for different functionalities
     # YOU CAN MODIFY THESE GROUPS OR ADD NEW ONES
     process_groups = {
-        'All': ['event_process', 'flir_process', 'model_ROI_process', 'RGB_tracking_process', 'compare_event_tracking_process', 'gui_process', 'reseter_process'],
+        'Model': ['aligned_process', 'model_ROI_process', 'compare_event_tracking_process'],
+        'Event': ['aligned_process', 'compare_event_tracking_process', 'starter_process'],
+        'RGB': ['aligned_process', 'RGB_ROI_process', 'RGB_tracking_process', 'starter_process'],
+        'Playback': ['aligned_process', 'gui_playback_process', 'starter_process'],
     }
     # Get processes to start for current mode
-    processes_to_start = process_groups.get(args.test_mode, process_groups[args.test_mode])
-    print(f"Starting mode: {args.test_mode}")
+    mode_key_map = {"model": "Model", "rgb": "RGB", "event": "Event", "playback": "Playback"}
+    mode_key = mode_key_map.get((args.test_mode or "").strip().lower(), args.test_mode)
+    processes_to_start = process_groups.get(mode_key)
+    print(f"Starting mode: {mode_key}")
     print(f"Processes to start: {processes_to_start}")
+    if not processes_to_start:
+        print(f"Unknown test_mode: {args.test_mode}")
+        sys.exit(1)
 
-    # Start selected processes dynamically
-    # started_processes is already initialized as global variable
-    for process_name in processes_to_start:
-        if process_name in all_processes:
-            # GUI process needs environment variable check
-            if process_name == 'gui_process' and not USE_GUI:
-                print(f"Skipped: {process_name} (GUI disabled)")
-                continue
-
-            process = all_processes[process_name]
-            process.start()
-            started_processes.append(process)
-            print(f"Started: {process_name}")
-        else:
-            print(f"Warning: Process '{process_name}' not found!")
-    # Wait for processes to finish or system_state becomes 'e'
+    exit_code = 1
     try:
-        while True:
-            # Check if system should exit
-            if system_state.value == 'e':
-                print("System exit requested, terminating processes...")
-                stop_event.set()
-                break
-
-            # Check if all active processes are still alive
-            if not any(p.is_alive() for p in started_processes):
-                print("All processes finished naturally")
-                break
-
-            time.sleep(0.1)  # Check every 100ms
-
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
-
-    except KeyboardInterrupt:
-        print("Keyboard interrupt received, shutting down...")
-        stop_event.set()
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
+        selected = [(name, all_processes[name]) for name in processes_to_start
+                    if name not in {'gui_process', 'gui_playback_process'} or USE_GUI]
+        exit_code = run_workers(
+            selected, stop_event, system_state,
+            finished=lambda: (event_broadcasting.value == 'f'
+                              and video_broadcasting.value == 'f'),
+        )
+        # Do not publish partial tracking results from a failed worker group.
+        mode_map = {"model": "Model", "rgb": "RGB", "event": "Event"}
+        mode_name = mode_map.get((args.test_mode or "").strip().lower())
+        if exit_code == 0 and mode_name:
+            buffer = ball_pixel_3D_rgb if mode_name == "RGB" else ball_pixel_3D
+            count = min(ball_observations.value, buffer.shape[0])
+            save_tracking_results(mode_name, args.task, record_index.value, buffer, count, output_root)
     finally:
+        # This also runs if worker startup or CSV writing raises an exception.
         print("Cleaning up shared memory...")
         for shm in [event_memory, flir_memory, ROI_memory, empty_ROI_memory, ball_pixel_memory,
                     ball_pixel_3D_memory, ball_pixel_3D_raw_memory, ball_pixel_3D_rgb_memory, impact_point_memory]:
@@ -619,5 +691,5 @@ if __name__ == '__main__':
                 shm.close()
                 shm.unlink()
             except FileNotFoundError:
-                # Already unlinked
                 pass
+    sys.exit(exit_code)

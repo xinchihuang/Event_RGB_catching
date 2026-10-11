@@ -1,8 +1,10 @@
+# Dimensions after the fixed mounting rotation, in pixels.
 image:
   rgb_width: 1080
   rgb_height: 1440
   event_width: 720
   event_height: 1280
+# Compatibility metadata: entrypoints currently use worker/lifecycle constants.
 timing:
   startup_delay: 3
   reset_delay: 2
@@ -17,18 +19,21 @@ image_processing:
 clustering:
   eps: 9
   min_samples: 70
+# Compatibility metadata: current SharedMemoryManager allocates capacities directly.
 buffers:
   max_events: 100000
   ball_observations: 100
   ball_pixel_3d: 1000
 paths:
-  evaluation_root: /media/xinchi/data/test_data/evaluation_results
+  evaluation_root: ${data_root}/test_data/evaluation_results
 alignment:
   event_pixel_size: 3.45
   rgb_pixel_size: 4.86
   offset_x: 30
   offset_y: 29
   y_coordinate_offset: 1279
+  # Replay is independent of live-camera rotation and uses processed data only.
+  replay_apply_rotation: false
 data_reading:
   delta_t: 2000
   n_events: 10000

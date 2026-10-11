@@ -6,6 +6,7 @@ import multiprocessing
 import signal
 import time
 import argparse
+from process_lifecycle import run_workers
 
 # Add project path for module imports
 prj_path = os.path.join(os.path.dirname(__file__), '..')
@@ -25,17 +26,17 @@ from gui_process import gui_display_process
 # Import configuration
 from shared_memory_manager import SharedMemoryManager
 
-# Global variables for signal handler
-started_processes = []
+# Shared stop request used by the parent signal handler
 stop_event = None
+
 
 def signal_handler(sig, frame):
     print("\nSignal received, initiating safe shutdown...")
-    global stop_event, started_processes
+    # The main loop performs shutdown and cleanup exactly once.
     if stop_event:
         stop_event.set()
-    shutdown_processes(started_processes)
-    sys.exit(0)
+
+
 def keyboard(shared_value,system_state):
     from pynput import keyboard
     import threading
@@ -58,7 +59,7 @@ def keyboard(shared_value,system_state):
     def state_monitor():
         """Monitor state changes and trigger voice notifications"""
         previous_state = system_state.value
-        while True:
+        while system_state.value != 'e':
             current_state = system_state.value
             if previous_state != current_state and current_state == 't':
                 print(f"State change detected: {previous_state} -> {current_state}")
@@ -95,82 +96,37 @@ def keyboard(shared_value,system_state):
             system_state.value='e'
 
     with keyboard.Listener(on_press=on_press) as listener:
-        listener.join()
-def shutdown_processes(processes, timeout=5):
-    """
-    安全地关闭进程列表
-    
-    Args:
-        processes: 要关闭的进程列表
-        timeout: 等待进程正常退出的超时时间（秒）
-    """
-    if not processes:
-        print("No processes to shutdown.")
-        return
-    
-    print(f"Shutting down {len(processes)} processes...")
-    
-    # 第一阶段：等待进程正常退出
-    print("Phase 1: Waiting for graceful shutdown...")
-    start_time = time.time()
-    
-    while processes and (time.time() - start_time) < timeout:
-        alive_processes = [p for p in processes if p.is_alive()]
-        if not alive_processes:
-            print("All processes exited gracefully.")
-            return
-        
-        print(f"Waiting for {len(alive_processes)} processes to exit...")
-        time.sleep(0.5)
-    
-    # 第二阶段：强制终止仍在运行的进程
-    alive_processes = [p for p in processes if p.is_alive()]
-    if alive_processes:
-        print(f"Phase 2: Force terminating {len(alive_processes)} remaining processes...")
-        
-        for process in alive_processes:
-            try:
-                print(f"Terminating process {process.pid}...")
-                process.terminate()
-            except Exception as e:
-                print(f"Error terminating process {process.pid}: {e}")
-        
-        # 等待terminate生效
-        time.sleep(1)
-        
-        # 第三阶段：如果还有进程，使用kill
-        still_alive = [p for p in alive_processes if p.is_alive()]
-        if still_alive:
-            print(f"Phase 3: Force killing {len(still_alive)} stubborn processes...")
-            
-            for process in still_alive:
-                try:
-                    print(f"Killing process {process.pid}...")
-                    process.kill()
-                except Exception as e:
-                    print(f"Error killing process {process.pid}: {e}")
-        
-        # 最终检查
-        time.sleep(0.5)
-        final_alive = [p for p in processes if p.is_alive()]
-        if final_alive:
-            print(f"Warning: {len(final_alive)} processes still running after shutdown!")
-        else:
-            print("All processes successfully terminated.")
-    
-    print("Process shutdown complete.")
+        while listener.is_alive() and system_state.value != 'e':
+            time.sleep(0.1)
+        listener.stop()
 
 if __name__ == '__main__':
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Event RGB Catching System')
+    parser = argparse.ArgumentParser(
+        description='Event RGB Catching System',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--record_index', type=int, default=0,
-                       help='Initial record index (default: 40)')
+                       help='Initial record/output index')
     parser.add_argument('--test_mode', type=str, default="Model",
-                        help='Test mode (default: Model). Options: Model, Event, RGB')
+                        help='Test mode. Options: Model, Event, RGB')
     parser.add_argument('--task', type=str, default="dark_clutter",
                         choices=["normal", "dark", "clutter", "dark_clutter"],
-                                help='Task configuration to use (default: normal)')
+                                help='Task configuration to use')
     args = parser.parse_args()
+
+    # Fail before shared-memory allocation or worker startup.
+    from config.config_loader import initialize_config
+    try:
+        active_config = initialize_config(args.task, args.test_mode)
+    except (OSError, ValueError) as exc:
+        parser.error(f"Configuration error: {exc}")
+    from config.config_loader import Config
+    try:
+        startup_paths = Config.get_paths()
+    except (OSError, ValueError) as exc:
+        parser.error(f"Data path error: {exc}")
+    print(f"Evaluation output: {startup_paths['evaluation_root']}", flush=True)
+
     
     # Set environment variables for GUI process to access test_mode and task
     os.environ['TEST_MODE'] = args.test_mode
@@ -188,7 +144,6 @@ if __name__ == '__main__':
 
     # Initialize stop_event for signal handler
     stop_event = multiprocessing.Event()
-    started_processes.clear()  # Reset the list
     
     signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C gracefully
     signal.signal(signal.SIGTERM, signal_handler)  # Handle termination signal
@@ -275,46 +230,12 @@ if __name__ == '__main__':
     print(f"Starting mode: {args.test_mode}")
     print(f"Processes to start: {processes_to_start}")
 
-    # Start selected processes dynamically
-    # started_processes is already initialized as global variable
-    for process_name in processes_to_start:
-        if process_name in all_processes:
-            # GUI process needs environment variable check
-            if process_name == 'gui_process' and not USE_GUI:
-                print(f"Skipped: {process_name} (GUI disabled)")
-                continue
-
-            process = all_processes[process_name]
-            
-            process.start()
-            started_processes.append(process)
-            print(f"Started: {process_name}")
-        else:
-            print(f"Warning: Process '{process_name}' not found!")
-    # Wait for processes to finish or system_state becomes 'e'
+    exit_code = 1
     try:
-        while True:
-            # Check if system should exit
-            if system_state.value == 'e':
-                print("System exit requested, terminating processes...")
-                stop_event.set()
-                break
-            
-            # Check if all active processes are still alive
-            if not any(p.is_alive() for p in started_processes):
-                print("All processes finished naturally")
-                break
-            
-            time.sleep(0.1)  # Check every 100ms
-        
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
-        
-    except KeyboardInterrupt:
-        print("Keyboard interrupt received, shutting down...")
-        stop_event.set()
-        # Safe shutdown of all started processes
-        shutdown_processes(started_processes)
+        selected = [(name, all_processes[name]) for name in processes_to_start
+                    if name != 'gui_process' or USE_GUI]
+        exit_code = run_workers(selected, stop_event, system_state)
     finally:
-        # Clean up all shared memory using the manager
+        # Workers have stopped before their shared memory is released.
         shm_manager.cleanup_all()
+    sys.exit(exit_code)

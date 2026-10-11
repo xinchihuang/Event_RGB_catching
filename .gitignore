@@ -11,3 +11,13 @@
 __pycache__/
 *.py[cod]
 
+/evaluation_tools/batch_runs/
+/config/paths.local.yaml
+
+# Machine-specific IDE settings and experiment provenance (keep locally).
+.idea/
+/data_inventory/
+/AMTTrack/tensorboard/
+/bbox_detections/
+/evaluation_tools/landing_error_boxplot/
+/evaluation_tools/landing_error_boxplot_bundle.zip

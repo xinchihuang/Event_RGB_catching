@@ -7,6 +7,14 @@ Usage:
   (Edit dataset_path in main() to target a different dataset.)
 """
 import os
+import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import stage_path, resolve_path, setting_path
 
 def load_frame_flags(dataset_path):
     """
@@ -128,7 +136,12 @@ def update_absent_files(dataset_path, frame_flags):
     return total_sequences, total_modified
 
 def main():
-    dataset_path = "/media/xinchi/data/saved_data/selected_dataset"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dataset-dir')
+    args = parser.parse_args()
+    dataset_path = str(stage_path('selected', explicit=args.dataset_dir))
+    if not Path(dataset_path).is_dir():
+        parser.error(f'Missing dataset: {dataset_path}')
     
     print("Updating absent.txt files based on frame_flags.txt...")
     print(f"Dataset path: {dataset_path}")

@@ -42,8 +42,8 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
                   raw_count, record_index, start_ts, stop_event,event_broadcasting,
                   record_dir='', event_frame_offset=0, playback_speed=1.0, current_event_frame=None, is_paused=None):
     """
-    播放 .raw / event 流：
-    1.  先把整段 .raw 全部读取到 event_buffer（按 2 ms 一块）
+    播放已预处理的事件文件（.dat 或历史 .raw）：
+    1.  先把整段已旋转事件读入 event_buffer（按 2 ms 一块）
     2.  播放阶段：每 2 ms
         - shm[:] = 0            # 必须整块清零（下游依赖）
         - shm[:n] = event_data  # 写本块 n 个事件
@@ -52,7 +52,6 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
 
     import os, time, numpy as np
     from multiprocessing import shared_memory
-    from metavision_core.event_io import EventsIterator
     # align_to_rgb 必须在其他文件 import
 
     # ---------- 共享内存句柄 ----------
@@ -70,19 +69,10 @@ def read_from_raw(shared_event_data, event_data_version, system_state, num_event
         if system_state.value == 'e':
             break
 
-        # ---------- 预读取 .raw ----------
+        # ---------- 预读取已处理事件；公共读取器只做 RGB 对齐 ----------
         if system_state.value == 'w' and not initialized:
-            raw_path = os.path.join(record_dir, f"event/{record_index.value}.raw")
-            event_buffer = []
-            iterator = EventsIterator(input_path=raw_path, mode="delta_t",
-                                      delta_t=data_reading['delta_t'], 
-                                      n_events=data_reading['n_events'])
-            for ev in iterator:
-                ev['x'], ev['y'] = ev['y'].copy(), -ev['x'].copy()
-                alignment = Config.get_alignment()
-                ev['y'] += alignment['y_coordinate_offset']
-                ev['x'], ev['y'] = align_to_rgb(ev)
-                event_buffer.append(ev)
+            from data_input.read_from_aligned_buffers import _load_event_buffer
+            event_buffer = _load_event_buffer(record_dir, record_index.value, data_reading)
             raw_count.value = len(event_buffer) # 让 RGB 线程计算 ratio
             print(f"Event chunks: {raw_count.value}")
 

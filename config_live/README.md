@@ -1,109 +1,24 @@
-# Configuration (config_live/)
+# 实时调参配置
 
-This stack mirrors `config/` but is kept separate for live tuning. The loader
-merges:
+`config_live/` 用于独立保存实时调参值，共用 [配置接口、参数和坐标说明](../config/README.md)。
+即使运行 `tracking.py` 或 `live_real.py`，默认仍选择 `config/`；使用本目录必须显式指定：
 
-1) `camera_config.yaml`
-2) `tracking_config.yaml`
-3) One overlay from `config_live/overlays/`
+```bash
+ACTIVE_CONFIG_FILE=config_live/overlays/config_l.yaml python3 tracking.py --task normal --test_mode Event
+```
 
-## Files
-- `camera_config.yaml`: shared camera, alignment, and data-read defaults.
-- `tracking_config.yaml`: shared tracking and trajectory defaults.
-- `overlays/*.yaml`: per-task overrides (paths, ROI, HSV, etc.).
-- `config_loader.py`: loader utility.
+选择后加载本目录的 `camera_config.yaml`、`tracking_config.yaml` 和指定 overlay。
+场景后缀为 l/c/dc/d，本目录不按 Event/RGB/Model 分出 overlay。修改后重启，CLI task/mode 应与选择的场景、运行方法匹配。
 
-## Loading order
-Overlay values always override base values when keys overlap.
-You can select an overlay via `ACTIVE_CONFIG_FILE` or `--task`.
+| 内容 | 放置位置 |
+| --- | --- |
+| 实时标定、尺寸、对齐和读取参数 | `camera_config.yaml` |
+| 跟踪、gravity、inlier_threshold 等公共拟合参数 | `tracking_config.yaml` |
+| 场景专用 ROI、HSV、模板等 | `overlays/*.yaml` |
+| 本机数据路径 | 共用 `../config/paths.local.yaml`，不另建一份 |
 
-## Parameter reference
+本目录还保留 motor 参数：`bitrate/motor_id/main_can_id` 为 CAN 参数，`kp/kd` 为增益，
+`shaft_length/joint_height` 为机构尺寸（米），`movement_delay` 为动作延时（秒）。实际使用以 motor 调用代码为准。
+`timing.*` 与 `buffers.*` 是兼容字段，当前主入口和共享内存分配不直接使用。
 
-### camera_config.yaml
-
-**image**
-- `image.rgb_width`, `image.rgb_height`: RGB frame size in pixels.
-- `image.event_width`, `image.event_height`: event sensor size in pixels.
-
-**timing**
-- `startup_delay`: initial delay before tracking starts (seconds).
-- `reset_delay`: delay between resets (seconds).
-- `shutdown_timeout`: grace period before forced shutdown (seconds).
-
-**image_processing**
-- `accumulation_time_us`: event frame accumulation window (microseconds).
-- `fps`: target FPS for event frame generation (0.0 = use accumulation only).
-- `binary_threshold`: threshold used for event frame binarization.
-- `binary_max_value`: max value for binary threshold.
-- `contrast_alpha`, `contrast_beta`: linear contrast/brightness for display.
-- `brightness_multiplier`: optional RGB brightness multiplier (may be overridden in overlays).
-- `display_scale`: UI display scale factor.
-
-**clustering**
-- `eps`, `min_samples`: legacy DBSCAN defaults used by some tools.
-
-**buffers**
-- `max_events`: shared-memory capacity for event packets.
-- `ball_observations`: max stored observations for fitting.
-- `ball_pixel_3d`: max stored 3D points.
-
-**paths**
-- `paths.evaluation_root`: output base for evaluation artifacts.
-
-**alignment**
-- `event_pixel_size`, `rgb_pixel_size`: physical pixel size (um) for alignment.
-- `offset_x`, `offset_y`: pixel offsets from event to RGB coordinates.
-- `y_coordinate_offset`: y-axis shift after rotation.
-
-**data_reading**
-- `delta_t`: event slice duration in microseconds.
-- `n_events`: max number of events per slice.
-- `send_interval`: publish interval for event stream (seconds).
-- `video_period`: RGB publish interval (seconds).
-
-**motor**
-- `bitrate`, `motor_id`, `main_can_id`: CAN settings.
-- `kp`, `kd`: motor control gains.
-- `shaft_length`, `joint_height`: arm geometry for angle calculation.
-- `movement_delay`: delay after move commands (seconds).
-
-**camera_intrinsics**
-- `fx`, `fy`, `cx`, `cy`: intrinsics used for 3D reconstruction.
-- `distortion_coeffs`: lens distortion parameters.
-
-**camera_extrinsics**
-- `camera_rpy_to`, `camera_rpy_back`: rotation angles (degrees) for world transforms.
-
-### tracking_config.yaml
-
-**tracking**
-- `dbscan_eps`: DBSCAN radius in pixels for event clustering.
-- `dbscan_min_samples`: minimum points to form a cluster.
-- `max_ball_buffer`: max stored ball points for fitting.
-
-**trajectory**
-- `inlier_threshold`: RANSAC inlier threshold.
-- `gravity`: gravity constant used in fitting.
-- `impact_bounds_x`, `impact_bounds_y`: valid impact bounds (meters).
-- `save_delay_sec`: wait time before saving a record after tracking starts.
-
-### overlays (config_live/overlays/*.yaml)
-
-**paths**
-- `paths.record_dir`: root folder for recorded data.
-- `paths.template_npy`, `paths.template_jpg`: template files used by Model mode.
-
-**rgb_param**
-- `hsv_lower`, `hsv_upper`: HSV thresholds for RGB ROI detection.
-- `kernel_size`: morphology kernel size for ROI mask cleanup.
-- `morphology_iterations`: number of morphology iterations.
-
-**roi_range**
-- ROI expansion radius in pixels (used when expanding the detected ROI).
-
-**default_bbox** / **backup_bbox**
-- Fallback bounding boxes when detection is missing or unstable.
-
-## Notes
-- Update overlays for per-task tuning; keep shared values in base files.
-- Restart the application to apply config changes.
+实时旋转按固定安装方向执行，`apply_rotation` 不控制它；[采集与回放的边界](../config/README.md#旋转边界)保持独立。

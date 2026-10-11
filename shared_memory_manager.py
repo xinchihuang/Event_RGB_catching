@@ -64,7 +64,7 @@ class SharedMemoryManager:
         ball_pixel_shape = (100, 3)
         self._create_single_buffer('ball_pixel', ball_pixel_dtype, ball_pixel_shape)
 
-        # Ball pixel 3D data: ball observations with depth/size
+        # Historical name: rows are (u_px, v_px, size_px, event_time_s), not XYZ.
         ball_pixel_3D_dtype = np.float64
         ball_pixel_3D_shape = (1000, 4)
         self._create_single_buffer('ball_pixel_3D', ball_pixel_3D_dtype, ball_pixel_3D_shape)

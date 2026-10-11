@@ -132,6 +132,7 @@ def gui_display_process_compare(
 
     # Get image processing parameters from config
     processing = Config.get_image_processing()
+    box_thickness = 6
     
     # Get ROI parameters from config
     roi_params = Config.get_roi()
@@ -285,14 +286,14 @@ def gui_display_process_compare(
                                 cv2.rectangle(rgb_image, 
                                             (x_int - half_size, y_int - half_size),
                                             (x_int + half_size, y_int + half_size),
-                                            color, 2)
+                                            color, box_thickness)
                                 cv2.circle(rgb_image, (x_int, y_int), 3, color, -1)
                                 
                                 # Draw on combined save image as well
                                 cv2.rectangle(combined_save_image, 
                                             (x_int - half_size, y_int - half_size),
                                             (x_int + half_size, y_int + half_size),
-                                            color, 2)
+                                            color, box_thickness)
                                 cv2.circle(combined_save_image, (x_int, y_int), 3, color, -1)
                             else:
                                 info_dict[method_name]['detected'] = False
@@ -401,4 +402,205 @@ def gui_display_process_compare(
         sys.stdout.flush()
 
     print("GUI Comparison Process: Exit")
+    sys.stdout.flush()
+
+
+def gui_display_process_compare_from_files(
+    shared_event_data,
+    shared_flir_data,
+    num_event,
+    event_data_version,
+    flir_data_version,
+    system_state,
+    stop_event,
+    results_paths,
+    save_images=False
+):
+    """
+    Playback GUI process using saved tracking results.
+    Draws Model/RGB/Event boxes on both RGB and Event frames.
+    """
+    print("GUI Comparison Playback: Starting...")
+    sys.stdout.flush()
+
+    # Get image dimensions from config
+    dims = Config.get_image_dimensions()
+    rgb_width, rgb_height = dims['rgb_width'], dims['rgb_height']
+
+    # Get image processing parameters from config
+    processing = Config.get_image_processing()
+    box_thickness = 8
+
+    # 1. Open shared memory (read-only)
+    try:
+        # Event data
+        event_memory, event_dtype, event_shape = shared_event_data
+        event_shm = shared_memory.SharedMemory(name=event_memory.name)
+        event_buffer = np.ndarray(event_shape, dtype=event_dtype, buffer=event_shm.buf)
+
+        # FLIR data
+        flir_memory, flir_dtype, flir_shape = shared_flir_data
+        flir_shm = shared_memory.SharedMemory(name=flir_memory.name)
+        flir_buffer = np.ndarray(flir_shape, dtype=flir_dtype, buffer=flir_shm.buf)
+
+        print("GUI Comparison Playback: Shared memory opened successfully")
+        sys.stdout.flush()
+
+    except Exception as e:
+        print(f"GUI Comparison Playback: Failed to open shared memory: {e}")
+        sys.stdout.flush()
+        return
+
+    def load_tracking_csv(path):
+        if not path or not os.path.isfile(path):
+            return np.empty((0, 4), dtype=np.float64)
+        skip_rows = 0
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                first_line = handle.readline().strip().lower()
+            if first_line and not first_line[0].isdigit() and first_line[0] not in "+-.":
+                skip_rows = 1
+        except Exception:
+            skip_rows = 0
+        data = np.loadtxt(path, delimiter=",", skiprows=skip_rows)
+        if data.size == 0:
+            return np.empty((0, 4), dtype=np.float64)
+        data = np.atleast_2d(data)
+        return data[:, :4]
+
+    # Load saved tracking results
+    results = {}
+    for key, path in (results_paths or {}).items():
+        results[str(key).lower()] = load_tracking_csv(path)
+
+    indexes = {name: -1 for name in results.keys()}
+    last_event_time = None
+
+    color_map = {
+        "model": (0, 0, 255),  # Red
+        "rgb": (0, 255, 0),    # Green
+        "event": (255, 0, 0),  # Blue
+    }
+
+    # 2. Initialize OpenCV window
+    cv2.startWindowThread()
+    cv2.namedWindow('Tracking Playback: RGB & Event Cameras')
+
+    print("GUI Comparison Playback: Initialization complete, starting display loop...")
+    sys.stdout.flush()
+
+    # Track last displayed versions to avoid displaying stale data
+    last_event_version = -1
+    last_flir_version = -1
+
+    base_event_image = None
+    base_rgb_image = None
+
+    while not stop_event.is_set():
+        try:
+            if system_state.value != 't':
+                time.sleep(0.01)
+                continue
+
+            current_event_version = event_data_version.value
+            current_flir_version = flir_data_version.value
+            if current_event_version == last_event_version and current_flir_version == last_flir_version:
+                time.sleep(0.001)
+                continue
+            event_updated = current_event_version != last_event_version
+            flir_updated = current_flir_version != last_flir_version
+            last_event_version = current_event_version
+            last_flir_version = current_flir_version
+
+            # Update event visualization and current time when events update
+            if event_updated or base_event_image is None:
+                current_num_events = num_event.value
+                if current_num_events > 0 and current_num_events <= event_shape[0]:
+                    event_data = event_buffer[:current_num_events].copy()
+                    base_event_image = np.full((rgb_height, rgb_width, 3), 255, dtype=np.uint8)
+                    if len(event_data) > 0:
+                        last_event_time = event_data['t'][-1] / 1000000.0
+                        for event in event_data:
+                            x, y, polarity, _ = int(event['x']), int(event['y']), int(event['p']), int(event['t'])
+                            if 0 <= x < rgb_width and 0 <= y < rgb_height:
+                                if polarity == 1:
+                                    base_event_image[y, x] = [0, 0, 255]
+                                else:
+                                    base_event_image[y, x] = [255, 0, 0]
+                else:
+                    base_event_image = np.full((rgb_height, rgb_width, 3), 255, dtype=np.uint8)
+
+            if flir_updated or base_rgb_image is None:
+                base_rgb_image = flir_buffer.copy()
+
+            if base_event_image is None or base_rgb_image is None:
+                time.sleep(0.001)
+                continue
+
+            # Update detection indices based on current event time
+            if last_event_time is not None:
+                for name, data in results.items():
+                    idx = indexes.get(name, -1)
+                    while idx + 1 < len(data) and data[idx + 1][3] <= last_event_time:
+                        idx += 1
+                    indexes[name] = idx
+
+            rgb_tracking_image = base_rgb_image.copy()
+            event_tracking_image = base_event_image.copy()
+
+            for name, data in results.items():
+                idx = indexes.get(name, -1)
+                if idx < 0 or idx >= len(data):
+                    continue
+                x, y, size = data[idx][0], data[idx][1], data[idx][2]
+                if x <= 0 or y <= 0 or size <= 0:
+                    continue
+                color = color_map.get(name, (255, 255, 255))
+                half_size = int(size / 2)
+                x_int, y_int = int(x), int(y)
+                p1 = (x_int - half_size, y_int - half_size)
+                p2 = (x_int + half_size, y_int + half_size)
+                cv2.rectangle(rgb_tracking_image, p1, p2, color, box_thickness)
+                cv2.circle(rgb_tracking_image, (x_int, y_int), 3, color, -1)
+                cv2.rectangle(event_tracking_image, p1, p2, color, box_thickness)
+                cv2.circle(event_tracking_image, (x_int, y_int), 3, color, -1)
+
+            # Resize for display
+            scale = processing['display_scale']
+            rgb_height_scaled = int(rgb_tracking_image.shape[0] * scale)
+            rgb_width_scaled = int(rgb_tracking_image.shape[1] * scale)
+            rgb_resized = cv2.resize(rgb_tracking_image, (rgb_width_scaled, rgb_height_scaled), interpolation=cv2.INTER_AREA)
+
+            event_height_scaled = int(event_tracking_image.shape[0] * scale)
+            event_width_scaled = int(event_tracking_image.shape[1] * scale)
+            event_resized = cv2.resize(event_tracking_image, (event_width_scaled, event_height_scaled), interpolation=cv2.INTER_AREA)
+
+            max_height = max(rgb_resized.shape[0], event_resized.shape[0])
+            if rgb_resized.shape[0] < max_height:
+                pad_height = max_height - rgb_resized.shape[0]
+                rgb_resized = cv2.copyMakeBorder(rgb_resized, 0, pad_height, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+            if event_resized.shape[0] < max_height:
+                pad_height = max_height - event_resized.shape[0]
+                event_resized = cv2.copyMakeBorder(event_resized, 0, pad_height, 0, 0, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+
+            combined_image = np.hstack([rgb_resized, event_resized])
+            cv2.imshow('Tracking Playback: RGB & Event Cameras', combined_image)
+            cv2.waitKey(1)
+
+        except Exception as e:
+            print(f"GUI Comparison Playback: Error in display loop: {e}")
+            sys.stdout.flush()
+            time.sleep(0.01)
+
+    print("GUI Comparison Playback: Cleaning up...")
+    sys.stdout.flush()
+    cv2.destroyAllWindows()
+    try:
+        event_shm.close()
+        flir_shm.close()
+    except Exception as e:
+        print(f"GUI Comparison Playback: Error closing shared memory: {e}")
+        sys.stdout.flush()
+
+    print("GUI Comparison Playback: Exit")
     sys.stdout.flush()

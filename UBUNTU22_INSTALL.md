@@ -1,7 +1,9 @@
 # Ubuntu 22.04 安装与兼容性记录
 
-本文记录 `Event_RGB_catching` 在另一台 Ubuntu 22.04 机器上的推荐版本、
-安装顺序、验证方法和已知冲突。
+本文保留历史部署版本、SDK 安装顺序和排错细节。2026-10-11 已同步解释器选择与多机器路径用法；版本组合未在本次重新安装验证。
+
+环境已安装时，直接看 [快速开始](README.md#快速开始) 和 [路径配置](config/README.md#paths)。
+新机器按下方第 0–9 步安装，再执行软件验收；不要把历史版本表当作自动更新的依赖锁。
 
 - 记录日期：2026-07-29
 - 目标系统：Ubuntu 22.04.5 LTS，amd64/x86_64
@@ -158,7 +160,7 @@ apt-cache policy metavision-openeb
 完整字符串进行固定：
 
 ```bash
-sudo apt install metavision-openeb=<apt-cache显示的5.3.1完整版本字符串>
+sudo apt install "metavision-openeb=<apt-cache显示的5.3.1完整版本字符串>"
 ```
 
 如果候选版本正是 5.3.1，也可以直接安装：
@@ -226,7 +228,7 @@ Metavision deb 把 Python 模块装在 Ubuntu 系统目录，因此按照官方�
 `--system-site-packages`：
 
 ```bash
-cd /home/yifan/Event_RGB_catching
+cd /path/to/Event_RGB_catching
 python3.10 -m venv .venv310 --system-site-packages
 export PYTHONNOUSERSITE=true
 
@@ -265,7 +267,8 @@ export PYTHONNOUSERSITE=true
   bytecode==0.17.0 \
   pynput==1.8.2 \
   pyttsx3==2.99 \
-  python-can==4.6.1
+  python-can==4.6.1 \
+  openpyxl
 ```
 
 `pynput` 的 Linux `evdev` 依赖可能在本机编译，因此前面必须安装
@@ -331,31 +334,40 @@ ABI，CUDA 11+ 的 minor 版本可以不同。Linux 预编译包不要求系统 
 - 系统 Spinnaker SDK 也必须是 4.3.0.189。
 - 不升级到 NumPy 2。
 
-### 第 9 步：适配启动脚本的环境路径
+### 第 9 步：选择解释器与本机数据路径
 
-当前 `run_record.sh` 和 `run_live_real.sh` 使用 `.venv312`。Ubuntu 22.04 部署时应将
-两个脚本中的：
-
-```bash
-VENV_DIR="${PROJECT_DIR}/.venv312"
-```
-
-改为：
+无需修改启动脚本源码。`run_record.sh` 默认使用 PATH 中的 `python3`，支持
+`--python` 或 `PYTHON_BIN`；批量入口使用 `PYTHON_BIN`。例如在项目根目录：
 
 ```bash
-VENV_DIR="${PROJECT_DIR}/.venv310"
+cp -n config/paths.local.example.yaml config/paths.local.yaml
+# 编辑 paths.local.yaml，把 data_root 改为该机器的数据根目录。
+./run_record.sh --python "$PWD/.venv310/bin/python" --test_mode Event --task normal --record_index 0 --no-gui
+PYTHON_BIN="$PWD/.venv310/bin/python" bash start_evaluation.sh --dry-run
 ```
 
-如果 Spinnaker 是系统安装，`run_live_real.sh` 还应根据实际安装路径设置
-`LD_LIBRARY_PATH` 和 `GENICAM_GENTL64_PATH`。这只涉及启动环境，不需要因为
-Ubuntu 22.04 修改 Python 算法源码。
+原始采集位于 `data_root/saved_data_raw/saved_data_l`，回放输入位于
+`data_root/processed_data/saved_data_l`。也可用 `--data-dir` 指定完整的
+processed 场景目录；不要把原始 RAW 数据直接送入回放。
+
+`run_live_real.sh` 保留本机 `.venv312` 默认值，但支持环境覆盖：
+
+```bash
+VENV_DIR="$PWD/.venv310" bash run_live_real.sh
+```
+
+此命令会启动相机和电机，只在硬件准备好时运行。Spinnaker 默认查找所选
+环境下的 `spinnaker-sdk/opt/spinnaker`；系统安装可指定
+`SPINNAKER_RUNTIME_DIR=/opt/spinnaker`，或按实际安装设置
+`LD_LIBRARY_PATH` / `GENICAM_GENTL64_PATH`。也可直接用选定解释器执行
+`tracking.py`（相机跟踪，无电机）或 `live_real.py`（接球控制）。
 
 ## 4. 软件验收
 
 ### 4.1 核心导入和版本检查
 
 ```bash
-cd /home/yifan/Event_RGB_catching
+cd /path/to/Event_RGB_catching
 export PYTHONNOUSERSITE=true
 
 .venv310/bin/python - <<'PY'
@@ -411,10 +423,10 @@ PY
 
 ### 4.3 无相机数据回放检查
 
-确认 `/home/yifan/Event_RGB_catching_data/saved_data_l` 已复制到目标机器，然后运行：
+确认本机 `data_root/processed_data/saved_data_l` 可读，并包含第 5 组已预处理数据，然后运行：
 
 ```bash
-./run_record.sh \
+./run_record.sh --python "$PWD/.venv310/bin/python" \
   --record_index 5 \
   --test_mode Model \
   --task normal

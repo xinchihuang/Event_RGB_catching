@@ -2,7 +2,8 @@
 """
 Auto-restart wrapper script for record.py
 Automatically restarts record.py with incremented record_index after completion
-Supports batch execution of multiple parameter sets
+Supports batch execution of multiple parameter sets, saved in one new directory
+per batch invocation.
 """
 
 import subprocess
@@ -13,6 +14,12 @@ import os
 import signal
 import json
 import csv
+from datetime import datetime
+from pathlib import Path
+from replay_options import positive_ratio
+from project_paths import resolve_path
+
+PROJECT = Path(__file__).resolve().parent
 
 
 def load_indices_from_csv(csv_path):
@@ -49,7 +56,9 @@ def load_indices_from_csv(csv_path):
 
 class RecordRunner:
     def __init__(self, start_index=40, max_runs=None, restart_delay=5, timeout=180,
-                 test_mode="Event", task="normal", index_list=None):
+                 test_mode="Event", task="normal", index_list=None, evaluation_root=None, ratio=10, record_dir=None):
+        self.record_dir = str(resolve_path(record_dir)) if record_dir is not None else None
+        self.ratio = positive_ratio(ratio)
         self.start_index = start_index
         self.current_index = start_index
         self.max_runs = max_runs
@@ -57,6 +66,7 @@ class RecordRunner:
         self.timeout = timeout
         self.test_mode = test_mode
         self.task = task
+        self.evaluation_root = evaluation_root
         self.index_list = list(index_list) if index_list else None
         self.index_pos = 0
         self.run_count = 0
@@ -79,6 +89,9 @@ class RecordRunner:
         # Add test_mode and task parameters
         cmd.extend(["--test_mode", self.test_mode])
         cmd.extend(["--task", self.task])
+        cmd.extend(["--ratio", str(self.ratio)])
+        if self.record_dir is not None:
+            cmd.extend(["--record-dir", self.record_dir])
         
         print(f"=== Starting record.py with record_index={self.current_index}, test_mode={self.test_mode}, task={self.task} ===")
         print(f"Command: {' '.join(cmd)}")
@@ -86,10 +99,14 @@ class RecordRunner:
         print("-" * 60)
         
         try:
+            env = os.environ.copy()
+            if self.evaluation_root is not None:
+                # All samples in this batch share its reserved results directory.
+                env['EVALUATION_RESULTS_DIR'] = str(self.evaluation_root)
             # Run record.py with a timeout to prevent hanging
             result = subprocess.run(cmd, 
                                   cwd=os.path.dirname(os.path.abspath(__file__)), 
-                                  timeout=self.timeout)
+                                  timeout=self.timeout, env=env)
             return result.returncode
         except subprocess.TimeoutExpired:
             print(f"Warning: record.py timed out after {self.timeout} seconds, terminating...")
@@ -188,15 +205,34 @@ class RecordRunner:
         else:
             print("Final record index: n/a")
 
-def run_batch_config(batch_configs):
-    """Run multiple parameter configurations sequentially"""
+def run_batch_config(batch_configs, output_root=None, ratio=None):
+    """Reserve one new run directory for all configurations and sample IDs."""
     if isinstance(batch_configs, dict):
         batch_configs = [batch_configs]
     elif not isinstance(batch_configs, list):
         raise ValueError("batch_config must be a JSON list or object")
+    if not batch_configs or not all(isinstance(config, dict) for config in batch_configs):
+        raise ValueError("batch_config must contain at least one configuration object")
+
+    # Validate all ratios before creating output; CLI overrides per-entry JSON.
+    batch_configs = [dict(config, ratio=positive_ratio(
+        ratio if ratio is not None else config.get('ratio', 10)))
+        for config in batch_configs]
+
+    output = (resolve_path(output_root) if output_root is not None else
+              PROJECT / 'evaluation_tools' / 'batch_runs' /
+              datetime.now().strftime('%Y%m%d_%H%M%S_%f')).resolve()
+    # Never reuse an existing batch, including a user-supplied output directory.
+    output.mkdir(parents=True, exist_ok=False)
+    results = output / 'results'
+    results.mkdir()
+    (output / 'batch_config.json').write_text(
+        json.dumps(batch_configs, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
     total_configs = len(batch_configs)
     print(f"Starting batch execution with {total_configs} configurations")
+    print(f"Batch output: {output}", flush=True)
+    print(f"Results root: {results}", flush=True)
     print("=" * 80)
     
     for config_idx, config in enumerate(batch_configs, 1):
@@ -223,7 +259,10 @@ def run_batch_config(batch_configs):
             timeout=config.get('timeout', 180),
             test_mode=config.get('test_mode', "Event"),
             task=config.get('task', "normal"),
-            index_list=index_list
+            index_list=index_list,
+            evaluation_root=results,
+            ratio=config['ratio'],
+            record_dir=config.get('record_dir'),
         )
         
         try:
@@ -241,6 +280,8 @@ def run_batch_config(batch_configs):
     
     print("\n" + "=" * 80)
     print("Batch execution completed")
+    print(f"Batch output: {output}", flush=True)
+    return output
 
 def parse_batch_config(batch_config_arg):
     """Parse batch configuration from file or JSON string"""
@@ -289,8 +330,13 @@ Examples:
         """
     )
 
+    parser.add_argument('--ratio', type=positive_ratio, default=None,
+                        help='Override every JSON entry ratio; otherwise use its ratio or 10.')
     parser.add_argument('--batch_config', type=str,default='batch_config.json',
                        help='JSON file or JSON string containing batch parameter configurations')
+    parser.add_argument('--output-root', type=Path,
+                        help='New batch directory; default: evaluation_tools/batch_runs/<timestamp>. '
+                             'An existing directory is never reused.')
     
     args = parser.parse_args()
 
@@ -299,7 +345,7 @@ Examples:
     batch_configs = parse_batch_config(args.batch_config)
 
     try:
-        run_batch_config(batch_configs)
+        run_batch_config(batch_configs, output_root=args.output_root, ratio=args.ratio)
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received, shutting down...")
     except Exception as e:

@@ -3,9 +3,17 @@ Generate dataset frames (RGB/event/combined/voxel) from raw recordings.
 
 Usage:
   python3 dataset_tools/prepare_dataset.py
-  (Edit root_dir/raw_data_dir and index range in main().)
+  --task normal --record-dir /path/to/raw --output-dir /path/to/dataset --index 13 --count 87
 """
 import os
+import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import SCENES, stage_path, resolve_path, require_recordings, distinct_output
 import csv
 import cv2
 import time
@@ -13,7 +21,6 @@ import shutil
 import numpy as np
 import torch
 from sklearn.cluster import DBSCAN
-from spconv.pytorch.utils import PointToVoxel
 import scipy.io as sio
 
 # ---------------------------------------------------------------------
@@ -76,6 +83,7 @@ def align_buffer(root_dir, raw_data_dir, index,
                  debug_show=False, save_voxel=5000,
                  eps=12, min_samples=60,
                  bbox_range=10, event_thresh=40):
+    from spconv.pytorch.utils import PointToVoxel
     from metavision_sdk_core import PeriodicFrameGenerationAlgorithm, ColorPalette
     from metavision_core.event_io import EventsIterator
     import gc
@@ -543,14 +551,37 @@ def align_buffer(root_dir, raw_data_dir, index,
         writer = csv.writer(f)
         writer.writerow([bias, skip_start, skip_end])
 
-def main():
-    root_dir = "/media/xinchi/data/Event_RGB_catching_data/dataset_l"
-    raw_data_dir = "/media/xinchi/data/saved_data/saved_data_l"
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--task', choices=SCENES, default='normal')
+    parser.add_argument('--record-dir', help='Raw recordings, before time_align_rewrite')
+    parser.add_argument('--output-dir', help='Training dataset output')
+    parser.add_argument('--index', type=int, default=13, help='First recording ID (default: 13)')
+    parser.add_argument('--count', type=int, default=87, help='Number of IDs (default: 87)')
+    args = parser.parse_args(argv)
+    if args.index < 0 or args.count <= 0:
+        parser.error('index must be non-negative and count must be positive')
+    try:
+        args.record_dir = str(stage_path('raw', args.task, args.record_dir))
+        args.output_dir = str(distinct_output(args.record_dir,
+            stage_path('dataset', args.task, args.output_dir)))
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    return args
 
-    for index in range(13, 100):
-        align_buffer(root_dir, raw_data_dir, index,
+
+def main():
+    args = parse_args()
+    require_recordings(args.record_dir)
+    print(f"Raw input: {args.record_dir}\nTraining output: {args.output_dir}", flush=True)
+    for index in range(args.index, args.index + args.count):
+        for relative in (f'event/{index}.raw', f'rgb/{index}.mp4'):
+            path = Path(args.record_dir) / relative
+            if not path.is_file():
+                raise FileNotFoundError(f'Missing raw input: {path}')
+        align_buffer(args.output_dir, args.record_dir, index,
                      bias=-15, skip_start=0, skip_end=0,
-                     debug_show=True,  # keep False for servers/headless
+                     debug_show=True,
                      save_voxel=5000, eps=8, min_samples=60,
                      bbox_range=30, event_thresh=40)
 

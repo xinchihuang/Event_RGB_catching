@@ -1,8 +1,29 @@
 [
   {
-    "test_mode": "Event",
+    "test_mode": "RGB",
     "task": "dark",
-    "index_csv": "evaluation_tools/unsuccess_cases_RGB_clutter.csv",
+    "index_csv": "evaluation_tools/indices.csv",
+    "restart_delay": 5,
+    "timeout": 180
+  },
+   {
+    "test_mode": "RGB",
+    "task": "dark_clutter",
+    "index_csv": "evaluation_tools/indices.csv",
+    "restart_delay": 5,
+    "timeout": 180
+  },
+   {
+    "test_mode": "Event",
+    "task": "clutter",
+    "index_csv": "evaluation_tools/indices.csv",
+    "restart_delay": 5,
+    "timeout": 180
+  },
+   {
+    "test_mode": "Event",
+    "task": "dark_clutter",
+    "index_csv": "evaluation_tools/indices.csv",
     "restart_delay": 5,
     "timeout": 180
   }

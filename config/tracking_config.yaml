@@ -1,14 +1,16 @@
 # Trajectory fitting defaults.
 trajectory:
-  inlier_threshold: 0.35
-  gravity: -9.81
+  inlier_threshold: 0.35  # 3D RANSAC distance threshold in meters; must be > 0.
+  gravity: -9.81  # Signed world-Z acceleration in m/s²; negative is downward.
+  # Legacy name: open interval for world Y (horizontal), meters; impact X is 0.
   impact_bounds_x:
   - -1.5
   - 1.5
+  # Legacy name: open interval for world Z (height), meters.
   impact_bounds_y:
   - 0
   - 2
-  save_delay_sec: 0.15
+  save_delay_sec: 0.15  # Wall-clock seconds from the first ball observation to fit/save or motor trigger.
 # Tracking defaults.
 tracking:
   dbscan_eps: 15

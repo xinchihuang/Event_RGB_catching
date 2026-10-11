@@ -78,9 +78,11 @@ def transform_points_to_voxels(event_data, voxel_generator=None, device=torch.de
 def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event_data_version, flir_data_version, system_state, stop_event):
     import sys
     import os
-    # Add AMTTrack directory to path (it's in the parent directory)
-    amttrack_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'AMTTrack')
-    sys.path.append(amttrack_path)
+    # Add AMTTrack directory to path (repo root / AMTTrack)
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    amttrack_path = os.path.join(repo_root, "AMTTrack")
+    if amttrack_path not in sys.path:
+        sys.path.append(amttrack_path)
     from lib.test.evaluation.tracker import Tracker
     from spconv.pytorch.utils import PointToVoxel
 
@@ -202,10 +204,9 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
     ROI_shm = shared_memory.SharedMemory(name=ROI_memory.name)
     ROI = np.ndarray(ROI_shape, dtype=ROI_dtype, buffer=ROI_shm.buf)
 
-    # 使用绝对路径确保在多进程环境中能找到文件 (77.npy在项目根目录)
+    # 使用绝对路径确保在多进程环境中能找到文件 (模板路径相对 tracking 目录)
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     npy_path = os.path.join(project_root, Config.get_paths()['template_npy'])
-
     first_event_data = np.load(npy_path, allow_pickle=True)
 
     coor, features = transform_points_to_voxels(event_data=first_event_data, voxel_generator=voxel_generator,
@@ -214,7 +215,7 @@ def model(shared_event_data, shared_flir_data, shared_ROI_data, num_event, event
 
     # event_template = torch.zeros([1024, 19])
 
-    # 使用绝对路径确保在多进程环境中能找到文件 (77.jpg在项目根目录)
+    # 使用绝对路径确保在多进程环境中能找到文件
     jpg_path = os.path.join(project_root, Config.get_paths()['template_jpg'])
     first_flir_image = cv2.imread(jpg_path)
 

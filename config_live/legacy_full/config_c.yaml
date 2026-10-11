@@ -23,8 +23,8 @@ buffers:
   ball_observations: 100
   ball_pixel_3d: 1000
 paths:
-  record_dir: /media/xinchi/data/Event_RGB_catching_data/saved_data_c
-  evaluation_root: /media/xinchi/data/test_data/evaluation_results
+  record_dir: ${data_root}/processed_data/saved_data_c
+  evaluation_root: ${data_root}/test_data/evaluation_results
   template_npy: 78.npy
   template_jpg: 78.jpg
 alignment:

@@ -1,4 +1,11 @@
 import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import stage_path, resolve_path, setting_path
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,10 +52,8 @@ def load_labels(label_file):
         labels = labels.reshape(1, -1)
 
     if labels.ndim == 2:
-        # Drop rows that are entirely NaN (e.g., blank lines).
-        valid_rows = ~np.isnan(labels).all(axis=1)
-        labels = labels[valid_rows]
-        if labels.size == 0:
+        # Keep missing-label placeholders: row indices identify prediction files.
+        if np.isnan(labels).all():
             print(f"Warning: No valid label rows in {label_file}")
             return None
         if labels.shape[1] >= 2:
@@ -61,7 +66,7 @@ def load_labels(label_file):
 
 
 def plot_2d_prediction_comparison(exp_results, output_path, title_prefix,
-                                  success_threshold=0.25, show=False,
+                                  success_threshold=0.2, show=False,
                                   unsuccess_output_path=None):
     """
     Plot 2D comparison of real vs predicted landing points.
@@ -220,18 +225,18 @@ def parse_label_map(items):
 def resolve_label_path(test_mode, task, label_map, default_path, root_dir):
     mode_task_key = f"{test_mode}_{task}"
     if mode_task_key in label_map:
-        return label_map[mode_task_key]
+        return str(resolve_path(label_map[mode_task_key]))
     if task in label_map:
-        return label_map[task]
+        return str(resolve_path(label_map[task]))
     if default_path:
-        return default_path
+        return str(resolve_path(default_path))
     return os.path.join(root_dir, f"{task}.csv")
 
 
 def main():
     parser = argparse.ArgumentParser(description="Plot landing prediction results for multiple test modes and tasks.")
     parser.add_argument("--root-dir", type=str,
-                        default="/media/xinchi/data/test_data/evaluation_results",
+                        default=None,
                         help="Root directory containing {test_mode}_{task} folders.")
     parser.add_argument("--test-modes", type=str, default="Event,RGB,Model",
                         help="Comma-separated test modes to analyze (e.g., Event,RGB,Model).")
@@ -251,6 +256,14 @@ def main():
     parser.add_argument("--show", action="store_true", default=False,
                         help="Show plots interactively.")
     args = parser.parse_args()
+    try:
+        args.root_dir = stage_path('evaluation', explicit=args.root_dir)
+        args.output_dir = resolve_path(args.output_dir)
+        if not args.root_dir.is_dir():
+            raise FileNotFoundError(f'Missing evaluation input: {args.root_dir}')
+    except (ValueError, OSError) as exc:
+        parser.error(str(exc))
+    print(f'Evaluation input: {args.root_dir}\nPlot output: {args.output_dir}', flush=True)
 
     if not os.path.isdir(args.root_dir):
         print(f"Error: Root directory {args.root_dir} does not exist.")

@@ -10,8 +10,8 @@ from lib.test.evaluation import get_dataset, trackerlist
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run tracker on sequence or dataset.')
     parser.add_argument('--dataset', type=str, default='fe108', help='coesot or fe108 or visevent or eed.')
-    parser.add_argument('--parameter_name', type=str, default='FE108_12layer+hopufield_test', help='coesot or fe108 or visevent or eed.')       #/media/amax/c08a625b-023d-436f-b33e-9652dc1bc7c0/DATA/huangju/COESOT-main/CEUTrack/output/test/tracking_results/ceutrack/parameter_name
-    args = parser.parse_args() 
+    parser.add_argument('--parameter_name', type=str, default='FE108_12layer+hopufield_test', help='coesot or fe108 or visevent or eed.')
+    args = parser.parse_args()
 
     trackers = []
     dataset_name = args.dataset      # coesot  fe108

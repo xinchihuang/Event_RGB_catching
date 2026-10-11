@@ -12,14 +12,17 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.append(project_root)
 from config.config_loader import Config
+from project_paths import resolve_path
 def read_from_video(shared_flir_data, flir_data_version, system_state, raw_count,
                     record_index, start_ts, stop_event,video_broadcasting,
-                    record_dir='/home/xinchi/Event_RGB_catching_data/saved_data_l', playback_speed=1.0, current_rgb_frame=None, is_paused=None):
+                    record_dir=None, playback_speed=1.0, current_rgb_frame=None, is_paused=None):
 
     import os, time, math, cv2
     from multiprocessing import shared_memory
     import numpy as np
 
+    # Share the selected replay directory; explicit input remains project-relative.
+    record_dir = str(resolve_path(Config.get_paths()['record_dir'] if record_dir is None else record_dir))
     count = 0
     initialized = False
     flir_memory, flir_dtype, flir_shape = shared_flir_data

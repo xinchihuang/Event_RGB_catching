@@ -7,6 +7,14 @@ Usage:
   (Edit dataset_path and y_offset in main() to suit your dataset.)
 """
 import os
+import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import stage_path, resolve_path, setting_path
 import csv
 
 def adjust_groundtruth_y(dataset_path, y_offset=-30):
@@ -90,7 +98,12 @@ def adjust_groundtruth_y(dataset_path, y_offset=-30):
     print(f"  Y offset applied: {y_offset}")
 
 def main():
-    dataset_path = "/media/xinchi/data/saved_data/selected_dataset"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dataset-dir')
+    args = parser.parse_args()
+    dataset_path = str(stage_path('selected', explicit=args.dataset_dir))
+    if not Path(dataset_path).is_dir():
+        parser.error(f'Missing dataset: {dataset_path}')
     y_offset = -30
     
     print("Adjusting groundtruth.txt files...")

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import stage_path, resolve_path, setting_path
 import csv
 import os
 import sys
@@ -72,7 +79,7 @@ def main() -> int:
     parser.add_argument(
         "csv_path",
         nargs="?",
-        default="/media/xinchi/data/test_data/evaluation_results/Event_normal/ball_pixel_3D_records_ball/5.csv",
+        default=None,
         help="Path to a single CSV file.",
     )
     parser.add_argument(
@@ -98,6 +105,10 @@ def main() -> int:
         help="Show points within the last N seconds from the slider value (default: 0 = cumulative).",
     )
     args = parser.parse_args()
+    args.csv_path = str(resolve_path(args.csv_path) if args.csv_path is not None else
+                        stage_path('evaluation') / 'Event_normal/ball_pixel_3D_records_ball/5.csv')
+    if args.save:
+        args.save = str(resolve_path(args.save))
 
     csv_path = args.csv_path
     if not os.path.isfile(csv_path):

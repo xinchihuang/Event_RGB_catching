@@ -2,17 +2,17 @@
 set -Eeuo pipefail
 
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${PROJECT_DIR}/.venv312"
-PYTHON_BIN="${VENV_DIR}/bin/python"
-SPINNAKER_RUNTIME_DIR="${VENV_DIR}/spinnaker-sdk/opt/spinnaker"
+VENV_DIR="${VENV_DIR:-${PROJECT_DIR}/.venv312}"
+PYTHON_BIN="${PYTHON_BIN:-${VENV_DIR}/bin/python}"
+SPINNAKER_RUNTIME_DIR="${SPINNAKER_RUNTIME_DIR:-${VENV_DIR}/spinnaker-sdk/opt/spinnaker}"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
-    echo "Error: Python environment not found at ${VENV_DIR}" >&2
-    echo "Create and install .venv312 before running this script." >&2
+    echo "Error: Python interpreter not found at ${PYTHON_BIN}" >&2
+    echo "Set VENV_DIR or an absolute PYTHON_BIN to the installed environment." >&2
     exit 1
 fi
 
-# PyGObject/gi is linked into .venv312. Do not expose Ubuntu's full
+# The selected environment must provide PyGObject/gi. Do not expose Ubuntu's full
 # dist-packages directory, since that would mix system and venv Matplotlib.
 unset PYTHONPATH || true
 export PYTHONNOUSERSITE=1

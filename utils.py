@@ -141,8 +141,8 @@ def pixel_to_world(observations, camera_params, rotation_matrix_back, ball_diame
     Parameters:
     observations : ndarray (N, 4) - Each row contains (u, v, d_pix, t)
     camera_params : dict - Camera intrinsic parameters
-    rotation_matrix : ndarray (3,3) - Rotation matrix from camera frame to world frame
-    ball_diameter : float - The real-world diameter of the ball (meters), default is 0.14m
+    rotation_matrix_back : ndarray (3,3) - Rotation matrix from camera to world frame
+    ball_diameter : float - The real-world diameter of the ball (meters), default is 0.097m (the active fitter explicitly supplies 0.104m)
 
     Returns:
     world_coords : ndarray (N, 3) - World coordinates (Xw, Yw, Zw)

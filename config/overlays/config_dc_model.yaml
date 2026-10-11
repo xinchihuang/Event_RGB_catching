@@ -1,5 +1,5 @@
 paths:
-  record_dir: /media/xinchi/data/processed_data/saved_data_dc
+  record_dir: ${data_root}/processed_data/saved_data_dc
   template_npy: dc.npy
   template_jpg: dc.jpg
 rgb_param:

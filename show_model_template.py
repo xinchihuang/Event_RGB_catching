@@ -7,7 +7,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import yaml
+from config.config_loader import ConfigLoader
 
 
 def main():
@@ -16,17 +16,18 @@ def main():
     args = parser.parse_args()
 
     project_dir = Path(__file__).resolve().parent
-    config_path = Path(args.config).resolve()
-    with config_path.open("r", encoding="utf-8") as stream:
-        config = yaml.safe_load(stream) or {}
+    try:
+        config = ConfigLoader(args.config).config
+    except (OSError, ValueError) as exc:
+        parser.error(f"Configuration error: {exc}")
 
     paths = config["paths"]
     image_config = config["image"]
     processing = config["image_processing"]
-    bbox = config["roi"]["default_bbox"]
+    bbox = config["default_bbox"]
 
-    template_jpg = project_dir / paths["template_jpg"]
-    template_npy = project_dir / paths["template_npy"]
+    template_jpg = project_dir / "tracking" / paths["template_jpg"]
+    template_npy = project_dir / "tracking" / paths["template_npy"]
     rgb_image = cv2.imread(str(template_jpg))
     if rgb_image is None:
         raise RuntimeError(f"Failed to load RGB template: {template_jpg}")

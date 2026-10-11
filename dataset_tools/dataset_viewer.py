@@ -6,12 +6,23 @@ Usage:
   python3 dataset_tools/dataset_viewer.py
 """
 import os
+import argparse
+from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from project_paths import stage_path, resolve_path, setting_path
 import cv2
 import numpy as np
 from scipy.io import loadmat
 
 class DatasetViewer:
-    def __init__(self, dataset_path="/media/xinchi/data/saved_data/selected_dataset"):
+    def __init__(self, dataset_path=None):
+        dataset_path = str(stage_path("selected", explicit=dataset_path))
+        if not Path(dataset_path).is_dir():
+            raise FileNotFoundError(f"Missing dataset: {dataset_path}")
         self.dataset_path = dataset_path
         self.sequences = []
         self.current_sequence = 200
@@ -436,5 +447,8 @@ class DatasetViewer:
         self.save_flags()
 
 if __name__ == "__main__":
-    viewer = DatasetViewer()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset-dir")
+    args = parser.parse_args()
+    viewer = DatasetViewer(args.dataset_dir)
     viewer.run()

@@ -1,5 +1,5 @@
 paths:
-  record_dir: /media/xinchi/data/evaluation_data/saved_data_l
+  record_dir: ${data_root}/processed_data/saved_data_l
   template_npy: l.npy
   template_jpg: l.jpg
 rgb_param:
